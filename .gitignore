@@ -1,0 +1,10 @@
+.DS_Store
+.codex
+.env
+.idea/
+.vscode/
+bin/
+dist/
+coverage.out
+*.test
+*.out
