@@ -9,6 +9,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +37,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Unit tests
         run: go test ./...
+
+      - name: Integration tests
+        env:
+          TASKFORGE_RUN_INTEGRATION: "1"
+        run: go test ./test/integration/...
 
       - name: Staticcheck
         run: |
