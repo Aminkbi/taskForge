@@ -72,7 +72,7 @@ func (w *Worker) loop(ctx context.Context, workerIndex int) error {
 		default:
 		}
 
-		lease, msg, err := w.Broker.Reserve(ctx, w.Queue, fmt.Sprintf("%s-%d", w.ConsumerID, workerIndex))
+		delivery, err := w.Broker.Reserve(ctx, w.Queue, fmt.Sprintf("%s-%d", w.ConsumerID, workerIndex))
 		if err != nil {
 			switch {
 			case errors.Is(err, broker.ErrNoTask):
@@ -92,13 +92,14 @@ func (w *Worker) loop(ctx context.Context, workerIndex int) error {
 		}
 
 		w.Metrics.TasksReservedTotal.Inc()
-		if err := w.processTask(ctx, lease, msg); err != nil {
+		if err := w.processTask(ctx, delivery); err != nil {
 			return err
 		}
 	}
 }
 
-func (w *Worker) processTask(ctx context.Context, lease broker.Lease, msg broker.TaskMessage) error {
+func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) error {
+	msg := delivery.Message
 	execCtx := ctx
 	cancelExec := func() {}
 	if msg.Timeout != nil && *msg.Timeout > 0 {
@@ -106,52 +107,94 @@ func (w *Worker) processTask(ctx context.Context, lease broker.Lease, msg broker
 	}
 	defer cancelExec()
 
+	runningDelivery, err := transitionDelivery(delivery, tasks.StateRunning)
+	if err != nil {
+		return fmt.Errorf("worker mark delivery running: %w", err)
+	}
+
 	ttl := msg.VisibilityTimeout
 	if ttl <= 0 {
 		ttl = w.LeaseTTL
 	}
-	stopLease := startLeaseExtender(execCtx, w.Logger, w.Broker, lease, ttl)
+	stopLease := startLeaseExtender(execCtx, w.Logger, w.Broker, runningDelivery, ttl)
 	defer stopLease()
 
 	w.Metrics.WorkerActiveTasks.Inc()
 	started := time.Now()
-	err := w.Handler.HandleTask(execCtx, msg)
+	err = w.Handler.HandleTask(execCtx, msg)
 	duration := time.Since(started).Seconds()
 	w.Metrics.WorkerActiveTasks.Dec()
 
 	if err == nil {
 		w.Metrics.TasksCompletedTotal.Inc()
 		w.Metrics.TaskExecutionDuration.WithLabelValues(msg.Name, "succeeded").Observe(duration)
-		return w.Broker.Ack(ctx, lease)
+		succeededDelivery, transitionErr := transitionDelivery(runningDelivery, tasks.StateSucceeded)
+		if transitionErr != nil {
+			return fmt.Errorf("worker mark delivery succeeded: %w", transitionErr)
+		}
+		return w.Broker.Ack(ctx, succeededDelivery)
 	}
 
-	w.Logger.Error("task execution failed", "task_id", msg.ID, "task_name", msg.Name, "attempt", msg.Attempt, "error", err)
+	w.Logger.Error(
+		"task execution failed",
+		"task_id", msg.ID,
+		"delivery_id", runningDelivery.Execution.DeliveryID,
+		"lease_owner", runningDelivery.Execution.LeaseOwner,
+		"task_name", msg.Name,
+		"attempt", msg.Attempt,
+		"error", err,
+	)
 	w.Metrics.TasksFailedTotal.Inc()
 	w.Metrics.TaskExecutionDuration.WithLabelValues(msg.Name, "failed").Observe(duration)
 
-	action, next := decideOutcome(msg, w.RetryPolicy, w.Clock)
+	failedDelivery := runningDelivery.WithLastError(err.Error())
+	failedMessage := failedDelivery.Message
+	if failedMessage.Headers == nil {
+		failedMessage.Headers = make(map[string]string, 1)
+	}
+	failedMessage.Headers["last_error"] = err.Error()
+	failedDelivery.Message = failedMessage
+
+	action, next := decideOutcome(failedDelivery, w.RetryPolicy, w.Clock)
 	switch action {
 	case outcomeRetry:
+		retryDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateRetryScheduled)
+		if transitionErr != nil {
+			return fmt.Errorf("worker mark delivery retry_scheduled: %w", transitionErr)
+		}
 		if publishErr := w.Broker.Publish(ctx, next); publishErr != nil {
-			if nackErr := w.Broker.Nack(ctx, lease, true); nackErr != nil {
+			if nackErr := w.Broker.Nack(ctx, failedDelivery, true); nackErr != nil {
 				return errors.Join(fmt.Errorf("publish retry task: %w", publishErr), fmt.Errorf("nack original task: %w", nackErr))
 			}
 			return fmt.Errorf("publish retry task: %w", publishErr)
 		}
 		w.Metrics.TasksRetriedTotal.Inc()
-		return w.Broker.Ack(ctx, lease)
+		return w.Broker.Ack(ctx, retryDelivery)
 	case outcomeDeadLetter:
+		deadLetterDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateDeadLettered)
+		if transitionErr != nil {
+			return fmt.Errorf("worker mark delivery dead_lettered: %w", transitionErr)
+		}
 		if w.DeadLetter != nil {
-			if dlqErr := w.DeadLetter.PublishDeadLetter(ctx, msg, err.Error()); dlqErr != nil {
-				if nackErr := w.Broker.Nack(ctx, lease, true); nackErr != nil {
+			if dlqErr := w.DeadLetter.PublishDeadLetter(ctx, failedMessage, err.Error()); dlqErr != nil {
+				if nackErr := w.Broker.Nack(ctx, failedDelivery, true); nackErr != nil {
 					return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
 				}
 				return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 			}
 			w.Metrics.TasksDeadLetteredTotal.Inc()
 		}
-		return w.Broker.Ack(ctx, lease)
+		return w.Broker.Ack(ctx, deadLetterDelivery)
 	default:
-		return w.Broker.Ack(ctx, lease)
+		return w.Broker.Ack(ctx, failedDelivery)
 	}
+}
+
+func transitionDelivery(delivery broker.Delivery, next tasks.State) (broker.Delivery, error) {
+	current := tasks.State(delivery.Execution.State)
+	if err := tasks.ValidateTransition(current, next); err != nil {
+		return broker.Delivery{}, err
+	}
+	delivery.Execution.State = string(next)
+	return delivery, nil
 }

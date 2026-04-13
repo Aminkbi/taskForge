@@ -15,8 +15,8 @@ const (
 	outcomeDeadLetter outcome = "dead_letter"
 )
 
-func decideOutcome(msg broker.TaskMessage, policy tasks.RetryPolicy, clk clock.Clock) (outcome, broker.TaskMessage) {
-	next, ok := schedulerpkg.ScheduleRetry(msg, policy, clk)
+func decideOutcome(delivery broker.Delivery, policy tasks.RetryPolicy, clk clock.Clock) (outcome, broker.TaskMessage) {
+	next, ok := schedulerpkg.ScheduleRetry(delivery.Message, policy, clk)
 	if ok {
 		return outcomeRetry, next
 	}

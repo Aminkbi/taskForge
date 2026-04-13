@@ -8,7 +8,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/broker"
 )
 
-func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broker, lease broker.Lease, ttl time.Duration) context.CancelFunc {
+func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broker, delivery broker.Delivery, ttl time.Duration) context.CancelFunc {
 	if ttl <= 0 {
 		return func() {}
 	}
@@ -28,8 +28,13 @@ func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broke
 			case <-childCtx.Done():
 				return
 			case <-ticker.C:
-				if err := b.ExtendLease(childCtx, lease, ttl); err != nil {
-					logger.Debug("lease extension failed", "lease_token", lease.Token, "error", err)
+				if err := b.ExtendLease(childCtx, delivery, ttl); err != nil {
+					logger.Debug(
+						"lease extension failed",
+						"task_id", delivery.Execution.TaskID,
+						"delivery_id", delivery.Execution.DeliveryID,
+						"error", err,
+					)
 					return
 				}
 			}

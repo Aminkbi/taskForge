@@ -16,10 +16,23 @@ It is a solid starting point for backend or infra work, but it is still a scaffo
 ## What is here today
 
 - At-least-once delivery is the intended model.
+- A task ID is the logical identity; each reserve creates a distinct delivery attempt.
 - Redis is the first broker and result-store candidate.
 - Delayed jobs and retries flow through Redis plus a scheduler loop.
 - Worker leasing exists, but durable crash-safe visibility semantics are not finished yet.
 - Metrics, structured logging, and tracing hooks are already wired in.
+
+## Execution contract
+
+TaskForge's execution contract is explicit:
+
+- Delivery is `at-least-once`.
+- Duplicate deliveries are possible.
+- Handlers must be idempotent.
+- Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
+- Exactly-once execution is out of scope.
+
+Internally, the runtime distinguishes the logical `task_id` from a single `delivery_id` so stale acknowledgements can be rejected deterministically.
 
 The repository builds and starts three binaries:
 

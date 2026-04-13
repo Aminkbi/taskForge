@@ -48,14 +48,17 @@ func TestRedisBrokerPublishReserve(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
-	lease, got, err := b.Reserve(ctx, "default", "integration-worker")
+	delivery, err := b.Reserve(ctx, "default", "integration-worker")
 	if err != nil {
 		t.Fatalf("Reserve() error = %v", err)
 	}
-	if got.ID != message.ID {
-		t.Fatalf("Reserve() task id = %q, want %q", got.ID, message.ID)
+	if delivery.Message.ID != message.ID {
+		t.Fatalf("Reserve() task id = %q, want %q", delivery.Message.ID, message.ID)
 	}
-	if err := b.Ack(ctx, lease); err != nil && !errors.Is(err, broker.ErrUnknownLease) {
+	if delivery.Execution.DeliveryID == "" {
+		t.Fatalf("Reserve() delivery id is empty")
+	}
+	if err := b.Ack(ctx, delivery); err != nil && !errors.Is(err, broker.ErrUnknownDelivery) {
 		t.Fatalf("Ack() error = %v", err)
 	}
 }
