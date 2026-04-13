@@ -19,7 +19,6 @@ const (
 	ciWaitForExpiry     = 1200 * time.Millisecond
 	ciRenewBeforeExpiry = 400 * time.Millisecond
 	ciPostRenewWindow   = 700 * time.Millisecond
-	ciReserveTimeout    = 1200 * time.Millisecond
 )
 
 func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
@@ -241,7 +240,7 @@ func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
 }
 
 func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
+	ctx, brokerInstance, client := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-extend",
@@ -267,12 +266,24 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 
 	time.Sleep(ciPostRenewWindow)
 
-	secondCtx, cancel := context.WithTimeout(ctx, ciReserveTimeout)
-	defer cancel()
-
-	_, err = brokerInstance.Reserve(secondCtx, "default", "consumer-b")
-	if !errors.Is(err, broker.ErrNoTask) {
-		t.Fatalf("Reserve() after lease extension error = %v, want %v", err, broker.ErrNoTask)
+	pending, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: "taskforge:stream:default",
+		Group:  "taskforge:default",
+		Start:  delivery.Execution.DeliveryID,
+		End:    delivery.Execution.DeliveryID,
+		Count:  1,
+	}).Result()
+	if err != nil {
+		t.Fatalf("XPendingExt() error = %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending entry count = %d, want 1", len(pending))
+	}
+	if pending[0].Consumer != delivery.Execution.LeaseOwner {
+		t.Fatalf("pending owner = %q, want %q", pending[0].Consumer, delivery.Execution.LeaseOwner)
+	}
+	if pending[0].Idle >= ciLeaseTTL {
+		t.Fatalf("pending idle = %v, want less than %v", pending[0].Idle, ciLeaseTTL)
 	}
 
 	if err := brokerInstance.Ack(ctx, delivery); err != nil {
