@@ -1,15 +1,32 @@
 package brokerredis
 
 import (
-	"context"
-	"errors"
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
+
+func TestStreamNaming(t *testing.T) {
+	t.Parallel()
+
+	b := &RedisBroker{
+		prefix:     defaultPrefix,
+		hostname:   "host-1",
+		instanceID: "42",
+	}
+
+	if got := b.streamKey("critical"); got != "taskforge:stream:critical" {
+		t.Fatalf("streamKey() = %q, want %q", got, "taskforge:stream:critical")
+	}
+	if got := b.groupName("critical"); got != "taskforge:critical" {
+		t.Fatalf("groupName() = %q, want %q", got, "taskforge:critical")
+	}
+	if got := b.consumerName("worker"); got != "worker:host-1:42" {
+		t.Fatalf("consumerName() = %q, want %q", got, "worker:host-1:42")
+	}
+}
 
 func TestNewDeliveryDefaults(t *testing.T) {
 	t.Parallel()
@@ -21,13 +38,13 @@ func TestNewDeliveryDefaults(t *testing.T) {
 		Name:      "demo.echo",
 		Queue:     "default",
 		CreatedAt: createdAt,
-	}, "default", "worker-1", now, 30*time.Second)
+	}, "default", "worker-1:host-1:42", "1744538400000-0", now, 30*time.Second)
 
 	if delivery.Execution.TaskID != "task-1" {
 		t.Fatalf("TaskID = %q, want %q", delivery.Execution.TaskID, "task-1")
 	}
-	if delivery.Execution.DeliveryID == "" {
-		t.Fatalf("DeliveryID is empty")
+	if delivery.Execution.DeliveryID != "1744538400000-0" {
+		t.Fatalf("DeliveryID = %q, want %q", delivery.Execution.DeliveryID, "1744538400000-0")
 	}
 	if delivery.Execution.DeliveryCount != 1 {
 		t.Fatalf("DeliveryCount = %d, want 1", delivery.Execution.DeliveryCount)
@@ -41,82 +58,21 @@ func TestNewDeliveryDefaults(t *testing.T) {
 	if !delivery.Execution.LeaseExpiresAt.Equal(now.Add(30 * time.Second)) {
 		t.Fatalf("LeaseExpiresAt = %v, want %v", delivery.Execution.LeaseExpiresAt, now.Add(30*time.Second))
 	}
-	if delivery.Execution.LeaseOwner != "worker-1" {
-		t.Fatalf("LeaseOwner = %q, want %q", delivery.Execution.LeaseOwner, "worker-1")
+	if delivery.Execution.LeaseOwner != "worker-1:host-1:42" {
+		t.Fatalf("LeaseOwner = %q, want %q", delivery.Execution.LeaseOwner, "worker-1:host-1:42")
 	}
 	if delivery.Execution.State != string(tasks.StateLeased) {
 		t.Fatalf("State = %q, want %q", delivery.Execution.State, tasks.StateLeased)
 	}
-	if delivery.Execution.LastError != "" {
-		t.Fatalf("LastError = %q, want empty", delivery.Execution.LastError)
-	}
 }
 
-func TestAckRejectsExpiredDelivery(t *testing.T) {
+func TestNormalizeQueue(t *testing.T) {
 	t.Parallel()
 
-	b := New(nil, slog.Default(), 30*time.Second)
-	delivery := broker.Delivery{
-		Message: broker.TaskMessage{ID: "task-1"},
-		Execution: broker.ExecutionMetadata{
-			TaskID:         "task-1",
-			DeliveryID:     "delivery-1",
-			LeaseOwner:     "worker-1",
-			LeaseExpiresAt: time.Now().UTC().Add(-time.Second),
-			State:          string(tasks.StateSucceeded),
-		},
+	if got := normalizeQueue(""); got != "default" {
+		t.Fatalf("normalizeQueue(\"\") = %q, want %q", got, "default")
 	}
-	b.active[delivery.Execution.DeliveryID] = delivery
-	b.seen[delivery.Execution.DeliveryID] = delivery
-
-	err := b.Ack(context.Background(), delivery)
-	if !errors.Is(err, broker.ErrDeliveryExpired) {
-		t.Fatalf("Ack() error = %v, want %v", err, broker.ErrDeliveryExpired)
-	}
-}
-
-func TestAckRejectsStaleDelivery(t *testing.T) {
-	t.Parallel()
-
-	b := New(nil, slog.Default(), 30*time.Second)
-	delivery := broker.Delivery{
-		Message: broker.TaskMessage{ID: "task-1"},
-		Execution: broker.ExecutionMetadata{
-			TaskID:         "task-1",
-			DeliveryID:     "delivery-1",
-			LeaseOwner:     "worker-1",
-			State:          string(tasks.StateSucceeded),
-			LeasedAt:       time.Now().UTC(),
-			LeaseExpiresAt: time.Now().UTC().Add(time.Second),
-		},
-	}
-	b.seen[delivery.Execution.DeliveryID] = delivery
-
-	err := b.Ack(context.Background(), delivery)
-	if !errors.Is(err, broker.ErrStaleDelivery) {
-		t.Fatalf("Ack() error = %v, want %v", err, broker.ErrStaleDelivery)
-	}
-}
-
-func TestExtendLeaseRejectsExpiredDelivery(t *testing.T) {
-	t.Parallel()
-
-	b := New(nil, slog.Default(), 30*time.Second)
-	delivery := broker.Delivery{
-		Message: broker.TaskMessage{ID: "task-1"},
-		Execution: broker.ExecutionMetadata{
-			TaskID:         "task-1",
-			DeliveryID:     "delivery-1",
-			LeaseOwner:     "worker-1",
-			LeaseExpiresAt: time.Now().UTC().Add(-time.Second),
-			State:          string(tasks.StateLeased),
-		},
-	}
-	b.active[delivery.Execution.DeliveryID] = delivery
-	b.seen[delivery.Execution.DeliveryID] = delivery
-
-	err := b.ExtendLease(context.Background(), delivery, 10*time.Second)
-	if !errors.Is(err, broker.ErrDeliveryExpired) {
-		t.Fatalf("ExtendLease() error = %v, want %v", err, broker.ErrDeliveryExpired)
+	if got := normalizeQueue("priority"); got != "priority" {
+		t.Fatalf("normalizeQueue() = %q, want %q", got, "priority")
 	}
 }

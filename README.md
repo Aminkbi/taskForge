@@ -8,7 +8,7 @@ Right now the repo gives you the shape of the system:
 - a worker process
 - a scheduler for delayed and retryable jobs
 - a small API/admin process
-- Redis-backed queueing and delayed release paths
+- Redis Streams-backed active queueing plus Redis delayed release paths
 - logging, metrics, health checks, and optional OpenTelemetry wiring
 
 It is a solid starting point for backend or infra work, but it is still a scaffold. Some reliability details are intentionally left as TODOs instead of being hidden behind vague promises.
@@ -19,7 +19,7 @@ It is a solid starting point for backend or infra work, but it is still a scaffo
 - A task ID is the logical identity; each reserve creates a distinct delivery attempt.
 - Redis is the first broker and result-store candidate.
 - Delayed jobs and retries flow through Redis plus a scheduler loop.
-- Worker leasing exists, but durable crash-safe visibility semantics are not finished yet.
+- Active delivery uses Redis Streams consumer groups, but reclaim and crash-recovery semantics are not finished yet.
 - Metrics, structured logging, and tracing hooks are already wired in.
 
 ## Execution contract
@@ -45,7 +45,7 @@ The repository builds and starts three binaries:
 - It is not a drop-in Celery replacement.
 - It is not trying to hide complexity behind a big framework.
 - It does not ship RabbitMQ support yet.
-- It does not claim production-complete Redis lease semantics in the current state.
+- It does not claim production-complete Redis reclaim and lease-renew semantics in the current state.
 
 ## Project layout
 
@@ -64,7 +64,7 @@ Most of the interesting logic lives under `internal/`:
 - `internal/app/*` wires each binary together.
 - `internal/config` loads typed config from environment variables.
 - `internal/broker` defines the queue contract and message model.
-- `internal/brokerredis` contains the Redis implementation.
+- `internal/brokerredis` contains the Redis Streams broker and delayed-job release implementation.
 - `internal/runtime` drives polling, execution, ack, retry, and lease extension.
 - `internal/scheduler` handles delayed release and retry scheduling.
 - `internal/store` and `internal/storeredis` sketch result storage.
@@ -169,7 +169,7 @@ TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
 
 ## Notes for the next pass
 
-- Replace in-memory lease bookkeeping with durable Redis state.
+- Add reclaim and durable lease-renew semantics on top of Redis Streams pending state.
 - Add real task registration and user-defined handlers.
 - Persist task results and execution metadata properly.
 - Add deeper tracing around publish, reserve, execute, retry, and dead-letter flow.

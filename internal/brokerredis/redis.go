@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,27 +19,31 @@ import (
 const (
 	defaultPrefix         = "taskforge"
 	defaultReserveTimeout = time.Second
+	streamPayloadField    = "message"
 )
 
 type RedisBroker struct {
-	client   *redis.Client
-	logger   *slog.Logger
-	leaseTTL time.Duration
-	prefix   string
-
-	mu     sync.Mutex
-	active map[string]broker.Delivery
-	seen   map[string]broker.Delivery
+	client     *redis.Client
+	logger     *slog.Logger
+	leaseTTL   time.Duration
+	prefix     string
+	hostname   string
+	instanceID string
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration) *RedisBroker {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown-host"
+	}
+
 	return &RedisBroker{
-		client:   client,
-		logger:   logger,
-		leaseTTL: leaseTTL,
-		prefix:   defaultPrefix,
-		active:   make(map[string]broker.Delivery),
-		seen:     make(map[string]broker.Delivery),
+		client:     client,
+		logger:     logger,
+		leaseTTL:   leaseTTL,
+		prefix:     defaultPrefix,
+		hostname:   hostname,
+		instanceID: fmt.Sprintf("%d", os.Getpid()),
 	}
 }
 
@@ -50,25 +55,42 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 	if msg.ID == "" {
 		return fmt.Errorf("publish task: missing id")
 	}
-	msg = normalizePublishedMessage(msg, time.Now().UTC())
+
+	now := time.Now().UTC()
+	msg = normalizePublishedMessage(msg, now)
 
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("publish task: marshal message: %w", err)
 	}
 
-	if msg.ETA != nil && msg.ETA.After(time.Now().UTC()) {
+	if msg.ETA != nil && msg.ETA.After(now) {
 		return b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
 			Score:  float64(msg.ETA.UnixMilli()),
 			Member: payload,
 		}).Err()
 	}
 
-	return b.client.RPush(ctx, b.queueKey(tasks.EffectiveQueue(msg)), payload).Err()
+	return b.publishReady(ctx, tasks.EffectiveQueue(msg), payload)
 }
 
 func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {
-	result, err := b.client.BLPop(ctx, defaultReserveTimeout, b.queueKey(queue)).Result()
+	queue = normalizeQueue(queue)
+	streamKey := b.streamKey(queue)
+	groupName := b.groupName(queue)
+	consumerName := b.consumerName(consumerID)
+
+	if err := b.ensureGroup(ctx, streamKey, groupName); err != nil {
+		return broker.Delivery{}, err
+	}
+
+	streams, err := b.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    groupName,
+		Consumer: consumerName,
+		Streams:  []string{streamKey, ">"},
+		Count:    1,
+		Block:    defaultReserveTimeout,
+	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return broker.Delivery{}, broker.ErrNoTask
@@ -78,81 +100,70 @@ func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (br
 		}
 		return broker.Delivery{}, fmt.Errorf("reserve task: %w", err)
 	}
-	if len(result) != 2 {
-		return broker.Delivery{}, fmt.Errorf("reserve task: unexpected redis response length %d", len(result))
+	if len(streams) == 0 || len(streams[0].Messages) == 0 {
+		return broker.Delivery{}, broker.ErrNoTask
 	}
 
-	var msg broker.TaskMessage
-	if err := json.Unmarshal([]byte(result[1]), &msg); err != nil {
-		return broker.Delivery{}, fmt.Errorf("reserve task: unmarshal message: %w", err)
+	entry := streams[0].Messages[0]
+	msg, err := decodeTaskMessage(entry)
+	if err != nil {
+		return broker.Delivery{}, fmt.Errorf("reserve task: %w", err)
+	}
+	if msg.Queue == "" {
+		msg.Queue = queue
 	}
 
 	ttl := msg.VisibilityTimeout
 	if ttl <= 0 {
 		ttl = b.leaseTTL
 	}
-	now := time.Now().UTC()
-	delivery := newDelivery(msg, queue, consumerID, now, ttl)
 
-	b.mu.Lock()
-	b.active[delivery.Execution.DeliveryID] = delivery
-	b.seen[delivery.Execution.DeliveryID] = delivery
-	b.mu.Unlock()
-
-	return delivery, nil
+	return newDelivery(msg, queue, consumerName, entry.ID, time.Now().UTC(), ttl), nil
 }
 
-func (b *RedisBroker) Ack(_ context.Context, delivery broker.Delivery) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	entry, err := b.validateActiveDeliveryLocked(delivery, time.Now().UTC())
-	if err != nil {
+func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
+	if err := b.validatePendingDelivery(ctx, delivery); err != nil {
 		return err
 	}
 
-	delete(b.active, entry.Execution.DeliveryID)
-	entry.Execution.State = delivery.Execution.State
-	entry.Execution.LastError = delivery.Execution.LastError
-	b.seen[entry.Execution.DeliveryID] = entry
+	queue := tasks.EffectiveQueue(delivery.Message)
+	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
+	if err != nil {
+		return fmt.Errorf("ack task: %w", err)
+	}
+	if acked == 0 {
+		return broker.ErrUnknownDelivery
+	}
 	return nil
 }
 
 func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeue bool) error {
-	b.mu.Lock()
-	entry, err := b.validateActiveDeliveryLocked(delivery, time.Now().UTC())
-	if err == nil {
-		delete(b.active, entry.Execution.DeliveryID)
-		entry.Execution.State = delivery.Execution.State
-		entry.Execution.LastError = delivery.Execution.LastError
-		b.seen[entry.Execution.DeliveryID] = entry
-	}
-	b.mu.Unlock()
-
-	if err != nil {
+	if err := b.validatePendingDelivery(ctx, delivery); err != nil {
 		return err
 	}
-	if !requeue {
-		return nil
+
+	if requeue {
+		requeued := delivery.Message
+		requeued.ETA = nil
+		if err := b.Publish(ctx, requeued); err != nil {
+			return err
+		}
 	}
 
-	// TODO: Replace this local requeue path with a durable visibility-timeout implementation.
-	entry.Message.ETA = nil
-	return b.Publish(ctx, entry.Message)
+	queue := tasks.EffectiveQueue(delivery.Message)
+	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
+	if err != nil {
+		return fmt.Errorf("nack task: %w", err)
+	}
+	if acked == 0 {
+		return broker.ErrUnknownDelivery
+	}
+	return nil
 }
 
-func (b *RedisBroker) ExtendLease(_ context.Context, delivery broker.Delivery, ttl time.Duration) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	entry, err := b.validateActiveDeliveryLocked(delivery, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-
-	entry.Execution.LeaseExpiresAt = time.Now().UTC().Add(ttl)
-	b.active[entry.Execution.DeliveryID] = entry
-	b.seen[entry.Execution.DeliveryID] = entry
+func (b *RedisBroker) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
+	// Streams reserve/ack ownership is durable in this phase, but reclaim and
+	// lease-renew semantics are deferred to the next roadmap step.
 	return nil
 }
 
@@ -186,7 +197,12 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 
 		pipe := b.client.TxPipeline()
 		pipe.ZRem(ctx, b.delayedKey(), raw)
-		pipe.RPush(ctx, b.queueKey(tasks.EffectiveQueue(msg)), payload)
+		pipe.XAdd(ctx, &redis.XAddArgs{
+			Stream: b.streamKey(tasks.EffectiveQueue(msg)),
+			Values: map[string]interface{}{
+				streamPayloadField: string(payload),
+			},
+		})
 
 		if _, err := pipe.Exec(ctx); err != nil {
 			return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
@@ -197,12 +213,80 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 	return moved, nil
 }
 
-func (b *RedisBroker) queueKey(queue string) string {
-	return fmt.Sprintf("%s:queue:%s", b.prefix, queue)
+func (b *RedisBroker) publishReady(ctx context.Context, queue string, payload []byte) error {
+	if _, err := b.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: b.streamKey(queue),
+		Values: map[string]interface{}{
+			streamPayloadField: string(payload),
+		},
+	}).Result(); err != nil {
+		return fmt.Errorf("publish task: add stream entry: %w", err)
+	}
+	return nil
+}
+
+func (b *RedisBroker) ensureGroup(ctx context.Context, streamKey, groupName string) error {
+	err := b.client.XGroupCreateMkStream(ctx, streamKey, groupName, "0").Err()
+	if err == nil {
+		return nil
+	}
+	if strings.HasPrefix(err.Error(), "BUSYGROUP ") {
+		return nil
+	}
+	return fmt.Errorf("ensure consumer group: %w", err)
+}
+
+func (b *RedisBroker) validatePendingDelivery(ctx context.Context, delivery broker.Delivery) error {
+	if delivery.Execution.DeliveryID == "" {
+		return broker.ErrUnknownDelivery
+	}
+
+	queue := tasks.EffectiveQueue(delivery.Message)
+	pending, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: b.streamKey(queue),
+		Group:  b.groupName(queue),
+		Start:  delivery.Execution.DeliveryID,
+		End:    delivery.Execution.DeliveryID,
+		Count:  1,
+	}).Result()
+	if err != nil {
+		return fmt.Errorf("inspect pending delivery: %w", err)
+	}
+	if len(pending) == 0 || pending[0].ID != delivery.Execution.DeliveryID {
+		return broker.ErrUnknownDelivery
+	}
+	if delivery.Execution.LeaseOwner != "" && pending[0].Consumer != delivery.Execution.LeaseOwner {
+		return broker.ErrStaleDelivery
+	}
+
+	return nil
+}
+
+func (b *RedisBroker) streamKey(queue string) string {
+	return fmt.Sprintf("%s:stream:%s", b.prefix, normalizeQueue(queue))
+}
+
+func (b *RedisBroker) groupName(queue string) string {
+	return fmt.Sprintf("%s:%s", b.prefix, normalizeQueue(queue))
+}
+
+func (b *RedisBroker) consumerName(consumerID string) string {
+	base := consumerID
+	if base == "" {
+		base = "worker"
+	}
+	return fmt.Sprintf("%s:%s:%s", base, b.hostname, b.instanceID)
 }
 
 func (b *RedisBroker) delayedKey() string {
 	return fmt.Sprintf("%s:delayed", b.prefix)
+}
+
+func normalizeQueue(queue string) string {
+	if queue == "" {
+		return "default"
+	}
+	return queue
 }
 
 func normalizePublishedMessage(msg broker.TaskMessage, now time.Time) broker.TaskMessage {
@@ -215,7 +299,36 @@ func normalizePublishedMessage(msg broker.TaskMessage, now time.Time) broker.Tas
 	return msg
 }
 
-func newDelivery(msg broker.TaskMessage, queue, consumerID string, now time.Time, ttl time.Duration) broker.Delivery {
+func decodeTaskMessage(entry redis.XMessage) (broker.TaskMessage, error) {
+	raw, ok := entry.Values[streamPayloadField]
+	if !ok {
+		return broker.TaskMessage{}, fmt.Errorf("missing %q field", streamPayloadField)
+	}
+
+	payload, err := messagePayload(raw)
+	if err != nil {
+		return broker.TaskMessage{}, err
+	}
+
+	var msg broker.TaskMessage
+	if err := json.Unmarshal([]byte(payload), &msg); err != nil {
+		return broker.TaskMessage{}, fmt.Errorf("unmarshal message: %w", err)
+	}
+	return msg, nil
+}
+
+func messagePayload(raw interface{}) (string, error) {
+	switch value := raw.(type) {
+	case string:
+		return value, nil
+	case []byte:
+		return string(value), nil
+	default:
+		return "", fmt.Errorf("unexpected stream payload type %T", raw)
+	}
+}
+
+func newDelivery(msg broker.TaskMessage, queue, consumerID, deliveryID string, now time.Time, ttl time.Duration) broker.Delivery {
 	firstEnqueuedAt := msg.CreatedAt
 	if firstEnqueuedAt.IsZero() {
 		firstEnqueuedAt = now
@@ -230,7 +343,7 @@ func newDelivery(msg broker.TaskMessage, queue, consumerID string, now time.Time
 		Message: msg,
 		Execution: broker.ExecutionMetadata{
 			TaskID:          msg.ID,
-			DeliveryID:      fmt.Sprintf("%s:%s:%d", msg.ID, queue, now.UnixNano()),
+			DeliveryID:      deliveryID,
 			DeliveryCount:   deliveryCount,
 			FirstEnqueuedAt: firstEnqueuedAt,
 			LeasedAt:        now,
@@ -247,30 +360,4 @@ func messageLastError(msg broker.TaskMessage) string {
 		return ""
 	}
 	return msg.Headers["last_error"]
-}
-
-func (b *RedisBroker) validateActiveDeliveryLocked(delivery broker.Delivery, now time.Time) (broker.Delivery, error) {
-	if delivery.Execution.DeliveryID == "" {
-		return broker.Delivery{}, broker.ErrUnknownDelivery
-	}
-
-	entry, ok := b.active[delivery.Execution.DeliveryID]
-	if !ok {
-		if _, seen := b.seen[delivery.Execution.DeliveryID]; seen {
-			return broker.Delivery{}, broker.ErrStaleDelivery
-		}
-		return broker.Delivery{}, broker.ErrUnknownDelivery
-	}
-
-	if delivery.Execution.TaskID != "" && delivery.Execution.TaskID != entry.Execution.TaskID {
-		return broker.Delivery{}, broker.ErrStaleDelivery
-	}
-	if delivery.Execution.LeaseOwner != "" && delivery.Execution.LeaseOwner != entry.Execution.LeaseOwner {
-		return broker.Delivery{}, broker.ErrStaleDelivery
-	}
-	if !entry.Execution.LeaseExpiresAt.IsZero() && now.After(entry.Execution.LeaseExpiresAt) {
-		return broker.Delivery{}, broker.ErrDeliveryExpired
-	}
-
-	return entry, nil
 }
