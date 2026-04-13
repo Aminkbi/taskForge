@@ -14,6 +14,14 @@ import (
 	"github.com/aminkbi/taskforge/internal/brokerredis"
 )
 
+const (
+	ciLeaseTTL          = time.Second
+	ciWaitForExpiry     = 1200 * time.Millisecond
+	ciRenewBeforeExpiry = 400 * time.Millisecond
+	ciPostRenewWindow   = 700 * time.Millisecond
+	ciReserveTimeout    = 1200 * time.Millisecond
+)
+
 func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -96,7 +104,7 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 }
 
 func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-reclaim",
@@ -115,7 +123,7 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 		t.Fatalf("Reserve() first consumer error = %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(ciWaitForExpiry)
 
 	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
 	if err != nil {
@@ -134,7 +142,7 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 }
 
 func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-stale-ack",
@@ -153,7 +161,7 @@ func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
 		t.Fatalf("Reserve() first consumer error = %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(ciWaitForExpiry)
 
 	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
 	if err != nil {
@@ -170,7 +178,7 @@ func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
 }
 
 func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-stale-nack",
@@ -189,7 +197,7 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 		t.Fatalf("Reserve() first consumer error = %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(ciWaitForExpiry)
 
 	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
 	if err != nil {
@@ -206,7 +214,7 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 }
 
 func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-expired-ack",
@@ -225,7 +233,7 @@ func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
 		t.Fatalf("Reserve() error = %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(ciWaitForExpiry)
 
 	if err := brokerInstance.Ack(ctx, delivery); !errors.Is(err, broker.ErrDeliveryExpired) {
 		t.Fatalf("Ack() expired delivery error = %v, want %v", err, broker.ErrDeliveryExpired)
@@ -233,7 +241,7 @@ func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
 }
 
 func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-extend",
@@ -252,14 +260,14 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 		t.Fatalf("Reserve() error = %v", err)
 	}
 
-	time.Sleep(75 * time.Millisecond)
-	if err := brokerInstance.ExtendLease(ctx, delivery, 150*time.Millisecond); err != nil {
+	time.Sleep(ciRenewBeforeExpiry)
+	if err := brokerInstance.ExtendLease(ctx, delivery, ciLeaseTTL); err != nil {
 		t.Fatalf("ExtendLease() error = %v", err)
 	}
 
-	time.Sleep(90 * time.Millisecond)
+	time.Sleep(ciPostRenewWindow)
 
-	secondCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	secondCtx, cancel := context.WithTimeout(ctx, ciReserveTimeout)
 	defer cancel()
 
 	_, err = brokerInstance.Reserve(secondCtx, "default", "consumer-b")
