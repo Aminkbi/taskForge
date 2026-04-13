@@ -15,7 +15,7 @@ import (
 )
 
 func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
-	ctx, brokerInstance, client := newIntegrationBroker(t)
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
 	message := broker.TaskMessage{
 		ID:          "integration-task-1",
@@ -63,7 +63,7 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 }
 
 func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 
 	message := broker.TaskMessage{
 		ID:        "integration-task-2",
@@ -95,8 +95,185 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	}
 }
 
+func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-reclaim",
+		Name:      "integration.reclaim",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"reclaim"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() first consumer error = %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+	}
+
+	if reclaimedDelivery.Message.ID != firstDelivery.Message.ID {
+		t.Fatalf("reclaimed task id = %q, want %q", reclaimedDelivery.Message.ID, firstDelivery.Message.ID)
+	}
+	if reclaimedDelivery.Execution.LeaseOwner == firstDelivery.Execution.LeaseOwner {
+		t.Fatalf("reclaimed lease owner = %q, want different owner", reclaimedDelivery.Execution.LeaseOwner)
+	}
+	if reclaimedDelivery.Execution.DeliveryCount < 2 {
+		t.Fatalf("reclaimed delivery count = %d, want >= 2", reclaimedDelivery.Execution.DeliveryCount)
+	}
+}
+
+func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-stale-ack",
+		Name:      "integration.stale_ack",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"stale"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() first consumer error = %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+	}
+
+	if err := brokerInstance.Ack(ctx, firstDelivery); !errors.Is(err, broker.ErrStaleDelivery) {
+		t.Fatalf("Ack() stale delivery error = %v, want %v", err, broker.ErrStaleDelivery)
+	}
+
+	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
+		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+	}
+}
+
+func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-stale-nack",
+		Name:      "integration.stale_nack",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"stale-nack"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() first consumer error = %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+	}
+
+	if err := brokerInstance.Nack(ctx, firstDelivery, false); !errors.Is(err, broker.ErrStaleDelivery) {
+		t.Fatalf("Nack() stale delivery error = %v, want %v", err, broker.ErrStaleDelivery)
+	}
+
+	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
+		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+	}
+}
+
+func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-expired-ack",
+		Name:      "integration.expired_ack",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"expired"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if err := brokerInstance.Ack(ctx, delivery); !errors.Is(err, broker.ErrDeliveryExpired) {
+		t.Fatalf("Ack() expired delivery error = %v, want %v", err, broker.ErrDeliveryExpired)
+	}
+}
+
+func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 150*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-extend",
+		Name:      "integration.extend",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"extend"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+
+	time.Sleep(75 * time.Millisecond)
+	if err := brokerInstance.ExtendLease(ctx, delivery, 150*time.Millisecond); err != nil {
+		t.Fatalf("ExtendLease() error = %v", err)
+	}
+
+	time.Sleep(90 * time.Millisecond)
+
+	secondCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+
+	_, err = brokerInstance.Reserve(secondCtx, "default", "consumer-b")
+	if !errors.Is(err, broker.ErrNoTask) {
+		t.Fatalf("Reserve() after lease extension error = %v, want %v", err, broker.ErrNoTask)
+	}
+
+	if err := brokerInstance.Ack(ctx, delivery); err != nil {
+		t.Fatalf("Ack() error = %v", err)
+	}
+}
+
 func TestRedisBrokerMoveDueReleasesIntoStreamQueue(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t)
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 
 	eta := time.Now().UTC().Add(50 * time.Millisecond)
 	message := broker.TaskMessage{
@@ -129,7 +306,7 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueue(t *testing.T) {
 	}
 }
 
-func newIntegrationBroker(t *testing.T) (context.Context, *brokerredis.RedisBroker, *redis.Client) {
+func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context, *brokerredis.RedisBroker, *redis.Client) {
 	t.Helper()
 
 	if os.Getenv("TASKFORGE_RUN_INTEGRATION") != "1" {
@@ -155,5 +332,5 @@ func newIntegrationBroker(t *testing.T) (context.Context, *brokerredis.RedisBrok
 		t.Fatalf("FlushDB() error = %v", err)
 	}
 
-	return ctx, brokerredis.New(client, slog.Default(), 30*time.Second), client
+	return ctx, brokerredis.New(client, slog.Default(), leaseTTL, nil), client
 }

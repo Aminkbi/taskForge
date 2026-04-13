@@ -19,7 +19,7 @@ It is a solid starting point for backend or infra work, but it is still a scaffo
 - A task ID is the logical identity; each reserve creates a distinct delivery attempt.
 - Redis is the first broker and result-store candidate.
 - Delayed jobs and retries flow through Redis plus a scheduler loop.
-- Active delivery uses Redis Streams consumer groups, but reclaim and crash-recovery semantics are not finished yet.
+- Active delivery uses Redis Streams consumer groups with reclaim and durable lease renewal.
 - Metrics, structured logging, and tracing hooks are already wired in.
 
 ## Execution contract
@@ -45,7 +45,7 @@ The repository builds and starts three binaries:
 - It is not a drop-in Celery replacement.
 - It is not trying to hide complexity behind a big framework.
 - It does not ship RabbitMQ support yet.
-- It does not claim production-complete Redis reclaim and lease-renew semantics in the current state.
+- It does not claim production-complete retry, scheduling, scaling, or observability semantics in the current state.
 
 ## Project layout
 
@@ -169,7 +169,7 @@ TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
 
 ## Notes for the next pass
 
-- Add reclaim and durable lease-renew semantics on top of Redis Streams pending state.
+- Harden retry, DLQ, and delayed scheduling behavior on top of the current delivery model.
 - Add real task registration and user-defined handlers.
 - Persist task results and execution metadata properly.
 - Add deeper tracing around publish, reserve, execute, retry, and dead-letter flow.

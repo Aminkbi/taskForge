@@ -38,7 +38,7 @@ func TestNewDeliveryDefaults(t *testing.T) {
 		Name:      "demo.echo",
 		Queue:     "default",
 		CreatedAt: createdAt,
-	}, "default", "worker-1:host-1:42", "1744538400000-0", now, 30*time.Second)
+	}, "default", "worker-1:host-1:42", "1744538400000-0", now, 30*time.Second, 1)
 
 	if delivery.Execution.TaskID != "task-1" {
 		t.Fatalf("TaskID = %q, want %q", delivery.Execution.TaskID, "task-1")
@@ -74,5 +74,19 @@ func TestNormalizeQueue(t *testing.T) {
 	}
 	if got := normalizeQueue("priority"); got != "priority" {
 		t.Fatalf("normalizeQueue() = %q, want %q", got, "priority")
+	}
+}
+
+func TestDeliveryCountUsesClaimFallback(t *testing.T) {
+	t.Parallel()
+
+	msg := broker.TaskMessage{Attempt: 0}
+	if got := deliveryCount(msg, 2); got != 2 {
+		t.Fatalf("deliveryCount() = %d, want 2", got)
+	}
+
+	msg.Attempt = 3
+	if got := deliveryCount(msg, 2); got != 4 {
+		t.Fatalf("deliveryCount() = %d, want 4", got)
 	}
 }

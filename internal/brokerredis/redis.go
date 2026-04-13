@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/observability"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -20,18 +21,20 @@ const (
 	defaultPrefix         = "taskforge"
 	defaultReserveTimeout = time.Second
 	streamPayloadField    = "message"
+	reclaimScanCount      = 20
 )
 
 type RedisBroker struct {
 	client     *redis.Client
 	logger     *slog.Logger
+	metrics    *observability.Metrics
 	leaseTTL   time.Duration
 	prefix     string
 	hostname   string
 	instanceID string
 }
 
-func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration) *RedisBroker {
+func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
 	hostname, err := os.Hostname()
 	if err != nil || hostname == "" {
 		hostname = "unknown-host"
@@ -40,6 +43,7 @@ func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration) *Red
 	return &RedisBroker{
 		client:     client,
 		logger:     logger,
+		metrics:    metrics,
 		leaseTTL:   leaseTTL,
 		prefix:     defaultPrefix,
 		hostname:   hostname,
@@ -84,6 +88,12 @@ func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (br
 		return broker.Delivery{}, err
 	}
 
+	if reclaimed, ok, err := b.reclaimExpiredDelivery(ctx, queue, streamKey, groupName, consumerName); err != nil {
+		return broker.Delivery{}, err
+	} else if ok {
+		return reclaimed, nil
+	}
+
 	streams, err := b.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    groupName,
 		Consumer: consumerName,
@@ -113,16 +123,25 @@ func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (br
 		msg.Queue = queue
 	}
 
-	ttl := msg.VisibilityTimeout
-	if ttl <= 0 {
-		ttl = b.leaseTTL
-	}
+	ttl := b.effectiveLeaseTTL(msg)
+	now := time.Now().UTC()
+	delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, 0))
 
-	return newDelivery(msg, queue, consumerName, entry.ID, time.Now().UTC(), ttl), nil
+	b.logger.Info(
+		"reserved task delivery",
+		"task_id", delivery.Execution.TaskID,
+		"delivery_id", delivery.Execution.DeliveryID,
+		"lease_owner", delivery.Execution.LeaseOwner,
+		"lease_expires_at", delivery.Execution.LeaseExpiresAt,
+	)
+
+	return delivery, nil
 }
 
 func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
-	if err := b.validatePendingDelivery(ctx, delivery); err != nil {
+	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
+	if err != nil {
+		b.logDeliveryRejection("ack rejected", delivery, pending, ttl, err)
 		return err
 	}
 
@@ -138,7 +157,9 @@ func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
 }
 
 func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeue bool) error {
-	if err := b.validatePendingDelivery(ctx, delivery); err != nil {
+	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
+	if err != nil {
+		b.logDeliveryRejection("nack rejected", delivery, pending, ttl, err)
 		return err
 	}
 
@@ -161,9 +182,39 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	return nil
 }
 
-func (b *RedisBroker) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
-	// Streams reserve/ack ownership is durable in this phase, but reclaim and
-	// lease-renew semantics are deferred to the next roadmap step.
+func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery, ttl time.Duration) error {
+	pending, effectiveTTL, err := b.validatePendingDelivery(ctx, delivery)
+	if err != nil {
+		b.incrementLeaseExtensionFailure()
+		b.logDeliveryRejection("lease extension rejected", delivery, pending, effectiveTTL, err)
+		return err
+	}
+
+	queue := tasks.EffectiveQueue(delivery.Message)
+	resetIDs, err := b.client.XClaimJustID(ctx, &redis.XClaimArgs{
+		Stream:   b.streamKey(queue),
+		Group:    b.groupName(queue),
+		Consumer: delivery.Execution.LeaseOwner,
+		MinIdle:  0,
+		Messages: []string{delivery.Execution.DeliveryID},
+	}).Result()
+	if err != nil {
+		b.incrementLeaseExtensionFailure()
+		return fmt.Errorf("extend lease: %w", err)
+	}
+	if len(resetIDs) == 0 {
+		b.incrementLeaseExtensionFailure()
+		return broker.ErrUnknownDelivery
+	}
+
+	b.logger.Debug(
+		"extended task lease",
+		"task_id", delivery.Execution.TaskID,
+		"delivery_id", delivery.Execution.DeliveryID,
+		"lease_owner", delivery.Execution.LeaseOwner,
+		"lease_expires_at", time.Now().UTC().Add(ttl),
+	)
+
 	return nil
 }
 
@@ -213,6 +264,88 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 	return moved, nil
 }
 
+func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamKey, groupName, consumerName string) (broker.Delivery, bool, error) {
+	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: streamKey,
+		Group:  groupName,
+		Start:  "-",
+		End:    "+",
+		Count:  reclaimScanCount,
+	}).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return broker.Delivery{}, false, nil
+		}
+		return broker.Delivery{}, false, fmt.Errorf("reclaim task: inspect pending deliveries: %w", err)
+	}
+
+	for _, pending := range pendingEntries {
+		entry, msg, err := b.pendingTask(ctx, streamKey, pending.ID)
+		if err != nil {
+			if errors.Is(err, broker.ErrUnknownDelivery) {
+				continue
+			}
+			return broker.Delivery{}, false, fmt.Errorf("reclaim task: %w", err)
+		}
+
+		ttl := b.effectiveLeaseTTL(msg)
+		if ttl <= 0 || pending.Idle < ttl {
+			continue
+		}
+
+		claimed, err := b.client.XClaim(ctx, &redis.XClaimArgs{
+			Stream:   streamKey,
+			Group:    groupName,
+			Consumer: consumerName,
+			MinIdle:  ttl,
+			Messages: []string{pending.ID},
+		}).Result()
+		if err != nil {
+			return broker.Delivery{}, false, fmt.Errorf("reclaim task: claim expired delivery: %w", err)
+		}
+		if len(claimed) == 0 {
+			continue
+		}
+
+		now := time.Now().UTC()
+		delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, pending.RetryCount+1))
+		if b.metrics != nil {
+			b.metrics.TasksReclaimedTotal.Inc()
+		}
+
+		b.logger.Info(
+			"reclaimed expired delivery",
+			"task_id", delivery.Execution.TaskID,
+			"delivery_id", delivery.Execution.DeliveryID,
+			"previous_owner", pending.Consumer,
+			"lease_owner", delivery.Execution.LeaseOwner,
+			"idle", pending.Idle,
+			"lease_expires_at", delivery.Execution.LeaseExpiresAt,
+			"delivery_count", delivery.Execution.DeliveryCount,
+		)
+
+		return delivery, true, nil
+	}
+
+	return broker.Delivery{}, false, nil
+}
+
+func (b *RedisBroker) pendingTask(ctx context.Context, streamKey, deliveryID string) (redis.XMessage, broker.TaskMessage, error) {
+	messages, err := b.client.XRangeN(ctx, streamKey, deliveryID, deliveryID, 1).Result()
+	if err != nil {
+		return redis.XMessage{}, broker.TaskMessage{}, fmt.Errorf("load pending delivery %s: %w", deliveryID, err)
+	}
+	if len(messages) == 0 {
+		return redis.XMessage{}, broker.TaskMessage{}, broker.ErrUnknownDelivery
+	}
+
+	msg, err := decodeTaskMessage(messages[0])
+	if err != nil {
+		return redis.XMessage{}, broker.TaskMessage{}, fmt.Errorf("decode pending delivery %s: %w", deliveryID, err)
+	}
+	return messages[0], msg, nil
+}
+
 func (b *RedisBroker) publishReady(ctx context.Context, queue string, payload []byte) error {
 	if _, err := b.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: b.streamKey(queue),
@@ -236,13 +369,13 @@ func (b *RedisBroker) ensureGroup(ctx context.Context, streamKey, groupName stri
 	return fmt.Errorf("ensure consumer group: %w", err)
 }
 
-func (b *RedisBroker) validatePendingDelivery(ctx context.Context, delivery broker.Delivery) error {
+func (b *RedisBroker) validatePendingDelivery(ctx context.Context, delivery broker.Delivery) (redis.XPendingExt, time.Duration, error) {
 	if delivery.Execution.DeliveryID == "" {
-		return broker.ErrUnknownDelivery
+		return redis.XPendingExt{}, 0, broker.ErrUnknownDelivery
 	}
 
 	queue := tasks.EffectiveQueue(delivery.Message)
-	pending, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: b.streamKey(queue),
 		Group:  b.groupName(queue),
 		Start:  delivery.Execution.DeliveryID,
@@ -250,16 +383,56 @@ func (b *RedisBroker) validatePendingDelivery(ctx context.Context, delivery brok
 		Count:  1,
 	}).Result()
 	if err != nil {
-		return fmt.Errorf("inspect pending delivery: %w", err)
+		return redis.XPendingExt{}, 0, fmt.Errorf("inspect pending delivery: %w", err)
 	}
-	if len(pending) == 0 || pending[0].ID != delivery.Execution.DeliveryID {
-		return broker.ErrUnknownDelivery
-	}
-	if delivery.Execution.LeaseOwner != "" && pending[0].Consumer != delivery.Execution.LeaseOwner {
-		return broker.ErrStaleDelivery
+	if len(pendingEntries) == 0 || pendingEntries[0].ID != delivery.Execution.DeliveryID {
+		return redis.XPendingExt{}, 0, broker.ErrUnknownDelivery
 	}
 
-	return nil
+	pending := pendingEntries[0]
+	ttl := b.effectiveLeaseTTL(delivery.Message)
+	if delivery.Execution.LeaseOwner != "" && pending.Consumer != delivery.Execution.LeaseOwner {
+		return pending, ttl, broker.ErrStaleDelivery
+	}
+	if ttl > 0 && pending.Idle >= ttl {
+		return pending, ttl, broker.ErrDeliveryExpired
+	}
+
+	return pending, ttl, nil
+}
+
+func (b *RedisBroker) logDeliveryRejection(message string, delivery broker.Delivery, pending redis.XPendingExt, ttl time.Duration, err error) {
+	if b.logger == nil {
+		return
+	}
+
+	var expiresAt any
+	if ttl > 0 && pending.Idle > 0 {
+		expiresAt = time.Now().UTC().Add(ttl - pending.Idle)
+	}
+
+	b.logger.Warn(
+		message,
+		"task_id", delivery.Execution.TaskID,
+		"delivery_id", delivery.Execution.DeliveryID,
+		"lease_owner", delivery.Execution.LeaseOwner,
+		"current_owner", pending.Consumer,
+		"lease_expires_at", expiresAt,
+		"error", err,
+	)
+}
+
+func (b *RedisBroker) incrementLeaseExtensionFailure() {
+	if b.metrics != nil {
+		b.metrics.LeaseExtensionFailures.Inc()
+	}
+}
+
+func (b *RedisBroker) effectiveLeaseTTL(msg broker.TaskMessage) time.Duration {
+	if msg.VisibilityTimeout > 0 {
+		return msg.VisibilityTimeout
+	}
+	return b.leaseTTL
 }
 
 func (b *RedisBroker) streamKey(queue string) string {
@@ -328,15 +501,21 @@ func messagePayload(raw interface{}) (string, error) {
 	}
 }
 
-func newDelivery(msg broker.TaskMessage, queue, consumerID, deliveryID string, now time.Time, ttl time.Duration) broker.Delivery {
+func deliveryCount(msg broker.TaskMessage, fallback int64) int {
+	count := msg.Attempt + 1
+	if fallback > int64(count) {
+		count = int(fallback)
+	}
+	if count < 1 {
+		return 1
+	}
+	return count
+}
+
+func newDelivery(msg broker.TaskMessage, queue, consumerID, deliveryID string, now time.Time, ttl time.Duration, count int) broker.Delivery {
 	firstEnqueuedAt := msg.CreatedAt
 	if firstEnqueuedAt.IsZero() {
 		firstEnqueuedAt = now
-	}
-
-	deliveryCount := msg.Attempt + 1
-	if deliveryCount < 1 {
-		deliveryCount = 1
 	}
 
 	return broker.Delivery{
@@ -344,7 +523,7 @@ func newDelivery(msg broker.TaskMessage, queue, consumerID, deliveryID string, n
 		Execution: broker.ExecutionMetadata{
 			TaskID:          msg.ID,
 			DeliveryID:      deliveryID,
-			DeliveryCount:   deliveryCount,
+			DeliveryCount:   count,
 			FirstEnqueuedAt: firstEnqueuedAt,
 			LeasedAt:        now,
 			LeaseExpiresAt:  now.Add(ttl),

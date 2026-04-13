@@ -140,6 +140,7 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 		"task_id", msg.ID,
 		"delivery_id", runningDelivery.Execution.DeliveryID,
 		"lease_owner", runningDelivery.Execution.LeaseOwner,
+		"lease_expires_at", runningDelivery.Execution.LeaseExpiresAt,
 		"task_name", msg.Name,
 		"attempt", msg.Attempt,
 		"error", err,

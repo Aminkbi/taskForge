@@ -33,10 +33,13 @@ func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broke
 						"lease extension failed",
 						"task_id", delivery.Execution.TaskID,
 						"delivery_id", delivery.Execution.DeliveryID,
+						"lease_owner", delivery.Execution.LeaseOwner,
+						"lease_expires_at", delivery.Execution.LeaseExpiresAt,
 						"error", err,
 					)
 					return
 				}
+				delivery.Execution.LeaseExpiresAt = time.Now().UTC().Add(ttl)
 			}
 		}
 	}()

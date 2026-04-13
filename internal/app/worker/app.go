@@ -29,7 +29,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	b := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.LeaseTTL)
+	b := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.LeaseTTL, metrics)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil)
 	dispatcher := dlq.Dispatcher{Broker: b}
 

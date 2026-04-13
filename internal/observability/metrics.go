@@ -12,10 +12,12 @@ type Metrics struct {
 	Registry               *prometheus.Registry
 	TasksPublishedTotal    prometheus.Counter
 	TasksReservedTotal     prometheus.Counter
+	TasksReclaimedTotal    prometheus.Counter
 	TasksCompletedTotal    prometheus.Counter
 	TasksFailedTotal       prometheus.Counter
 	TasksRetriedTotal      prometheus.Counter
 	TasksDeadLetteredTotal prometheus.Counter
+	LeaseExtensionFailures prometheus.Counter
 	TaskExecutionDuration  *prometheus.HistogramVec
 	WorkerActiveTasks      prometheus.Gauge
 }
@@ -37,6 +39,10 @@ func NewMetrics() *Metrics {
 			Name: "tasks_reserved_total",
 			Help: "Total number of tasks reserved by workers.",
 		}),
+		TasksReclaimedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "tasks_reclaimed_total",
+			Help: "Total number of expired task deliveries reclaimed by workers.",
+		}),
 		TasksCompletedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "tasks_completed_total",
 			Help: "Total number of tasks completed successfully.",
@@ -53,6 +59,10 @@ func NewMetrics() *Metrics {
 			Name: "tasks_dead_lettered_total",
 			Help: "Total number of tasks moved to dead letter queues.",
 		}),
+		LeaseExtensionFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "lease_extension_failures_total",
+			Help: "Total number of lease extension attempts that failed.",
+		}),
 		TaskExecutionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "task_execution_duration_seconds",
 			Help:    "Task execution duration in seconds.",
@@ -67,10 +77,12 @@ func NewMetrics() *Metrics {
 	registry.MustRegister(
 		m.TasksPublishedTotal,
 		m.TasksReservedTotal,
+		m.TasksReclaimedTotal,
 		m.TasksCompletedTotal,
 		m.TasksFailedTotal,
 		m.TasksRetriedTotal,
 		m.TasksDeadLetteredTotal,
+		m.LeaseExtensionFailures,
 		m.TaskExecutionDuration,
 		m.WorkerActiveTasks,
 	)
