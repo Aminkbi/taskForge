@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/observability"
+	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -83,9 +86,17 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 	}
 
 	if msg.ETA != nil && msg.ETA.After(now) {
+		entryPayload, err := json.Marshal(delayedEntry{
+			EntryID:      uuid.NewString(),
+			ScheduledFor: msg.ETA.UTC(),
+			Message:      msg,
+		})
+		if err != nil {
+			return fmt.Errorf("publish task: marshal delayed entry: %w", err)
+		}
 		return b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
 			Score:  float64(msg.ETA.UnixMilli()),
-			Member: payload,
+			Member: entryPayload,
 		}).Err()
 	}
 
@@ -249,11 +260,19 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 
 	moved := 0
 	for _, raw := range values {
-		var msg broker.TaskMessage
-		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-			return moved, fmt.Errorf("move due tasks: unmarshal delayed message: %w", err)
+		entry, err := decodeDelayedEntry(raw)
+		if err != nil {
+			return moved, fmt.Errorf("move due tasks: decode delayed entry: %w", err)
 		}
 
+		msg := entry.Message
+		if msg.Headers == nil {
+			msg.Headers = map[string]string{}
+		}
+		scheduledFor := entry.ScheduledFor.UTC()
+		msg.Headers[schedulerpkg.HeaderScheduledFor] = scheduledFor.Format(time.RFC3339Nano)
+		msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
+		msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
 		msg.ETA = nil
 		payload, err := json.Marshal(msg)
 		if err != nil {
@@ -513,6 +532,23 @@ func messagePayload(raw interface{}) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected stream payload type %T", raw)
 	}
+}
+
+type delayedEntry struct {
+	EntryID      string             `json:"entry_id"`
+	ScheduledFor time.Time          `json:"scheduled_for"`
+	Message      broker.TaskMessage `json:"message"`
+}
+
+func decodeDelayedEntry(raw string) (delayedEntry, error) {
+	var entry delayedEntry
+	if err := json.Unmarshal([]byte(raw), &entry); err != nil {
+		return delayedEntry{}, err
+	}
+	if entry.EntryID == "" {
+		return delayedEntry{}, fmt.Errorf("missing delayed entry id")
+	}
+	return entry, nil
 }
 
 func deliveryCount(msg broker.TaskMessage, fallback int64) int {

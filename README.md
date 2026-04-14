@@ -128,11 +128,38 @@ TASKFORGE_WORKER_CONCURRENCY=4
 TASKFORGE_POLL_INTERVAL=1s
 TASKFORGE_LEASE_TTL=30s
 TASKFORGE_SHUTDOWN_TIMEOUT=10s
+TASKFORGE_SCHEDULER_LOCK_TTL=15s
+TASKFORGE_SCHEDULER_RENEW_INTERVAL=5s
+TASKFORGE_SCHEDULES_JSON=[]
 TASKFORGE_OTEL_ENABLED=false
 TASKFORGE_SERVICE_NAME=taskforge
 ```
 
 `TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
+
+Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`. The first release is intentionally narrow:
+
+- interval schedules only
+- `coalesce` misfire policy only
+- scheduler leadership enforced through a Redis lock
+
+Example:
+
+```env
+TASKFORGE_SCHEDULES_JSON=[
+  {
+    "id":"nightly-report",
+    "interval":"15m",
+    "queue":"default",
+    "task_name":"reports.generate",
+    "payload":{"kind":"nightly"},
+    "headers":{"x-source":"scheduler"},
+    "enabled":true,
+    "misfire_policy":"coalesce",
+    "start_at":"2026-04-14T10:00:00Z"
+  }
+]
+```
 
 ## Health and metrics
 

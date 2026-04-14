@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/dlq"
 	"github.com/aminkbi/taskforge/internal/observability"
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
+	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -298,37 +300,88 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerMoveDueReleasesIntoStreamQueue(t *testing.T) {
+func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 
-	eta := time.Now().UTC().Add(50 * time.Millisecond)
-	message := broker.TaskMessage{
-		ID:        "integration-task-3",
-		Name:      "integration.delayed",
-		Queue:     "default",
-		Payload:   []byte(`{"hello":"delayed"}`),
-		ETA:       &eta,
-		CreatedAt: time.Now().UTC(),
+	base := time.Now().UTC()
+	messages := []broker.TaskMessage{
+		{
+			ID:        "integration-task-delayed-3",
+			Name:      "integration.delayed",
+			Queue:     "default",
+			Payload:   []byte(`{"hello":"third"}`),
+			CreatedAt: base,
+		},
+		{
+			ID:        "integration-task-delayed-1",
+			Name:      "integration.delayed",
+			Queue:     "default",
+			Payload:   []byte(`{"hello":"first"}`),
+			CreatedAt: base,
+		},
+		{
+			ID:        "integration-task-delayed-2",
+			Name:      "integration.delayed",
+			Queue:     "default",
+			Payload:   []byte(`{"hello":"second"}`),
+			CreatedAt: base,
+		},
+	}
+	eta3 := base.Add(30 * time.Millisecond)
+	eta1 := base.Add(10 * time.Millisecond)
+	eta2 := base.Add(20 * time.Millisecond)
+	messages[0].ETA = &eta3
+	messages[1].ETA = &eta1
+	messages[2].ETA = &eta2
+
+	for _, message := range messages {
+		if err := brokerInstance.Publish(ctx, message); err != nil {
+			t.Fatalf("Publish() delayed error = %v", err)
+		}
 	}
 
-	if err := brokerInstance.Publish(ctx, message); err != nil {
-		t.Fatalf("Publish() delayed error = %v", err)
-	}
-
-	moved, err := brokerInstance.MoveDue(ctx, eta.Add(time.Second), 10)
+	releasedAt := base.Add(time.Second)
+	moved, err := brokerInstance.MoveDue(ctx, releasedAt, 10)
 	if err != nil {
 		t.Fatalf("MoveDue() error = %v", err)
 	}
-	if moved != 1 {
-		t.Fatalf("MoveDue() moved = %d, want 1", moved)
+	if moved != 3 {
+		t.Fatalf("MoveDue() moved = %d, want 3", moved)
 	}
 
-	delivery, err := brokerInstance.Reserve(ctx, "default", "delayed-consumer")
-	if err != nil {
-		t.Fatalf("Reserve() moved task error = %v", err)
+	expectedOrder := []struct {
+		id  string
+		eta time.Time
+	}{
+		{id: "integration-task-delayed-1", eta: eta1},
+		{id: "integration-task-delayed-2", eta: eta2},
+		{id: "integration-task-delayed-3", eta: eta3},
 	}
-	if delivery.Message.ID != message.ID {
-		t.Fatalf("Reserve() moved task id = %q, want %q", delivery.Message.ID, message.ID)
+
+	for _, expected := range expectedOrder {
+		delivery, err := brokerInstance.Reserve(ctx, "default", "delayed-consumer")
+		if err != nil {
+			t.Fatalf("Reserve() moved task error = %v", err)
+		}
+		if delivery.Message.ID != expected.id {
+			t.Fatalf("Reserve() moved task id = %q, want %q", delivery.Message.ID, expected.id)
+		}
+		if delivery.Message.Headers[schedulerpkg.HeaderScheduledFor] != expected.eta.Format(time.RFC3339Nano) {
+			t.Fatalf("scheduled_for = %q, want %q", delivery.Message.Headers[schedulerpkg.HeaderScheduledFor], expected.eta.Format(time.RFC3339Nano))
+		}
+		if delivery.Message.Headers[schedulerpkg.HeaderReleasedAt] != releasedAt.Format(time.RFC3339Nano) {
+			t.Fatalf("released_at = %q, want %q", delivery.Message.Headers[schedulerpkg.HeaderReleasedAt], releasedAt.Format(time.RFC3339Nano))
+		}
+		lag, err := strconv.ParseInt(delivery.Message.Headers[schedulerpkg.HeaderReleaseLagMS], 10, 64)
+		if err != nil {
+			t.Fatalf("parse release lag = %v", err)
+		}
+		if lag < 0 {
+			t.Fatalf("release lag = %d, want >= 0", lag)
+		}
+		if err := brokerInstance.Ack(ctx, delivery); err != nil {
+			t.Fatalf("Ack() error = %v", err)
+		}
 	}
 }
 
@@ -367,15 +420,119 @@ func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ZRange() error = %v", err)
 	}
-	var retried broker.TaskMessage
+	var retried struct {
+		Message broker.TaskMessage `json:"message"`
+	}
 	if err := json.Unmarshal([]byte(values[0]), &retried); err != nil {
-		t.Fatalf("unmarshal retried message: %v", err)
+		t.Fatalf("unmarshal retried delayed entry: %v", err)
 	}
-	if retried.Attempt != 1 {
-		t.Fatalf("retried attempt = %d, want 1", retried.Attempt)
+	if retried.Message.Attempt != 1 {
+		t.Fatalf("retried attempt = %d, want 1", retried.Message.Attempt)
 	}
-	if retried.Headers[tasks.HeaderRetryFailureClass] != string(dlq.FailureClassTransientRetryable) {
-		t.Fatalf("retry failure class = %q, want %q", retried.Headers[tasks.HeaderRetryFailureClass], dlq.FailureClassTransientRetryable)
+	if retried.Message.Headers[tasks.HeaderRetryFailureClass] != string(dlq.FailureClassTransientRetryable) {
+		t.Fatalf("retry failure class = %q, want %q", retried.Message.Headers[tasks.HeaderRetryFailureClass], dlq.FailureClassTransientRetryable)
+	}
+}
+
+func TestSchedulerLeaderElectionDispatchesRecurringOnce(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	startAt := time.Now().UTC().Add(-time.Second)
+	schedules := []schedulerpkg.ScheduleDefinition{{
+		ID:            "integration-recurring-once",
+		Interval:      500 * time.Millisecond,
+		Queue:         "default",
+		TaskName:      "integration.recurring",
+		Payload:       json.RawMessage(`{"hello":"recurring"}`),
+		Enabled:       true,
+		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+		StartAt:       &startAt,
+	}}
+
+	schedulerA := newIntegrationScheduler(t, client, "scheduler-a", schedules)
+	schedulerB := newIntegrationScheduler(t, client, "scheduler-b", schedules)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+
+	errChA := runScheduler(ctxA, schedulerA)
+	errChB := runScheduler(ctxB, schedulerB)
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	cancelA()
+	cancelB()
+	waitForSchedulerStop(t, errChA)
+	waitForSchedulerStop(t, errChB)
+
+	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	if len(messages) != 1 {
+		t.Fatalf("stream messages = %d, want 1", len(messages))
+	}
+	if messages[0].Headers[schedulerpkg.HeaderScheduleID] != "integration-recurring-once" {
+		t.Fatalf("schedule_id header = %q, want %q", messages[0].Headers[schedulerpkg.HeaderScheduleID], "integration-recurring-once")
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "default", "recurring-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() recurring task error = %v", err)
+	}
+	if delivery.Message.ID == "" {
+		t.Fatal("recurring task id is empty")
+	}
+}
+
+func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	startAt := time.Now().UTC().Add(-time.Second)
+	schedules := []schedulerpkg.ScheduleDefinition{{
+		ID:            "integration-recurring-failover",
+		Interval:      50 * time.Millisecond,
+		Queue:         "default",
+		TaskName:      "integration.recurring",
+		Payload:       json.RawMessage(`{"hello":"failover"}`),
+		Enabled:       true,
+		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+		StartAt:       &startAt,
+	}}
+
+	schedulerA := newIntegrationScheduler(t, client, "scheduler-a", schedules)
+	schedulerB := newIntegrationScheduler(t, client, "scheduler-b", schedules)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+
+	errChA := runScheduler(ctxA, schedulerA)
+	errChB := runScheduler(ctxB, schedulerB)
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	cancelA()
+	waitForSchedulerStop(t, errChA)
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 2)
+	cancelB()
+	waitForSchedulerStop(t, errChB)
+
+	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	if len(messages) != 2 {
+		t.Fatalf("stream messages = %d, want 2", len(messages))
+	}
+	if messages[0].ID == messages[1].ID {
+		t.Fatalf("recurring task ids are identical: %q", messages[0].ID)
+	}
+	if messages[1].Headers[schedulerpkg.HeaderScheduleID] != "integration-recurring-failover" {
+		t.Fatalf("schedule_id header = %q, want %q", messages[1].Headers[schedulerpkg.HeaderScheduleID], "integration-recurring-failover")
+	}
+	missedRuns, err := strconv.Atoi(messages[1].Headers[schedulerpkg.HeaderScheduleMissedRuns])
+	if err != nil {
+		t.Fatalf("parse missed runs = %v", err)
+	}
+	if missedRuns < 1 {
+		t.Fatalf("missed runs = %d, want >= 1", missedRuns)
 	}
 }
 
@@ -545,6 +702,103 @@ func newIntegrationWorker(b broker.Broker, deadLetters dlq.Publisher, handler ru
 		LeaseTTL:     30 * time.Second,
 		Concurrency:  1,
 	}
+}
+
+func newIntegrationScheduler(t *testing.T, client *redis.Client, owner string, schedules []schedulerpkg.ScheduleDefinition) *schedulerpkg.Scheduler {
+	t.Helper()
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	elector := schedulerpkg.NewRedisLeaderElector(
+		client,
+		clock.RealClock{},
+		slog.Default(),
+		owner,
+		100*time.Millisecond,
+		25*time.Millisecond,
+	)
+	recurring := schedulerpkg.NewRecurringService(
+		brokerInstance,
+		schedulerpkg.NewRedisScheduleStateStore(client),
+		schedules,
+		slog.Default(),
+	)
+	return schedulerpkg.New(
+		brokerInstance,
+		recurring,
+		elector,
+		clock.RealClock{},
+		slog.Default(),
+		25*time.Millisecond,
+		25*time.Millisecond,
+	)
+}
+
+func runScheduler(ctx context.Context, scheduler *schedulerpkg.Scheduler) <-chan error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- scheduler.Run(ctx)
+	}()
+	return errCh
+}
+
+func waitForSchedulerStop(t *testing.T, errCh <-chan error) {
+	t.Helper()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("scheduler.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop before timeout")
+	}
+}
+
+func waitForStreamLength(t *testing.T, client *redis.Client, streamKey string, expected int64) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		count, err := client.XLen(context.Background(), streamKey).Result()
+		if err != nil {
+			t.Fatalf("XLen() error = %v", err)
+		}
+		if count >= expected {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("stream %s did not reach length %d before timeout", streamKey, expected)
+}
+
+func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Client, streamKey string) []broker.TaskMessage {
+	t.Helper()
+
+	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
+	if err != nil {
+		t.Fatalf("XRange() error = %v", err)
+	}
+
+	messages := make([]broker.TaskMessage, 0, len(entries))
+	for _, entry := range entries {
+		raw, ok := entry.Values["message"]
+		if !ok {
+			t.Fatalf("stream entry missing message field: %+v", entry.Values)
+		}
+		payload, ok := raw.(string)
+		if !ok {
+			t.Fatalf("stream payload type = %T, want string", raw)
+		}
+		var msg broker.TaskMessage
+		if err := json.Unmarshal([]byte(payload), &msg); err != nil {
+			t.Fatalf("unmarshal stream task: %v", err)
+		}
+		messages = append(messages, msg)
+	}
+	return messages
 }
 
 func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (bool, error)) {
