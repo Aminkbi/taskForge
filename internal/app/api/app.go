@@ -16,7 +16,7 @@ type App struct {
 }
 
 func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) *App {
-	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), func(mux *http.ServeMux) {
+	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil, func(mux *http.ServeMux) {
 		mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

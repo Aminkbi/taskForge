@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/logging"
 )
 
 func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broker, delivery broker.Delivery, ttl time.Duration) context.CancelFunc {
@@ -29,12 +30,8 @@ func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broke
 				return
 			case <-ticker.C:
 				if err := b.ExtendLease(childCtx, delivery, ttl); err != nil {
-					logger.Debug(
+					logging.WithDelivery(logger, delivery).Debug(
 						"lease extension failed",
-						"task_id", delivery.Execution.TaskID,
-						"delivery_id", delivery.Execution.DeliveryID,
-						"lease_owner", delivery.Execution.LeaseOwner,
-						"lease_expires_at", delivery.Execution.LeaseExpiresAt,
 						"error", err,
 					)
 					return

@@ -13,8 +13,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
@@ -79,9 +81,19 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 
 	now := time.Now().UTC()
 	msg = normalizePublishedMessage(msg, now)
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.brokerredis",
+		"taskforge.publish",
+		msg,
+		attribute.Bool("taskforge.delayed", msg.ETA != nil && msg.ETA.After(now)),
+	)
+	defer span.End()
+	msg.Headers = observability.InjectTraceContext(ctx, msg.Headers)
 
 	payload, err := json.Marshal(msg)
 	if err != nil {
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("publish task: marshal message: %w", err)
 	}
 
@@ -92,12 +104,14 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 			Message:      msg,
 		})
 		if err != nil {
+			observability.MarkSpanError(span, err)
 			return fmt.Errorf("publish task: marshal delayed entry: %w", err)
 		}
 		if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
 			Score:  float64(msg.ETA.UnixMilli()),
 			Member: entryPayload,
 		}).Err(); err != nil {
+			observability.MarkSpanError(span, err)
 			return err
 		}
 		b.metrics.IncPublished(tasks.EffectiveQueue(msg))
@@ -105,6 +119,7 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 	}
 
 	if err := b.publishReady(ctx, tasks.EffectiveQueue(msg), payload); err != nil {
+		observability.MarkSpanError(span, err)
 		return err
 	}
 	b.metrics.IncPublished(tasks.EffectiveQueue(msg))
@@ -156,46 +171,72 @@ func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (br
 		msg.Queue = queue
 	}
 
+	spanCtx := observability.ExtractTraceContext(ctx, msg.Headers)
 	ttl := b.effectiveLeaseTTL(msg)
 	now := time.Now().UTC()
 	delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, 0))
-
-	b.logger.Info(
-		"reserved task delivery",
-		"task_id", delivery.Execution.TaskID,
-		"delivery_id", delivery.Execution.DeliveryID,
-		"lease_owner", delivery.Execution.LeaseOwner,
-		"lease_expires_at", delivery.Execution.LeaseExpiresAt,
+	_, span := observability.StartQueueSpan(
+		spanCtx,
+		"taskforge.brokerredis",
+		"taskforge.reserve",
+		msg,
+		deliverySpanAttributes(delivery)...,
 	)
+	defer span.End()
+
+	logging.WithDelivery(b.logger, delivery).Info("reserved task delivery")
 
 	return delivery, nil
 }
 
 func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.brokerredis",
+		"taskforge.ack",
+		delivery.Message,
+		deliverySpanAttributes(delivery)...,
+	)
+	defer span.End()
+
 	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
 	if err != nil {
 		b.logDeliveryRejection("ack rejected", delivery, pending, ttl, err)
+		observability.MarkSpanError(span, err)
 		return err
 	}
 
 	queue := tasks.EffectiveQueue(delivery.Message)
 	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
 	if err != nil {
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("ack task: %w", err)
 	}
 	if acked == 0 {
+		observability.MarkSpanError(span, broker.ErrUnknownDelivery)
 		return broker.ErrUnknownDelivery
 	}
 	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+		observability.MarkSpanError(span, err)
 		return err
 	}
 	return nil
 }
 
 func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeue bool) error {
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.brokerredis",
+		"taskforge.nack",
+		delivery.Message,
+		append(deliverySpanAttributes(delivery), attribute.Bool("taskforge.requeue", requeue))...,
+	)
+	defer span.End()
+
 	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
 	if err != nil {
 		b.logDeliveryRejection("nack rejected", delivery, pending, ttl, err)
+		observability.MarkSpanError(span, err)
 		return err
 	}
 
@@ -203,6 +244,7 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 		requeued := delivery.Message
 		requeued.ETA = nil
 		if err := b.Publish(ctx, requeued); err != nil {
+			observability.MarkSpanError(span, err)
 			return err
 		}
 	}
@@ -210,22 +252,35 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	queue := tasks.EffectiveQueue(delivery.Message)
 	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
 	if err != nil {
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("nack task: %w", err)
 	}
 	if acked == 0 {
+		observability.MarkSpanError(span, broker.ErrUnknownDelivery)
 		return broker.ErrUnknownDelivery
 	}
 	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+		observability.MarkSpanError(span, err)
 		return err
 	}
 	return nil
 }
 
 func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery, ttl time.Duration) error {
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.brokerredis",
+		"taskforge.extend_lease",
+		delivery.Message,
+		deliverySpanAttributes(delivery)...,
+	)
+	defer span.End()
+
 	pending, effectiveTTL, err := b.validatePendingDelivery(ctx, delivery)
 	if err != nil {
 		b.incrementLeaseExtensionFailure(tasks.EffectiveQueue(delivery.Message))
 		b.logDeliveryRejection("lease extension rejected", delivery, pending, effectiveTTL, err)
+		observability.MarkSpanError(span, err)
 		return err
 	}
 
@@ -239,19 +294,18 @@ func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery,
 	}).Result()
 	if err != nil {
 		b.incrementLeaseExtensionFailure(queue)
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("extend lease: %w", err)
 	}
 	if len(resetIDs) == 0 {
 		b.incrementLeaseExtensionFailure(queue)
+		observability.MarkSpanError(span, broker.ErrUnknownDelivery)
 		return broker.ErrUnknownDelivery
 	}
 
-	b.logger.Debug(
+	logging.WithDelivery(b.logger, delivery).Debug(
 		"extended task lease",
-		"task_id", delivery.Execution.TaskID,
-		"delivery_id", delivery.Execution.DeliveryID,
-		"lease_owner", delivery.Execution.LeaseOwner,
-		"lease_expires_at", time.Now().UTC().Add(ttl),
+		"lease_expiry", time.Now().UTC().Add(ttl),
 	)
 
 	return nil
@@ -357,16 +411,23 @@ func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamK
 		now := time.Now().UTC()
 		delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, pending.RetryCount+1))
 		b.metrics.IncReclaimed(queue)
+		reclaimCtx := observability.ExtractTraceContext(ctx, msg.Headers)
+		_, span := observability.StartQueueSpan(
+			reclaimCtx,
+			"taskforge.brokerredis",
+			"taskforge.reclaim",
+			msg,
+			append(
+				deliverySpanAttributes(delivery),
+				attribute.String("taskforge.previous_owner", pending.Consumer),
+			)...,
+		)
+		span.End()
 
-		b.logger.Info(
+		logging.WithDelivery(b.logger, delivery).Info(
 			"reclaimed expired delivery",
-			"task_id", delivery.Execution.TaskID,
-			"delivery_id", delivery.Execution.DeliveryID,
 			"previous_owner", pending.Consumer,
-			"lease_owner", delivery.Execution.LeaseOwner,
 			"idle", pending.Idle,
-			"lease_expires_at", delivery.Execution.LeaseExpiresAt,
-			"delivery_count", delivery.Execution.DeliveryCount,
 		)
 
 		return delivery, true, nil
@@ -456,13 +517,10 @@ func (b *RedisBroker) logDeliveryRejection(message string, delivery broker.Deliv
 		expiresAt = time.Now().UTC().Add(ttl - pending.Idle)
 	}
 
-	b.logger.Warn(
+	logging.WithDelivery(b.logger, delivery).Warn(
 		message,
-		"task_id", delivery.Execution.TaskID,
-		"delivery_id", delivery.Execution.DeliveryID,
-		"lease_owner", delivery.Execution.LeaseOwner,
 		"current_owner", pending.Consumer,
-		"lease_expires_at", expiresAt,
+		"lease_expiry", expiresAt,
 		"error", err,
 	)
 }
@@ -512,6 +570,44 @@ func (b *RedisBroker) QueueMetricsSnapshot(ctx context.Context, queue string) (o
 		Reserved:  float64(pendingCount),
 		Consumers: float64(consumerCount),
 	}, nil
+}
+
+func (b *RedisBroker) DeadLetterQueueSize(ctx context.Context, queue string) (float64, error) {
+	length, err := b.client.XLen(ctx, dlqStreamKey(queue)).Result()
+	if err != nil {
+		if isMissingStream(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("dead-letter queue metrics %q: %w", queue, err)
+	}
+	return float64(length), nil
+}
+
+func (b *RedisBroker) SchedulerLag(ctx context.Context, now time.Time, queue string) (float64, error) {
+	values, err := b.client.ZRange(ctx, b.delayedKey(), 0, -1).Result()
+	if err != nil {
+		if isMissingStream(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("scheduler lag metrics %q: %w", queue, err)
+	}
+
+	for _, raw := range values {
+		entry, err := decodeDelayedEntry(raw)
+		if err != nil {
+			return 0, fmt.Errorf("scheduler lag metrics %q: decode delayed entry: %w", queue, err)
+		}
+		if tasks.EffectiveQueue(entry.Message) != normalizeQueue(queue) {
+			continue
+		}
+		lag := now.UTC().Sub(entry.ScheduledFor.UTC())
+		if lag < 0 {
+			return 0, nil
+		}
+		return lag.Seconds(), nil
+	}
+
+	return 0, nil
 }
 
 func (b *RedisBroker) incrementLeaseExtensionFailure(queue string) {
@@ -671,4 +767,16 @@ func messageLastError(msg broker.TaskMessage) string {
 		return ""
 	}
 	return msg.Headers["last_error"]
+}
+
+func deliverySpanAttributes(delivery broker.Delivery) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("taskforge.delivery_id", delivery.Execution.DeliveryID),
+		attribute.String("taskforge.worker_identity", delivery.Execution.LeaseOwner),
+		attribute.Int("taskforge.delivery_count", delivery.Execution.DeliveryCount),
+	}
+}
+
+func dlqStreamKey(queue string) string {
+	return fmt.Sprintf("%s:stream:dlq.%s", defaultPrefix, normalizeQueue(queue))
 }

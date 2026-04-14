@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/observability"
 )
 
 const (
@@ -102,15 +103,25 @@ func NewEnvelope(delivery broker.Delivery, class FailureClass, lastError string,
 		LastFailureAt:    failedAt.UTC(),
 		WorkerIdentity:   delivery.Execution.LeaseOwner,
 		DeliveryID:       delivery.Execution.DeliveryID,
-		TraceID:          traceIDFromHeaders(delivery.Message.Headers),
+		TraceID:          observability.TraceIDFromHeaders(delivery.Message.Headers),
 		OriginalQueue:    delivery.Message.Queue,
 		OriginalTaskName: delivery.Message.Name,
 	}
 }
 
 func (s *Service) PublishDeadLetter(ctx context.Context, envelope Envelope) error {
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.dlq",
+		"taskforge.dead_letter_publish",
+		envelope.OriginalTask,
+		attribute.String("taskforge.result_class", string(envelope.FailureClass)),
+	)
+	defer span.End()
+
 	payload, err := json.Marshal(envelope)
 	if err != nil {
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("publish dead-letter envelope: marshal envelope: %w", err)
 	}
 
@@ -129,7 +140,11 @@ func (s *Service) PublishDeadLetter(ctx context.Context, envelope Envelope) erro
 		msg.Headers["dead_letter_trace_id"] = envelope.TraceID
 	}
 
-	return s.Broker.Publish(ctx, msg)
+	if err := s.Broker.Publish(ctx, msg); err != nil {
+		observability.MarkSpanError(span, err)
+		return err
+	}
+	return nil
 }
 
 func (s *Service) List(ctx context.Context, queue string, limit int64) ([]Entry, error) {
@@ -159,6 +174,14 @@ func (s *Service) Replay(ctx context.Context, queue, entryID string) error {
 	if err != nil {
 		return err
 	}
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.dlq",
+		"taskforge.dead_letter_replay",
+		entry.Envelope.OriginalTask,
+		attribute.String("taskforge.delivery_id", entry.Envelope.DeliveryID),
+	)
+	defer span.End()
 
 	replayed := entry.Envelope.OriginalTask
 	replayed.ETA = nil
@@ -169,9 +192,11 @@ func (s *Service) Replay(ctx context.Context, queue, entryID string) error {
 	replayed.Headers["dead_letter_replayed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 
 	if err := s.Broker.Publish(ctx, replayed); err != nil {
+		observability.MarkSpanError(span, err)
 		return fmt.Errorf("replay dead-letter entry: publish original task: %w", err)
 	}
 	if err := s.deleteEntry(ctx, queue, entry.ID); err != nil {
+		observability.MarkSpanError(span, err)
 		return err
 	}
 
@@ -296,22 +321,4 @@ func messagePayload(raw interface{}) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected payload type %T", raw)
 	}
-}
-
-func traceIDFromHeaders(headers map[string]string) string {
-	if headers == nil {
-		return ""
-	}
-	if traceID := headers["trace_id"]; traceID != "" {
-		return traceID
-	}
-	traceparent := headers["traceparent"]
-	if len(traceparent) < 35 {
-		return ""
-	}
-	segments := strings.Split(traceparent, "-")
-	if len(segments) >= 2 {
-		return segments[1]
-	}
-	return ""
 }

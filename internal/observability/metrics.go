@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,6 +22,14 @@ type QueueMetricsProvider interface {
 	QueueMetricsSnapshot(ctx context.Context, queue string) (QueueMetricsSnapshot, error)
 }
 
+type DeadLetterMetricsProvider interface {
+	DeadLetterQueueSize(ctx context.Context, queue string) (float64, error)
+}
+
+type SchedulerLagMetricsProvider interface {
+	SchedulerLag(ctx context.Context, now time.Time, queue string) (float64, error)
+}
+
 type Metrics struct {
 	Registry               *prometheus.Registry
 	TasksPublishedTotal    *prometheus.CounterVec
@@ -31,6 +40,8 @@ type Metrics struct {
 	TasksRetriedTotal      *prometheus.CounterVec
 	TasksDeadLetteredTotal *prometheus.CounterVec
 	LeaseExtensionFailures *prometheus.CounterVec
+	TaskRetrySchedules     *prometheus.CounterVec
+	TaskDeadLetterResults  *prometheus.CounterVec
 	TaskExecutionDuration  *prometheus.HistogramVec
 	WorkerActiveTasks      *prometheus.GaugeVec
 }
@@ -76,6 +87,14 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_lease_extension_failures_total",
 			Help: "Total number of lease extension attempts that failed.",
 		}, []string{"queue"}),
+		TaskRetrySchedules: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_task_retry_schedules_total",
+			Help: "Total number of retry schedules by queue, task, and result class.",
+		}, []string{"queue", "task_name", "result_class"}),
+		TaskDeadLetterResults: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_task_dead_letter_results_total",
+			Help: "Total number of dead-letter transitions by queue, task, and result class.",
+		}, []string{"queue", "task_name", "result_class"}),
 		TaskExecutionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "taskforge_task_execution_duration_seconds",
 			Help:    "Task execution duration in seconds.",
@@ -96,6 +115,8 @@ func NewMetrics() *Metrics {
 		m.TasksRetriedTotal,
 		m.TasksDeadLetteredTotal,
 		m.LeaseExtensionFailures,
+		m.TaskRetrySchedules,
+		m.TaskDeadLetterResults,
 		m.TaskExecutionDuration,
 		m.WorkerActiveTasks,
 	)
@@ -149,11 +170,27 @@ func (m *Metrics) IncRetried(queue string) {
 	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
 }
 
+func (m *Metrics) IncRetryScheduled(queue, taskName, resultClass string) {
+	if m == nil {
+		return
+	}
+	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
+	m.TaskRetrySchedules.WithLabelValues(queue, sanitizeTaskName(taskName), sanitizeResultClass(resultClass)).Inc()
+}
+
 func (m *Metrics) IncDeadLettered(queue string) {
 	if m == nil {
 		return
 	}
 	m.TasksDeadLetteredTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncDeadLetterResult(queue, taskName, resultClass string) {
+	if m == nil {
+		return
+	}
+	m.TasksDeadLetteredTotal.WithLabelValues(queue).Inc()
+	m.TaskDeadLetterResults.WithLabelValues(queue, sanitizeTaskName(taskName), sanitizeResultClass(resultClass)).Inc()
 }
 
 func (m *Metrics) IncLeaseExtensionFailure(queue string) {
@@ -189,9 +226,7 @@ func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, q
 		return nil
 	}
 
-	cleanQueues := slices.Clone(queues)
-	slices.Sort(cleanQueues)
-	cleanQueues = slices.Compact(cleanQueues)
+	cleanQueues := normalizeQueues(queues)
 	return m.Registry.Register(&queueMetricsCollector{
 		provider: provider,
 		queues:   cleanQueues,
@@ -214,6 +249,47 @@ func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, q
 			nil,
 		),
 	})
+}
+
+func (m *Metrics) RegisterDeadLetterMetricsCollector(provider DeadLetterMetricsProvider, queues []string) error {
+	if m == nil || provider == nil || len(queues) == 0 {
+		return nil
+	}
+
+	return m.Registry.Register(&deadLetterMetricsCollector{
+		provider: provider,
+		queues:   normalizeQueues(queues),
+		size: prometheus.NewDesc(
+			"taskforge_dead_letter_queue_size",
+			"Current number of messages in a dead-letter queue.",
+			[]string{"queue"},
+			nil,
+		),
+	})
+}
+
+func (m *Metrics) RegisterSchedulerLagCollector(provider SchedulerLagMetricsProvider, queues []string) error {
+	if m == nil || provider == nil || len(queues) == 0 {
+		return nil
+	}
+
+	return m.Registry.Register(&schedulerLagCollector{
+		provider: provider,
+		queues:   normalizeQueues(queues),
+		lag: prometheus.NewDesc(
+			"taskforge_scheduler_queue_lag_seconds",
+			"Current scheduler lag in seconds for the oldest delayed task per queue.",
+			[]string{"queue"},
+			nil,
+		),
+	})
+}
+
+func normalizeQueues(queues []string) []string {
+	cleanQueues := slices.Clone(queues)
+	slices.Sort(cleanQueues)
+	cleanQueues = slices.Compact(cleanQueues)
+	return cleanQueues
 }
 
 type queueMetricsCollector struct {
@@ -243,4 +319,65 @@ func (c *queueMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(c.reserved, prometheus.GaugeValue, snapshot.Reserved, queue)
 		ch <- prometheus.MustNewConstMetric(c.consumers, prometheus.GaugeValue, snapshot.Consumers, queue)
 	}
+}
+
+type deadLetterMetricsCollector struct {
+	provider DeadLetterMetricsProvider
+	queues   []string
+	size     *prometheus.Desc
+}
+
+func (c *deadLetterMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.size
+}
+
+func (c *deadLetterMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, queue := range c.queues {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		size, err := c.provider.DeadLetterQueueSize(ctx, queue)
+		cancel()
+		if err != nil {
+			continue
+		}
+		ch <- prometheus.MustNewConstMetric(c.size, prometheus.GaugeValue, size, queue)
+	}
+}
+
+type schedulerLagCollector struct {
+	provider SchedulerLagMetricsProvider
+	queues   []string
+	lag      *prometheus.Desc
+}
+
+func (c *schedulerLagCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.lag
+}
+
+func (c *schedulerLagCollector) Collect(ch chan<- prometheus.Metric) {
+	now := time.Now().UTC()
+	for _, queue := range c.queues {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		lag, err := c.provider.SchedulerLag(ctx, now, queue)
+		cancel()
+		if err != nil {
+			continue
+		}
+		ch <- prometheus.MustNewConstMetric(c.lag, prometheus.GaugeValue, lag, queue)
+	}
+}
+
+func sanitizeTaskName(taskName string) string {
+	taskName = strings.TrimSpace(taskName)
+	if taskName == "" {
+		return "unknown"
+	}
+	return taskName
+}
+
+func sanitizeResultClass(resultClass string) string {
+	resultClass = strings.TrimSpace(resultClass)
+	if resultClass == "" {
+		return "unknown"
+	}
+	return resultClass
 }

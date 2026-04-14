@@ -12,7 +12,12 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/brokerredis"
@@ -861,6 +866,143 @@ func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
 	}
 }
 
+func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
+	_, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+
+	provider := sdktrace.NewTracerProvider()
+	defer func() {
+		_ = provider.Shutdown(context.Background())
+	}()
+	otel.SetTracerProvider(provider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	rootCtx, rootSpan := provider.Tracer("integration").Start(context.Background(), "publish")
+	rootTraceID := rootSpan.SpanContext().TraceID()
+	message := broker.TaskMessage{
+		ID:        "integration-trace-context",
+		Name:      "integration.trace",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"trace"}`),
+		Headers:   observability.InjectTraceContext(rootCtx, nil),
+		CreatedAt: time.Now().UTC(),
+	}
+	rootSpan.End()
+
+	if err := brokerInstance.Publish(rootCtx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	var (
+		mu          sync.Mutex
+		handlerSpan trace.SpanContext
+	)
+	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		mu.Lock()
+		handlerSpan = trace.SpanContextFromContext(ctx)
+		mu.Unlock()
+		return nil
+	}), tasks.DefaultRetryPolicy(1))
+
+	runWorkerUntil(t, worker, func() (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return handlerSpan.IsValid(), nil
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if handlerSpan.TraceID() != rootTraceID {
+		t.Fatalf("handler trace id = %s, want %s", handlerSpan.TraceID(), rootTraceID)
+	}
+}
+
+func TestIntegrationReclaimAndDeadLetterMetrics(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, ciLeaseTTL)
+
+	metrics := observability.NewMetrics()
+	metricBroker := brokerredis.NewWithOptions(client, slog.Default(), ciLeaseTTL, metrics, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+
+	message := broker.TaskMessage{
+		ID:        "integration-metrics-reclaim",
+		Name:      "integration.metrics.reclaim",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"reclaim-metrics"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := metricBroker.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	firstDelivery, err := metricBroker.Reserve(ctx, "default", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() first consumer error = %v", err)
+	}
+	time.Sleep(ciWaitForExpiry)
+	reclaimedDelivery, err := metricBroker.Reserve(ctx, "default", "consumer-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+	}
+	if err := metricBroker.Ack(ctx, reclaimedDelivery); err != nil {
+		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+	}
+	if firstDelivery.Execution.DeliveryID == reclaimedDelivery.Execution.DeliveryID && reclaimedDelivery.Execution.LeaseOwner == firstDelivery.Execution.LeaseOwner {
+		t.Fatalf("reclaim did not transfer ownership")
+	}
+
+	deadLetterMetrics := observability.NewMetrics()
+	deadLetterBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, deadLetterMetrics, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	deadLetters := dlq.NewService(client, deadLetterBroker, slog.Default())
+	worker := &runtimepkg.Worker{
+		Broker:      deadLetterBroker,
+		DeadLetter:  deadLetters,
+		Handler:     runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error { return runtimepkg.Permanent(errors.New("boom")) }),
+		Logger:      slog.Default(),
+		Metrics:     deadLetterMetrics,
+		Clock:       clock.RealClock{},
+		RetryPolicy: tasks.DefaultRetryPolicy(1),
+		PoolName:    "default",
+		Queue:       "default",
+		ConsumerID:  "integration-worker",
+		LeaseTTL:    30 * time.Second,
+		Concurrency: 1,
+		Prefetch:    1,
+	}
+
+	deadLetterMessage := broker.TaskMessage{
+		ID:        "integration-metrics-dead-letter",
+		Name:      "integration.metrics.dead_letter",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"dead-letter-metrics"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := deadLetterBroker.Publish(ctx, deadLetterMessage); err != nil {
+		t.Fatalf("Publish() dead-letter message error = %v", err)
+	}
+
+	runWorkerUntil(t, worker, func() (bool, error) {
+		entries, err := deadLetters.List(ctx, "default", 10)
+		if err != nil {
+			return false, err
+		}
+		return len(entries) == 1, nil
+	})
+
+	if got := metricCounterValue(t, metrics.Registry, "taskforge_tasks_reclaimed_total", map[string]string{"queue": "default"}); got != 1 {
+		t.Fatalf("reclaim counter = %v, want 1", got)
+	}
+	if got := metricCounterValue(t, deadLetterMetrics.Registry, "taskforge_task_dead_letter_results_total", map[string]string{
+		"queue":        "default",
+		"task_name":    "integration.metrics.dead_letter",
+		"result_class": string(dlq.FailureClassPermanent),
+	}); got != 1 {
+		t.Fatalf("dead-letter result counter = %v, want 1", got)
+	}
+}
+
 func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context, *brokerredis.RedisBroker, *redis.Client) {
 	t.Helper()
 
@@ -1050,6 +1192,43 @@ func mustParseRFC3339Time(t *testing.T, value string) time.Time {
 		t.Fatalf("parse RFC3339 time %q: %v", value, err)
 	}
 	return parsed
+}
+
+func metricCounterValue(t *testing.T, registry interface {
+	Gather() ([]*dto.MetricFamily, error)
+}, familyName string, labels map[string]string) float64 {
+	t.Helper()
+
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+
+	for _, family := range families {
+		if family.GetName() != familyName {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if hasLabels(metric, labels) {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+
+	t.Fatalf("metric %s with labels %v not found", familyName, labels)
+	return 0
+}
+
+func hasLabels(metric *dto.Metric, labels map[string]string) bool {
+	if len(metric.GetLabel()) != len(labels) {
+		return false
+	}
+	for _, label := range metric.GetLabel() {
+		if labels[label.GetName()] != label.GetValue() {
+			return false
+		}
+	}
+	return true
 }
 
 func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (bool, error)) {

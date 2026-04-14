@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 )
@@ -9,19 +10,40 @@ type statusResponse struct {
 	Status string `json:"status"`
 }
 
+type readinessCheck struct {
+	Status  string `json:"status"`
+	Detail  string `json:"detail,omitempty"`
+	Leader  bool   `json:"leader,omitempty"`
+	Updated string `json:"updated_at,omitempty"`
+}
+
+type readinessResponse struct {
+	Status string                    `json:"status"`
+	Checks map[string]readinessCheck `json:"checks,omitempty"`
+}
+
 func healthHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 	})
 }
 
-func readinessHandler(isReady func() bool) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if !isReady() {
-			writeJSON(w, http.StatusServiceUnavailable, statusResponse{Status: "not_ready"})
-			return
+type ReadinessEvaluator interface {
+	Evaluate(context.Context) readinessResponse
+}
+
+func readinessHandler(evaluator ReadinessEvaluator) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := readinessResponse{Status: "ready"}
+		if evaluator != nil {
+			response = evaluator.Evaluate(r.Context())
 		}
-		writeJSON(w, http.StatusOK, statusResponse{Status: "ready"})
+
+		statusCode := http.StatusOK
+		if response.Status != "ready" {
+			statusCode = http.StatusServiceUnavailable
+		}
+		writeJSON(w, statusCode, response)
 	})
 }
 

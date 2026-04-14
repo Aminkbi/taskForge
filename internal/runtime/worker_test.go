@@ -13,6 +13,10 @@ import (
 	"github.com/aminkbi/taskforge/internal/dlq"
 	"github.com/aminkbi/taskforge/internal/observability"
 	"github.com/aminkbi/taskforge/internal/tasks"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestWorkerProcessTaskAcksSucceededDelivery(t *testing.T) {
@@ -101,6 +105,42 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	}
 	if got := b.acked[0].Execution.State; got != string(tasks.StateDeadLettered) {
 		t.Fatalf("Ack state = %q, want %q", got, tasks.StateDeadLettered)
+	}
+}
+
+func TestWorkerProcessTaskPreservesTraceContext(t *testing.T) {
+	provider := sdktrace.NewTracerProvider()
+	defer func() {
+		_ = provider.Shutdown(context.Background())
+	}()
+	otel.SetTracerProvider(provider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	rootCtx, rootSpan := provider.Tracer("test").Start(context.Background(), "publish")
+	headers := observability.InjectTraceContext(rootCtx, nil)
+	rootTraceID := rootSpan.SpanContext().TraceID()
+	rootSpanID := rootSpan.SpanContext().SpanID()
+	rootSpan.End()
+
+	var got trace.SpanContext
+	w := newTestWorker(&stubBroker{}, nil, HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		got = trace.SpanContextFromContext(ctx)
+		return nil
+	}))
+	delivery := testDelivery()
+	delivery.Message.Headers = headers
+
+	if err := w.processTask(context.Background(), delivery); err != nil {
+		t.Fatalf("processTask() error = %v", err)
+	}
+	if !got.IsValid() {
+		t.Fatalf("handler span context is invalid")
+	}
+	if got.TraceID() != rootTraceID {
+		t.Fatalf("handler trace id = %s, want %s", got.TraceID(), rootTraceID)
+	}
+	if got.SpanID() == rootSpanID {
+		t.Fatalf("handler span id = %s, want child span distinct from publisher span", got.SpanID())
 	}
 }
 

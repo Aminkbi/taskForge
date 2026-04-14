@@ -11,8 +11,11 @@ import (
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/dlq"
+	"github.com/aminkbi/taskforge/internal/healthcheck"
+	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 	"github.com/aminkbi/taskforge/internal/tasks"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type Worker struct {
@@ -29,6 +32,7 @@ type Worker struct {
 	LeaseTTL          time.Duration
 	Concurrency       int
 	Prefetch          int
+	RecoveryHealth    *healthcheck.Reporter
 	GlobalTaskLimiter *TaskTypeLimiter
 	PoolTaskLimiter   *TaskTypeLimiter
 }
@@ -110,10 +114,16 @@ func (w *Worker) Run(ctx context.Context) error {
 
 func (w *Worker) reserveLoop(ctx context.Context, deliveries chan<- broker.Delivery, permits chan struct{}) error {
 	defer close(deliveries)
+	if w.RecoveryHealth != nil {
+		w.RecoveryHealth.MarkReady("worker reserve and reclaim loop healthy")
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			if w.RecoveryHealth != nil {
+				w.RecoveryHealth.MarkNotReady("worker shutting down")
+			}
 			return nil
 		case <-permits:
 		}
@@ -126,9 +136,15 @@ func (w *Worker) reserveLoop(ctx context.Context, deliveries chan<- broker.Deliv
 				continue
 			case errors.Is(err, context.Canceled):
 				permits <- struct{}{}
+				if w.RecoveryHealth != nil {
+					w.RecoveryHealth.MarkNotReady("worker shutting down")
+				}
 				return nil
 			default:
 				permits <- struct{}{}
+				if w.RecoveryHealth != nil {
+					w.RecoveryHealth.MarkFailed(err.Error())
+				}
 				return fmt.Errorf("worker reserve task: %w", err)
 			}
 		}
@@ -221,11 +237,22 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 		execCtx, cancelExec = context.WithTimeout(leaseCtx, *msg.Timeout)
 	}
 	defer cancelExec()
+	execCtx = observability.ExtractTraceContext(execCtx, msg.Headers)
 
 	runningDelivery, err := transitionDelivery(delivery, tasks.StateRunning)
 	if err != nil {
 		return fmt.Errorf("worker mark delivery running: %w", err)
 	}
+	execCtx, span := observability.StartQueueSpan(
+		execCtx,
+		"taskforge.worker",
+		"taskforge.execute",
+		runningDelivery.Message,
+		attribute.String("taskforge.delivery_id", runningDelivery.Execution.DeliveryID),
+		attribute.String("taskforge.worker_identity", runningDelivery.Execution.LeaseOwner),
+		attribute.Int("taskforge.delivery_count", runningDelivery.Execution.DeliveryCount),
+	)
+	defer span.End()
 
 	queue := tasks.EffectiveQueue(msg)
 	w.Metrics.IncActiveTask(queue, msg.Name)
@@ -239,17 +266,19 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 		w.Metrics.ObserveExecution(queue, msg.Name, "succeeded", duration)
 		succeededDelivery, transitionErr := transitionDelivery(runningDelivery, tasks.StateSucceeded)
 		if transitionErr != nil {
+			observability.MarkSpanError(span, transitionErr)
 			return fmt.Errorf("worker mark delivery succeeded: %w", transitionErr)
 		}
-		return w.Broker.Ack(ctx, succeededDelivery)
+		if ackErr := w.Broker.Ack(execCtx, succeededDelivery); ackErr != nil {
+			observability.MarkSpanError(span, ackErr)
+			return ackErr
+		}
+		return nil
 	}
 
-	w.Logger.Error(
+	observability.MarkSpanError(span, err)
+	logging.WithDelivery(w.Logger, runningDelivery).Error(
 		"task execution failed",
-		"task_id", msg.ID,
-		"delivery_id", runningDelivery.Execution.DeliveryID,
-		"lease_owner", runningDelivery.Execution.LeaseOwner,
-		"lease_expires_at", runningDelivery.Execution.LeaseExpiresAt,
 		"task_name", msg.Name,
 		"attempt", msg.Attempt,
 		"error", err,
@@ -268,39 +297,58 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 	failureClass := classifyFailure(execCtx, err)
 	action, next, envelope, policyErr := decideOutcome(failedDelivery, failureClass, err, w.RetryPolicy, w.Clock)
 	if policyErr != nil {
+		observability.MarkSpanError(span, policyErr)
 		return fmt.Errorf("worker decide outcome: %w", policyErr)
 	}
 	switch action {
 	case outcomeRetry:
 		retryDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateRetryScheduled)
 		if transitionErr != nil {
+			observability.MarkSpanError(span, transitionErr)
 			return fmt.Errorf("worker mark delivery retry_scheduled: %w", transitionErr)
 		}
-		if publishErr := w.Broker.Publish(ctx, next); publishErr != nil {
-			if nackErr := w.Broker.Nack(ctx, failedDelivery, true); nackErr != nil {
+		if publishErr := w.Broker.Publish(execCtx, next); publishErr != nil {
+			observability.MarkSpanError(span, publishErr)
+			if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
+				observability.MarkSpanError(span, nackErr)
 				return errors.Join(fmt.Errorf("publish retry task: %w", publishErr), fmt.Errorf("nack original task: %w", nackErr))
 			}
 			return fmt.Errorf("publish retry task: %w", publishErr)
 		}
-		w.Metrics.IncRetried(queue)
-		return w.Broker.Ack(ctx, retryDelivery)
+		w.Metrics.IncRetryScheduled(queue, msg.Name, string(failureClass))
+		if ackErr := w.Broker.Ack(execCtx, retryDelivery); ackErr != nil {
+			observability.MarkSpanError(span, ackErr)
+			return ackErr
+		}
+		return nil
 	case outcomeDeadLetter:
 		deadLetterDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateDeadLettered)
 		if transitionErr != nil {
+			observability.MarkSpanError(span, transitionErr)
 			return fmt.Errorf("worker mark delivery dead_lettered: %w", transitionErr)
 		}
 		if w.DeadLetter != nil {
-			if dlqErr := w.DeadLetter.PublishDeadLetter(ctx, envelope); dlqErr != nil {
-				if nackErr := w.Broker.Nack(ctx, failedDelivery, true); nackErr != nil {
+			if dlqErr := w.DeadLetter.PublishDeadLetter(execCtx, envelope); dlqErr != nil {
+				observability.MarkSpanError(span, dlqErr)
+				if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
+					observability.MarkSpanError(span, nackErr)
 					return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
 				}
 				return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 			}
-			w.Metrics.IncDeadLettered(queue)
+			w.Metrics.IncDeadLetterResult(queue, msg.Name, string(failureClass))
 		}
-		return w.Broker.Ack(ctx, deadLetterDelivery)
+		if ackErr := w.Broker.Ack(execCtx, deadLetterDelivery); ackErr != nil {
+			observability.MarkSpanError(span, ackErr)
+			return ackErr
+		}
+		return nil
 	default:
-		return w.Broker.Ack(ctx, failedDelivery)
+		if ackErr := w.Broker.Ack(execCtx, failedDelivery); ackErr != nil {
+			observability.MarkSpanError(span, ackErr)
+			return ackErr
+		}
+		return nil
 	}
 }
 

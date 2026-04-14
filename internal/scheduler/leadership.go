@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -50,9 +51,17 @@ type RedisLeaderElector struct {
 	ttl           time.Duration
 	renewInterval time.Duration
 	prefix        string
+	mu            sync.RWMutex
 	lastRenewedAt time.Time
 	fenceToken    int64
 	leader        bool
+}
+
+type LeadershipSnapshot struct {
+	Leader        bool
+	Owner         string
+	FenceToken    int64
+	LastRenewedAt time.Time
 }
 
 func NewRedisLeaderElector(
@@ -80,11 +89,15 @@ func (e *RedisLeaderElector) Ensure(ctx context.Context) (bool, error) {
 	}
 
 	now := e.clock.Now().UTC()
+	e.mu.RLock()
 	if e.leader && now.Sub(e.lastRenewedAt) < e.renewInterval {
+		e.mu.RUnlock()
 		return true, nil
 	}
+	leader := e.leader
+	e.mu.RUnlock()
 
-	if e.leader {
+	if leader {
 		ok, err := e.renew(ctx, now)
 		if err != nil {
 			return false, err
@@ -96,27 +109,34 @@ func (e *RedisLeaderElector) Ensure(ctx context.Context) (bool, error) {
 }
 
 func (e *RedisLeaderElector) Release(ctx context.Context) error {
+	e.mu.RLock()
 	if !e.leader {
+		e.mu.RUnlock()
 		return nil
 	}
+	lockValue := e.lockValue()
+	e.mu.RUnlock()
 
 	released, err := releaseLeadershipScript.Run(
 		ctx,
 		e.client,
 		[]string{e.lockKey()},
-		e.lockValue(),
+		lockValue,
 	).Int64()
 	if err != nil {
 		return fmt.Errorf("release scheduler leadership: %w", err)
 	}
 
+	snapshot := e.Snapshot()
 	if released == 1 && e.logger != nil {
-		e.logger.Info("scheduler leadership released", "owner", e.owner, "fence_token", e.fenceToken)
+		e.logger.Info("scheduler leadership released", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
 	}
 
+	e.mu.Lock()
 	e.leader = false
 	e.fenceToken = 0
 	e.lastRenewedAt = time.Time{}
+	e.mu.Unlock()
 	return nil
 }
 
@@ -149,11 +169,14 @@ func (e *RedisLeaderElector) acquire(ctx context.Context, now time.Time) (bool, 
 		return false, fmt.Errorf("acquire scheduler leadership: parse fence token: %w", err)
 	}
 
+	e.mu.Lock()
 	e.leader = true
 	e.fenceToken = fenceToken
 	e.lastRenewedAt = now
+	e.mu.Unlock()
+	snapshot := e.Snapshot()
 	if e.logger != nil {
-		e.logger.Info("scheduler leadership acquired", "owner", e.owner, "fence_token", e.fenceToken)
+		e.logger.Info("scheduler leadership acquired", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
 	}
 	return true, nil
 }
@@ -171,16 +194,21 @@ func (e *RedisLeaderElector) renew(ctx context.Context, now time.Time) (bool, er
 	}
 
 	if renewed == 0 {
+		snapshot := e.Snapshot()
 		if e.logger != nil {
-			e.logger.Warn("scheduler leadership lost", "owner", e.owner, "fence_token", e.fenceToken)
+			e.logger.Warn("scheduler leadership lost", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
 		}
+		e.mu.Lock()
 		e.leader = false
 		e.fenceToken = 0
 		e.lastRenewedAt = time.Time{}
+		e.mu.Unlock()
 		return false, nil
 	}
 
+	e.mu.Lock()
 	e.lastRenewedAt = now
+	e.mu.Unlock()
 	return true, nil
 }
 
@@ -194,6 +222,18 @@ func (e *RedisLeaderElector) fenceKey() string {
 
 func (e *RedisLeaderElector) lockValue() string {
 	return fmt.Sprintf("%s|%d", e.owner, e.fenceToken)
+}
+
+func (e *RedisLeaderElector) Snapshot() LeadershipSnapshot {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return LeadershipSnapshot{
+		Leader:        e.leader,
+		Owner:         e.owner,
+		FenceToken:    e.fenceToken,
+		LastRenewedAt: e.lastRenewedAt,
+	}
 }
 
 func toInt64(value any) (int64, error) {

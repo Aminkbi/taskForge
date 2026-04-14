@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/clock"
+	"github.com/aminkbi/taskforge/internal/healthcheck"
 )
 
 type DueMover interface {
@@ -30,6 +31,7 @@ type Scheduler struct {
 	logger        *slog.Logger
 	interval      time.Duration
 	renewInterval time.Duration
+	LoopHealth    *healthcheck.Reporter
 }
 
 func New(
@@ -64,9 +66,15 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		"interval", s.interval,
 		"renew_interval", s.renewInterval,
 	)
+	if s.LoopHealth != nil {
+		s.LoopHealth.MarkReady("scheduler loop healthy")
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			if s.LoopHealth != nil {
+				s.LoopHealth.MarkNotReady("scheduler shutting down")
+			}
 			releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			if err := s.elector.Release(releaseCtx); err != nil && !errors.Is(err, context.Canceled) {
@@ -78,6 +86,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkFailed(err.Error())
+				}
 				s.logger.Error("scheduler leadership renewal failed", "error", err)
 			}
 		case <-workTicker.C:
@@ -86,10 +97,16 @@ func (s *Scheduler) Run(ctx context.Context) error {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkFailed(err.Error())
+				}
 				s.logger.Error("scheduler leadership check failed", "error", err)
 				continue
 			}
 			if !leader {
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkReady("scheduler standby healthy")
+				}
 				continue
 			}
 
@@ -97,6 +114,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
+				}
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkFailed(err.Error())
 				}
 				s.logger.Error("scheduler move due tasks failed", "error", err)
 				continue
@@ -106,6 +126,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			}
 
 			if s.recurring == nil {
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkReady("scheduler leader healthy")
+				}
 				continue
 			}
 
@@ -114,11 +137,17 @@ func (s *Scheduler) Run(ctx context.Context) error {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
+				if s.LoopHealth != nil {
+					s.LoopHealth.MarkFailed(err.Error())
+				}
 				s.logger.Error("scheduler recurring dispatch failed", "error", err)
 				continue
 			}
 			if dispatched > 0 {
 				s.logger.Info("scheduler dispatched recurring tasks", "count", dispatched)
+			}
+			if s.LoopHealth != nil {
+				s.LoopHealth.MarkReady("scheduler leader healthy")
 			}
 		}
 	}
