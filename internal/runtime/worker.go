@@ -156,7 +156,11 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 	failedMessage.Headers["last_error"] = err.Error()
 	failedDelivery.Message = failedMessage
 
-	action, next := decideOutcome(failedDelivery, w.RetryPolicy, w.Clock)
+	failureClass := classifyFailure(execCtx, err)
+	action, next, envelope, policyErr := decideOutcome(failedDelivery, failureClass, err, w.RetryPolicy, w.Clock)
+	if policyErr != nil {
+		return fmt.Errorf("worker decide outcome: %w", policyErr)
+	}
 	switch action {
 	case outcomeRetry:
 		retryDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateRetryScheduled)
@@ -177,7 +181,7 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 			return fmt.Errorf("worker mark delivery dead_lettered: %w", transitionErr)
 		}
 		if w.DeadLetter != nil {
-			if dlqErr := w.DeadLetter.PublishDeadLetter(ctx, failedMessage, err.Error()); dlqErr != nil {
+			if dlqErr := w.DeadLetter.PublishDeadLetter(ctx, envelope); dlqErr != nil {
 				if nackErr := w.Broker.Nack(ctx, failedDelivery, true); nackErr != nil {
 					return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
 				}

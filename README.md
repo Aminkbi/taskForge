@@ -18,7 +18,7 @@ It is a solid starting point for backend or infra work, but it is still a scaffo
 - At-least-once delivery is the intended model.
 - A task ID is the logical identity; each reserve creates a distinct delivery attempt.
 - Redis is the first broker and result-store candidate.
-- Delayed jobs and retries flow through Redis plus a scheduler loop.
+- Delayed jobs and policy-driven retries flow through Redis plus a scheduler loop.
 - Active delivery uses Redis Streams consumer groups with reclaim and durable lease renewal.
 - Metrics, structured logging, and tracing hooks are already wired in.
 
@@ -36,7 +36,7 @@ Internally, the runtime distinguishes the logical `task_id` from a single `deliv
 
 The repository builds and starts three binaries:
 
-- `cmd/worker` polls Redis, runs a placeholder handler, and goes through retry and DLQ paths.
+- `cmd/worker` polls Redis, runs a placeholder handler, and goes through classified retry and DLQ paths.
 - `cmd/scheduler` releases delayed work when its ETA is reached.
 - `cmd/api` exposes health, readiness, metrics, and a small admin surface.
 
@@ -169,7 +169,7 @@ TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
 
 ## Notes for the next pass
 
-- Harden retry, DLQ, and delayed scheduling behavior on top of the current delivery model.
+- Add deeper admin and HTTP operations for dead-letter inspection and replay.
 - Add real task registration and user-defined handlers.
 - Persist task results and execution metadata properly.
 - Add deeper tracing around publish, reserve, execute, retry, and dead-letter flow.

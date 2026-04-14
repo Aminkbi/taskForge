@@ -29,15 +29,28 @@ type RedisBroker struct {
 	logger     *slog.Logger
 	metrics    *observability.Metrics
 	leaseTTL   time.Duration
+	reserveTTL time.Duration
 	prefix     string
 	hostname   string
 	instanceID string
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
+	return NewWithOptions(client, logger, leaseTTL, metrics, Options{})
+}
+
+type Options struct {
+	ReserveTimeout time.Duration
+}
+
+func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics, options Options) *RedisBroker {
 	hostname, err := os.Hostname()
 	if err != nil || hostname == "" {
 		hostname = "unknown-host"
+	}
+	reserveTimeout := options.ReserveTimeout
+	if reserveTimeout <= 0 {
+		reserveTimeout = defaultReserveTimeout
 	}
 
 	return &RedisBroker{
@@ -45,6 +58,7 @@ func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metr
 		logger:     logger,
 		metrics:    metrics,
 		leaseTTL:   leaseTTL,
+		reserveTTL: reserveTimeout,
 		prefix:     defaultPrefix,
 		hostname:   hostname,
 		instanceID: fmt.Sprintf("%d", os.Getpid()),
@@ -99,7 +113,7 @@ func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (br
 		Consumer: consumerName,
 		Streams:  []string{streamKey, ">"},
 		Count:    1,
-		Block:    defaultReserveTimeout,
+		Block:    b.reserveTTL,
 	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {

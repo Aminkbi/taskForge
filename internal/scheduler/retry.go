@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/broker"
@@ -8,19 +9,30 @@ import (
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
-func ScheduleRetry(msg broker.TaskMessage, policy tasks.RetryPolicy, clk clock.Clock) (broker.TaskMessage, bool) {
-	nextAttempt := msg.Attempt + 1
-	if !policy.ShouldRetry(nextAttempt) {
-		return broker.TaskMessage{}, false
+func ScheduleRetry(delivery broker.Delivery, failureClass string, policy tasks.RetryPolicy, clk clock.Clock) (broker.TaskMessage, bool, error) {
+	now := clk.Now()
+	resolved, err := tasks.ResolveRetryPolicy(policy, delivery.Message)
+	if err != nil {
+		return broker.TaskMessage{}, false, err
+	}
+	if !resolved.ShouldRetry(delivery.Execution.DeliveryCount, delivery.Execution.FirstEnqueuedAt, now) {
+		return broker.TaskMessage{}, false, nil
 	}
 
-	retryAt := clk.Now().Add(policy.NextDelay(nextAttempt))
-	next := msg
-	next.Attempt = nextAttempt
+	delay := resolved.NextDelay(delivery.Message, delivery.Execution.DeliveryCount)
+	retryAt := now.Add(delay)
+
+	next := delivery.Message
+	next.Attempt++
 	next.ETA = &retryAt
 	if next.Headers == nil {
 		next.Headers = map[string]string{}
 	}
-	next.Headers["retry_scheduled_at"] = retryAt.Format(time.RFC3339Nano)
-	return next, true
+	next.Headers[tasks.HeaderRetryScheduledAt] = retryAt.Format(time.RFC3339Nano)
+	next.Headers[tasks.HeaderRetryDelay] = delay.String()
+	next.Headers[tasks.HeaderRetryFailureClass] = failureClass
+	next.Headers[tasks.HeaderRetryDeliveryCount] = strconv.Itoa(delivery.Execution.DeliveryCount)
+	next.Headers[tasks.HeaderRetryFirstEnqueuedAt] = delivery.Execution.FirstEnqueuedAt.Format(time.RFC3339Nano)
+
+	return next, true, nil
 }

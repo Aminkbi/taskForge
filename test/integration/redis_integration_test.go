@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge/internal/clock"
+	"github.com/aminkbi/taskforge/internal/dlq"
+	"github.com/aminkbi/taskforge/internal/observability"
+	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
+	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 const (
@@ -19,6 +25,7 @@ const (
 	ciWaitForExpiry     = 1200 * time.Millisecond
 	ciRenewBeforeExpiry = 400 * time.Millisecond
 	ciPostRenewWindow   = 700 * time.Millisecond
+	ciReserveTimeout    = 50 * time.Millisecond
 )
 
 func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
@@ -325,6 +332,173 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueue(t *testing.T) {
 	}
 }
 
+func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return runtimepkg.Retryable(errors.New("boom"))
+	}), tasks.RetryPolicy{
+		MaxDeliveries:  3,
+		InitialBackoff: 2 * time.Second,
+		MaxBackoff:     2 * time.Second,
+		Multiplier:     1,
+	})
+
+	message := broker.TaskMessage{
+		ID:        "integration-retry-worker",
+		Name:      "integration.retryable",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"retry"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	runWorkerUntil(t, worker, func() (bool, error) {
+		values, err := client.ZRange(ctx, "taskforge:delayed", 0, -1).Result()
+		if err != nil {
+			return false, err
+		}
+		return len(values) == 1, nil
+	})
+
+	values, err := client.ZRange(ctx, "taskforge:delayed", 0, -1).Result()
+	if err != nil {
+		t.Fatalf("ZRange() error = %v", err)
+	}
+	var retried broker.TaskMessage
+	if err := json.Unmarshal([]byte(values[0]), &retried); err != nil {
+		t.Fatalf("unmarshal retried message: %v", err)
+	}
+	if retried.Attempt != 1 {
+		t.Fatalf("retried attempt = %d, want 1", retried.Attempt)
+	}
+	if retried.Headers[tasks.HeaderRetryFailureClass] != string(dlq.FailureClassTransientRetryable) {
+		t.Fatalf("retry failure class = %q, want %q", retried.Headers[tasks.HeaderRetryFailureClass], dlq.FailureClassTransientRetryable)
+	}
+}
+
+func TestWorkerPermanentErrorGoesDirectlyToDeadLetter(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return runtimepkg.Permanent(errors.New("bad payload"))
+	}), tasks.DefaultRetryPolicy(3))
+
+	message := broker.TaskMessage{
+		ID:        "integration-permanent-worker",
+		Name:      "integration.permanent",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"permanent"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	runWorkerUntil(t, worker, func() (bool, error) {
+		entries, err := deadLetters.List(ctx, "default", 10)
+		if err != nil {
+			return false, err
+		}
+		return len(entries) == 1, nil
+	})
+
+	entries, err := deadLetters.List(ctx, "default", 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if entries[0].Envelope.FailureClass != dlq.FailureClassPermanent {
+		t.Fatalf("failure class = %q, want %q", entries[0].Envelope.FailureClass, dlq.FailureClassPermanent)
+	}
+}
+
+func TestWorkerMaxDeliveryExhaustionMovesTaskToDeadLetter(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return runtimepkg.Retryable(errors.New("retry exhausted"))
+	}), tasks.DefaultRetryPolicy(3))
+
+	message := broker.TaskMessage{
+		ID:          "integration-retry-exhausted",
+		Name:        "integration.exhausted",
+		Queue:       "default",
+		Payload:     []byte(`{"hello":"exhausted"}`),
+		MaxAttempts: 1,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	runWorkerUntil(t, worker, func() (bool, error) {
+		entries, err := deadLetters.List(ctx, "default", 10)
+		if err != nil {
+			return false, err
+		}
+		return len(entries) == 1, nil
+	})
+
+	entries, err := deadLetters.List(ctx, "default", 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if entries[0].Envelope.OriginalTask.ID != message.ID {
+		t.Fatalf("dead-letter task id = %q, want %q", entries[0].Envelope.OriginalTask.ID, message.ID)
+	}
+}
+
+func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+
+	original := broker.TaskMessage{
+		ID:        "integration-replay",
+		Name:      "integration.replay",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"replay"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	envelope := dlq.Envelope{
+		OriginalTask:     original,
+		FailureClass:     dlq.FailureClassPermanent,
+		LastError:        "failed permanently",
+		DeliveryCount:    1,
+		FirstEnqueuedAt:  original.CreatedAt,
+		LastFailureAt:    time.Now().UTC(),
+		WorkerIdentity:   "worker-1",
+		DeliveryID:       "delivery-1",
+		OriginalQueue:    "default",
+		OriginalTaskName: original.Name,
+	}
+
+	if err := deadLetters.PublishDeadLetter(ctx, envelope); err != nil {
+		t.Fatalf("PublishDeadLetter() error = %v", err)
+	}
+
+	entries, err := deadLetters.List(ctx, "default", 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("dead-letter entries = %d, want 1", len(entries))
+	}
+
+	if err := deadLetters.Replay(ctx, "default", entries[0].ID); err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "default", "replay-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() replayed task error = %v", err)
+	}
+	if delivery.Message.ID != original.ID {
+		t.Fatalf("replayed task id = %q, want %q", delivery.Message.ID, original.ID)
+	}
+}
+
 func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context, *brokerredis.RedisBroker, *redis.Client) {
 	t.Helper()
 
@@ -351,5 +525,67 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 		t.Fatalf("FlushDB() error = %v", err)
 	}
 
-	return ctx, brokerredis.New(client, slog.Default(), leaseTTL, nil), client
+	return ctx, brokerredis.NewWithOptions(client, slog.Default(), leaseTTL, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	}), client
+}
+
+func newIntegrationWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {
+	return &runtimepkg.Worker{
+		Broker:       b,
+		DeadLetter:   deadLetters,
+		Handler:      handler,
+		Logger:       slog.Default(),
+		Metrics:      observability.NewMetrics(),
+		Clock:        clock.RealClock{},
+		RetryPolicy:  policy,
+		Queue:        "default",
+		ConsumerID:   "integration-worker",
+		PollInterval: 10 * time.Millisecond,
+		LeaseTTL:     30 * time.Second,
+		Concurrency:  1,
+	}
+}
+
+func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (bool, error)) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ok, err := condition()
+		if err != nil {
+			t.Fatalf("condition error = %v", err)
+		}
+		if ok {
+			cancel()
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Fatalf("worker.Run() error = %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatalf("worker did not stop after cancel")
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	default:
+	}
+	t.Fatalf("condition was not met before timeout")
 }

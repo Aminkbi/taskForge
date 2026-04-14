@@ -40,7 +40,7 @@ func TestWorkerProcessTaskRetriesFailedTask(t *testing.T) {
 
 	b := &stubBroker{}
 	w := newTestWorker(b, nil, HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return errors.New("boom")
+		return Retryable(errors.New("boom"))
 	}))
 	w.Clock = fixedClock{now: time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)}
 	w.RetryPolicy = tasks.DefaultRetryPolicy(3)
@@ -76,9 +76,9 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	t.Parallel()
 
 	b := &stubBroker{}
-	dlq := &stubDeadLetter{}
-	w := newTestWorker(b, dlq, HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return errors.New("boom")
+	deadLetters := &stubDeadLetter{}
+	w := newTestWorker(b, deadLetters, HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return Permanent(errors.New("boom"))
 	}))
 	w.Clock = fixedClock{now: time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)}
 	w.RetryPolicy = tasks.DefaultRetryPolicy(1)
@@ -87,11 +87,14 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	if err := w.processTask(context.Background(), delivery); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
-	if len(dlq.messages) != 1 {
-		t.Fatalf("dead-letter calls = %d, want 1", len(dlq.messages))
+	if len(deadLetters.envelopes) != 1 {
+		t.Fatalf("dead-letter calls = %d, want 1", len(deadLetters.envelopes))
 	}
-	if got := dlq.messages[0].Headers["last_error"]; got != "boom" {
+	if got := deadLetters.envelopes[0].LastError; got != "boom" {
 		t.Fatalf("dead-letter last_error = %q, want %q", got, "boom")
+	}
+	if got := deadLetters.envelopes[0].FailureClass; got != dlq.FailureClassPermanent {
+		t.Fatalf("dead-letter failure class = %q, want %q", got, dlq.FailureClassPermanent)
 	}
 	if len(b.acked) != 1 {
 		t.Fatalf("Ack calls = %d, want 1", len(b.acked))
@@ -131,13 +134,11 @@ func (b *stubBroker) ExtendLease(context.Context, broker.Delivery, time.Duration
 }
 
 type stubDeadLetter struct {
-	messages []broker.TaskMessage
-	reasons  []string
+	envelopes []dlq.Envelope
 }
 
-func (d *stubDeadLetter) PublishDeadLetter(_ context.Context, msg broker.TaskMessage, reason string) error {
-	d.messages = append(d.messages, msg)
-	d.reasons = append(d.reasons, reason)
+func (d *stubDeadLetter) PublishDeadLetter(_ context.Context, envelope dlq.Envelope) error {
+	d.envelopes = append(d.envelopes, envelope)
 	return nil
 }
 

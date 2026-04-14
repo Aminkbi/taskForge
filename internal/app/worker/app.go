@@ -31,7 +31,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 
 	b := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.LeaseTTL, metrics)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil)
-	dispatcher := dlq.Dispatcher{Broker: b}
+	dispatcher := dlq.NewService(client, b, logger.With("component", "dlq"))
 
 	worker := &runtimepkg.Worker{
 		Broker:     b,

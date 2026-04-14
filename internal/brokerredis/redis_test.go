@@ -28,6 +28,24 @@ func TestStreamNaming(t *testing.T) {
 	}
 }
 
+func TestNewWithOptionsDefaultsReserveTimeout(t *testing.T) {
+	t.Parallel()
+
+	b := NewWithOptions(nil, nil, 30*time.Second, nil, Options{})
+	if b.reserveTTL != defaultReserveTimeout {
+		t.Fatalf("reserveTTL = %v, want %v", b.reserveTTL, defaultReserveTimeout)
+	}
+}
+
+func TestNewWithOptionsUsesConfiguredReserveTimeout(t *testing.T) {
+	t.Parallel()
+
+	b := NewWithOptions(nil, nil, 30*time.Second, nil, Options{ReserveTimeout: 75 * time.Millisecond})
+	if b.reserveTTL != 75*time.Millisecond {
+		t.Fatalf("reserveTTL = %v, want %v", b.reserveTTL, 75*time.Millisecond)
+	}
+}
+
 func TestNewDeliveryDefaults(t *testing.T) {
 	t.Parallel()
 
