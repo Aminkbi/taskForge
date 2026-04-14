@@ -1,7 +1,5 @@
 package runtime
 
-import "context"
-
 type TaskTypeLimiter struct {
 	limits map[string]chan struct{}
 }
@@ -22,29 +20,6 @@ func NewTaskTypeLimiter(limits map[string]int) *TaskTypeLimiter {
 		return nil
 	}
 	return &TaskTypeLimiter{limits: sem}
-}
-
-func acquireTaskSlot(ctx context.Context, limiter *TaskTypeLimiter, taskName string) (func(), error) {
-	if limiter == nil {
-		return func() {}, nil
-	}
-
-	sem, ok := limiter.limits[taskName]
-	if !ok {
-		return func() {}, nil
-	}
-
-	select {
-	case sem <- struct{}{}:
-		return func() {
-			select {
-			case <-sem:
-			default:
-			}
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
 }
 
 func tryAcquireTaskSlot(limiter *TaskTypeLimiter, taskName string) (func(), bool) {

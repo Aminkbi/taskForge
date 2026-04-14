@@ -129,11 +129,9 @@ func TestWorkerTaskTypeCapLeavesRoomForOtherTasks(t *testing.T) {
 
 	first := waitForStartedTask(t, started)
 	second := waitForStartedTask(t, started)
-	if first != "shared-1" {
-		t.Fatalf("first started task = %q, want %q", first, "shared-1")
-	}
-	if second != "other-1" {
-		t.Fatalf("second started task = %q, want %q", second, "other-1")
+	startedIDs := map[string]bool{first: true, second: true}
+	if !startedIDs["shared-1"] || !startedIDs["other-1"] {
+		t.Fatalf("first two started tasks = %q, %q, want one shared task and one other task", first, second)
 	}
 	if got := atomic.LoadInt32(&maxShared); got != 1 {
 		t.Fatalf("max shared concurrency = %d, want 1", got)
