@@ -1,7 +1,7 @@
 # TaskForge
 
-TaskForge is a Go scaffold for building a small distributed job system.
-It borrows a few ideas from Celery, but it is not trying to clone Celery feature-for-feature. The goal here is simpler: start with a codebase that is easy to read, easy to extend, and honest about what is finished and what is still a placeholder.
+TaskForge is a Go codebase for building a small distributed job system.
+It borrows a few ideas from Celery, but it is not trying to clone Celery feature-for-feature. The goal is narrower: keep the queue runtime easy to read, easy to extend, and honest about what is implemented versus what is still missing.
 
 Right now the repo gives you the shape of the system:
 
@@ -11,7 +11,7 @@ Right now the repo gives you the shape of the system:
 - Redis Streams-backed active queueing plus Redis delayed release paths
 - logging, metrics, health checks, and optional OpenTelemetry wiring
 
-It is a solid starting point for backend or infra work, but it is still a scaffold. Some reliability details are intentionally left as TODOs instead of being hidden behind vague promises.
+It is a usable starting point for backend or infra work, but it is still an early-stage system rather than a finished queue product. Some areas are intentionally incomplete instead of being hidden behind vague promises.
 
 ## What is here today
 
@@ -36,7 +36,7 @@ Internally, the runtime distinguishes the logical `task_id` from a single `deliv
 
 The repository builds and starts three binaries:
 
-- `cmd/worker` polls Redis, runs a placeholder handler, and goes through classified retry and DLQ paths.
+- `cmd/worker` polls Redis, runs a placeholder handler, and exercises the retry and DLQ paths.
 - `cmd/scheduler` releases delayed work when its ETA is reached.
 - `cmd/api` exposes health, readiness, metrics, and a small admin surface.
 - `cmd/demo` runs a small end-to-end demo that lets the scheduler trigger file-appending tasks.
@@ -102,7 +102,11 @@ make run-worker
 make run-scheduler
 make run-api
 make run-demo
+make run-example-email
+make run-example-media
+make run-example-external-api
 make test
+make bench
 make lint
 make fmt
 ```
@@ -113,6 +117,7 @@ You can also use the helper scripts:
 ./scripts/dev.sh
 ./scripts/test.sh
 ./scripts/lint.sh
+./scripts/bench.sh
 ```
 
 ### Demo the scheduler
@@ -148,9 +153,26 @@ Then inspect the output file:
 sed -n '1,20p' /tmp/taskforge-demo.log
 ```
 
+### Runnable examples
+
+TaskForge also includes three local example commands:
+
+```bash
+make run-example-email
+make run-example-media
+make run-example-external-api
+```
+
+They are documented in:
+
+- [docs/operations/examples.md](./docs/operations/examples.md)
+- [docs/operations/failure-matrix.md](./docs/operations/failure-matrix.md)
+- [docs/operations/runbooks.md](./docs/operations/runbooks.md)
+- [docs/operations/benchmarks.md](./docs/operations/benchmarks.md)
+
 ## Configuration
 
-The scaffold reads configuration from environment variables:
+TaskForge reads configuration from environment variables:
 
 ```env
 TASKFORGE_LOG_LEVEL=info
@@ -289,10 +311,15 @@ Run integration tests against local infrastructure with:
 TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
 ```
 
+Run the opt-in benchmark harness against local Redis with:
+
+```bash
+TASKFORGE_RUN_BENCHMARKS=1 make bench
+```
+
 ## Notes for the next pass
 
 - Add deeper admin and HTTP operations for dead-letter inspection and replay.
 - Add real task registration and user-defined handlers.
 - Persist task results and execution metadata properly.
-- Add deeper tracing around publish, reserve, execute, retry, and dead-letter flow.
 - Add a second broker implementation without changing the runtime contract.
