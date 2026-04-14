@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -483,16 +484,16 @@ func TestSchedulerLeaderElectionDispatchesRecurringOnce(t *testing.T) {
 	}
 }
 
-func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
+func TestSchedulerFastFailoverDoesNotDuplicateRecurringRun(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	startAt := time.Now().UTC().Add(-time.Second)
+	startAt := time.Now().UTC().Add(-20 * time.Millisecond)
 	schedules := []schedulerpkg.ScheduleDefinition{{
-		ID:            "integration-recurring-failover",
-		Interval:      50 * time.Millisecond,
+		ID:            "integration-recurring-fast-failover",
+		Interval:      300 * time.Millisecond,
 		Queue:         "default",
 		TaskName:      "integration.recurring",
-		Payload:       json.RawMessage(`{"hello":"failover"}`),
+		Payload:       json.RawMessage(`{"hello":"fast-failover"}`),
 		Enabled:       true,
 		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
 		StartAt:       &startAt,
@@ -510,9 +511,81 @@ func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
 	errChB := runScheduler(ctxB, schedulerB)
 
 	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	leaderOwner := waitForSchedulerLeaderOwner(t, client)
+	switch {
+	case strings.HasPrefix(leaderOwner, "scheduler-a"):
+		cancelA()
+		waitForSchedulerStop(t, errChA)
+	case strings.HasPrefix(leaderOwner, "scheduler-b"):
+		cancelB()
+		waitForSchedulerStop(t, errChB)
+	default:
+		t.Fatalf("unexpected scheduler leader owner %q", leaderOwner)
+	}
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 2)
+	cancelA()
+	cancelB()
+	waitForSchedulerStopIfRunning(t, errChA)
+	waitForSchedulerStopIfRunning(t, errChB)
+
+	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	if len(messages) != 2 {
+		t.Fatalf("stream messages = %d, want 2", len(messages))
+	}
+	if messages[0].ID == messages[1].ID {
+		t.Fatalf("recurring task ids are identical: %q", messages[0].ID)
+	}
+	if messages[1].Headers[schedulerpkg.HeaderScheduleID] != "integration-recurring-fast-failover" {
+		t.Fatalf("schedule_id header = %q, want %q", messages[1].Headers[schedulerpkg.HeaderScheduleID], "integration-recurring-fast-failover")
+	}
+	firstNominalAt := mustParseRFC3339Time(t, messages[0].Headers[schedulerpkg.HeaderScheduleNominalAt])
+	secondNominalAt := mustParseRFC3339Time(t, messages[1].Headers[schedulerpkg.HeaderScheduleNominalAt])
+	if !secondNominalAt.After(firstNominalAt) {
+		t.Fatalf("second nominal_at = %v, want later than first nominal_at %v", secondNominalAt, firstNominalAt)
+	}
+	missedRuns, err := strconv.Atoi(messages[1].Headers[schedulerpkg.HeaderScheduleMissedRuns])
+	if err != nil {
+		t.Fatalf("parse missed runs = %v", err)
+	}
+	if missedRuns < 0 {
+		t.Fatalf("missed runs = %d, want >= 0", missedRuns)
+	}
+}
+
+func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	startAt := time.Now().UTC().Add(-20 * time.Millisecond)
+	schedules := []schedulerpkg.ScheduleDefinition{{
+		ID:            "integration-recurring-failover",
+		Interval:      150 * time.Millisecond,
+		Queue:         "default",
+		TaskName:      "integration.recurring",
+		Payload:       json.RawMessage(`{"hello":"failover"}`),
+		Enabled:       true,
+		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+		StartAt:       &startAt,
+	}}
+
+	schedulerA := newIntegrationScheduler(t, client, "scheduler-a", schedules)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+
+	errChA := runScheduler(ctxA, schedulerA)
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 1)
 	cancelA()
 	waitForSchedulerStop(t, errChA)
 
+	time.Sleep(450 * time.Millisecond)
+
+	schedulerB := newIntegrationScheduler(t, client, "scheduler-b", schedules)
+	ctxB, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+
+	errChB := runScheduler(ctxB, schedulerB)
 	waitForStreamLength(t, client, "taskforge:stream:default", 2)
 	cancelB()
 	waitForSchedulerStop(t, errChB)
@@ -533,6 +606,11 @@ func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
 	}
 	if missedRuns < 1 {
 		t.Fatalf("missed runs = %d, want >= 1", missedRuns)
+	}
+	secondNominalAt := mustParseRFC3339Time(t, messages[1].Headers[schedulerpkg.HeaderScheduleNominalAt])
+	secondDispatchedAt := mustParseRFC3339Time(t, messages[1].Headers[schedulerpkg.HeaderScheduleDispatchedAt])
+	if secondDispatchedAt.Sub(secondNominalAt) < 150*time.Millisecond {
+		t.Fatalf("dispatch lag = %v, want at least one interval", secondDispatchedAt.Sub(secondNominalAt))
 	}
 }
 
@@ -756,6 +834,18 @@ func waitForSchedulerStop(t *testing.T, errCh <-chan error) {
 	}
 }
 
+func waitForSchedulerStopIfRunning(t *testing.T, errCh <-chan error) {
+	t.Helper()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("scheduler.Run() error = %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func waitForStreamLength(t *testing.T, client *redis.Client, streamKey string, expected int64) {
 	t.Helper()
 
@@ -772,6 +862,25 @@ func waitForStreamLength(t *testing.T, client *redis.Client, streamKey string, e
 	}
 
 	t.Fatalf("stream %s did not reach length %d before timeout", streamKey, expected)
+}
+
+func waitForSchedulerLeaderOwner(t *testing.T, client *redis.Client) string {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		value, err := client.Get(context.Background(), "taskforge:scheduler:leader").Result()
+		if err == nil && value != "" {
+			owner, _, found := strings.Cut(value, "|")
+			if found && owner != "" {
+				return owner
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("scheduler leader owner was not observed before timeout")
+	return ""
 }
 
 func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Client, streamKey string) []broker.TaskMessage {
@@ -799,6 +908,16 @@ func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Cli
 		messages = append(messages, msg)
 	}
 	return messages
+}
+
+func mustParseRFC3339Time(t *testing.T, value string) time.Time {
+	t.Helper()
+
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		t.Fatalf("parse RFC3339 time %q: %v", value, err)
+	}
+	return parsed
 }
 
 func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (bool, error)) {
