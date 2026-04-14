@@ -39,6 +39,7 @@ The repository builds and starts three binaries:
 - `cmd/worker` polls Redis, runs a placeholder handler, and goes through classified retry and DLQ paths.
 - `cmd/scheduler` releases delayed work when its ETA is reached.
 - `cmd/api` exposes health, readiness, metrics, and a small admin surface.
+- `cmd/demo` runs a small end-to-end demo that lets the scheduler trigger file-appending tasks.
 
 ## What this is not
 
@@ -100,6 +101,7 @@ make compose-down
 make run-worker
 make run-scheduler
 make run-api
+make run-demo
 make test
 make lint
 make fmt
@@ -111,6 +113,39 @@ You can also use the helper scripts:
 ./scripts/dev.sh
 ./scripts/test.sh
 ./scripts/lint.sh
+```
+
+### Demo the scheduler
+
+If you want to see delayed and recurring scheduling do real work on your machine, use the demo binary. It starts a worker plus scheduler, publishes one delayed task, registers one recurring schedule, and appends lines to a local file when tasks run.
+
+```bash
+make run-demo
+```
+
+By default it:
+
+- uses Redis DB `15` unless `TASKFORGE_REDIS_DB` is explicitly set
+- clears that demo DB before starting
+- writes output to `/tmp/taskforge-demo.log`
+- schedules one delayed run after `3s`
+- schedules one recurring run every `2s`
+- stops after `8s`
+
+You can customize it:
+
+```bash
+TASKFORGE_DEMO_OUTPUT_FILE=/tmp/taskforge-demo.log \
+TASKFORGE_DEMO_DELAYED_AFTER=2s \
+TASKFORGE_DEMO_RECURRING_EVERY=1s \
+TASKFORGE_DEMO_RUN_FOR=6s \
+make run-demo
+```
+
+Then inspect the output file:
+
+```bash
+sed -n '1,20p' /tmp/taskforge-demo.log
 ```
 
 ## Configuration

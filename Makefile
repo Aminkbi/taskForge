@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 GOPROXY ?=
 
-.PHONY: run-worker run-scheduler run-api test lint fmt compose-up compose-down
+.PHONY: run-worker run-scheduler run-api run-demo test lint fmt compose-up compose-down
 
 run-worker:
 	$(GO) run ./cmd/worker
@@ -13,6 +13,9 @@ run-scheduler:
 
 run-api:
 	$(GO) run ./cmd/api
+
+run-demo:
+	$(GO) run ./cmd/demo
 
 test:
 	$(GO) test ./...
