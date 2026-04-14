@@ -1,25 +1,38 @@
 package observability
 
 import (
+	"context"
 	"net/http"
+	"slices"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+type QueueMetricsSnapshot struct {
+	Depth     float64
+	Reserved  float64
+	Consumers float64
+}
+
+type QueueMetricsProvider interface {
+	QueueMetricsSnapshot(ctx context.Context, queue string) (QueueMetricsSnapshot, error)
+}
+
 type Metrics struct {
 	Registry               *prometheus.Registry
-	TasksPublishedTotal    prometheus.Counter
-	TasksReservedTotal     prometheus.Counter
-	TasksReclaimedTotal    prometheus.Counter
-	TasksCompletedTotal    prometheus.Counter
-	TasksFailedTotal       prometheus.Counter
-	TasksRetriedTotal      prometheus.Counter
-	TasksDeadLetteredTotal prometheus.Counter
-	LeaseExtensionFailures prometheus.Counter
+	TasksPublishedTotal    *prometheus.CounterVec
+	TasksReservedTotal     *prometheus.CounterVec
+	TasksReclaimedTotal    *prometheus.CounterVec
+	TasksCompletedTotal    *prometheus.CounterVec
+	TasksFailedTotal       *prometheus.CounterVec
+	TasksRetriedTotal      *prometheus.CounterVec
+	TasksDeadLetteredTotal *prometheus.CounterVec
+	LeaseExtensionFailures *prometheus.CounterVec
 	TaskExecutionDuration  *prometheus.HistogramVec
-	WorkerActiveTasks      prometheus.Gauge
+	WorkerActiveTasks      *prometheus.GaugeVec
 }
 
 func NewMetrics() *Metrics {
@@ -31,47 +44,47 @@ func NewMetrics() *Metrics {
 
 	m := &Metrics{
 		Registry: registry,
-		TasksPublishedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_published_total",
+		TasksPublishedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_published_total",
 			Help: "Total number of tasks published.",
-		}),
-		TasksReservedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_reserved_total",
+		}, []string{"queue"}),
+		TasksReservedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_reserved_total",
 			Help: "Total number of tasks reserved by workers.",
-		}),
-		TasksReclaimedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_reclaimed_total",
+		}, []string{"queue"}),
+		TasksReclaimedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_reclaimed_total",
 			Help: "Total number of expired task deliveries reclaimed by workers.",
-		}),
-		TasksCompletedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_completed_total",
+		}, []string{"queue"}),
+		TasksCompletedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_completed_total",
 			Help: "Total number of tasks completed successfully.",
-		}),
-		TasksFailedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_failed_total",
+		}, []string{"queue"}),
+		TasksFailedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_failed_total",
 			Help: "Total number of task execution failures.",
-		}),
-		TasksRetriedTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_retried_total",
+		}, []string{"queue"}),
+		TasksRetriedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_retried_total",
 			Help: "Total number of tasks scheduled for retry.",
-		}),
-		TasksDeadLetteredTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "tasks_dead_lettered_total",
+		}, []string{"queue"}),
+		TasksDeadLetteredTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_tasks_dead_lettered_total",
 			Help: "Total number of tasks moved to dead letter queues.",
-		}),
-		LeaseExtensionFailures: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "lease_extension_failures_total",
+		}, []string{"queue"}),
+		LeaseExtensionFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_lease_extension_failures_total",
 			Help: "Total number of lease extension attempts that failed.",
-		}),
+		}, []string{"queue"}),
 		TaskExecutionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "task_execution_duration_seconds",
+			Name:    "taskforge_task_execution_duration_seconds",
 			Help:    "Task execution duration in seconds.",
 			Buckets: prometheus.DefBuckets,
-		}, []string{"task_name", "status"}),
-		WorkerActiveTasks: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "worker_active_tasks",
+		}, []string{"queue", "task_name", "status"}),
+		WorkerActiveTasks: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "taskforge_worker_active_tasks",
 			Help: "Current number of active worker tasks.",
-		}),
+		}, []string{"queue", "task_name"}),
 	}
 
 	registry.MustRegister(
@@ -92,4 +105,142 @@ func NewMetrics() *Metrics {
 
 func (m *Metrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{})
+}
+
+func (m *Metrics) IncPublished(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksPublishedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncReserved(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksReservedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncReclaimed(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksReclaimedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncCompleted(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksCompletedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncFailed(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksFailedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncRetried(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncDeadLettered(queue string) {
+	if m == nil {
+		return
+	}
+	m.TasksDeadLetteredTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncLeaseExtensionFailure(queue string) {
+	if m == nil {
+		return
+	}
+	m.LeaseExtensionFailures.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) ObserveExecution(queue, taskName, status string, duration float64) {
+	if m == nil {
+		return
+	}
+	m.TaskExecutionDuration.WithLabelValues(queue, taskName, status).Observe(duration)
+}
+
+func (m *Metrics) IncActiveTask(queue, taskName string) {
+	if m == nil {
+		return
+	}
+	m.WorkerActiveTasks.WithLabelValues(queue, taskName).Inc()
+}
+
+func (m *Metrics) DecActiveTask(queue, taskName string) {
+	if m == nil {
+		return
+	}
+	m.WorkerActiveTasks.WithLabelValues(queue, taskName).Dec()
+}
+
+func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
+	if m == nil || provider == nil || len(queues) == 0 {
+		return nil
+	}
+
+	cleanQueues := slices.Clone(queues)
+	slices.Sort(cleanQueues)
+	cleanQueues = slices.Compact(cleanQueues)
+	return m.Registry.Register(&queueMetricsCollector{
+		provider: provider,
+		queues:   cleanQueues,
+		depth: prometheus.NewDesc(
+			"taskforge_queue_depth",
+			"Current ready depth for a queue.",
+			[]string{"queue"},
+			nil,
+		),
+		reserved: prometheus.NewDesc(
+			"taskforge_queue_reserved",
+			"Current number of reserved deliveries for a queue.",
+			[]string{"queue"},
+			nil,
+		),
+		consumers: prometheus.NewDesc(
+			"taskforge_queue_consumers",
+			"Current number of active consumers for a queue.",
+			[]string{"queue"},
+			nil,
+		),
+	})
+}
+
+type queueMetricsCollector struct {
+	provider  QueueMetricsProvider
+	queues    []string
+	depth     *prometheus.Desc
+	reserved  *prometheus.Desc
+	consumers *prometheus.Desc
+}
+
+func (c *queueMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.depth
+	ch <- c.reserved
+	ch <- c.consumers
+}
+
+func (c *queueMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, queue := range c.queues {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		snapshot, err := c.provider.QueueMetricsSnapshot(ctx, queue)
+		cancel()
+		if err != nil {
+			continue
+		}
+
+		ch <- prometheus.MustNewConstMetric(c.depth, prometheus.GaugeValue, snapshot.Depth, queue)
+		ch <- prometheus.MustNewConstMetric(c.reserved, prometheus.GaugeValue, snapshot.Reserved, queue)
+		ch <- prometheus.MustNewConstMetric(c.consumers, prometheus.GaugeValue, snapshot.Consumers, queue)
+	}
 }

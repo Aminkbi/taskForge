@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,6 +80,62 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 	}
 }
 
+func TestRedisBrokerQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-metrics",
+		Name:      "integration.metrics",
+		Queue:     "critical",
+		Payload:   []byte(`{"hello":"metrics"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := brokerInstance.Publish(ctx, message); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	snapshot, err := brokerInstance.QueueMetricsSnapshot(ctx, "critical")
+	if err != nil {
+		t.Fatalf("QueueMetricsSnapshot() before reserve error = %v", err)
+	}
+	if snapshot.Depth != 1 || snapshot.Reserved != 0 {
+		t.Fatalf("pre-reserve queue snapshot = %+v, want depth=1 reserved=0", snapshot)
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "critical", "consumer-a")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+
+	snapshot, err = brokerInstance.QueueMetricsSnapshot(ctx, "critical")
+	if err != nil {
+		t.Fatalf("QueueMetricsSnapshot() after reserve error = %v", err)
+	}
+	if snapshot.Depth != 0 || snapshot.Reserved != 1 || snapshot.Consumers != 1 {
+		t.Fatalf("reserved queue snapshot = %+v, want depth=0 reserved=1 consumers=1", snapshot)
+	}
+
+	if err := brokerInstance.Ack(ctx, delivery); err != nil {
+		t.Fatalf("Ack() error = %v", err)
+	}
+
+	streamLen, err := client.XLen(ctx, "taskforge:stream:critical").Result()
+	if err != nil && !strings.Contains(err.Error(), "no such key") {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 0 {
+		t.Fatalf("stream length after ack = %d, want 0", streamLen)
+	}
+
+	snapshot, err = brokerInstance.QueueMetricsSnapshot(ctx, "critical")
+	if err != nil {
+		t.Fatalf("QueueMetricsSnapshot() after ack error = %v", err)
+	}
+	if snapshot.Depth != 0 || snapshot.Reserved != 0 {
+		t.Fatalf("post-ack queue snapshot = %+v, want depth=0 reserved=0", snapshot)
+	}
+}
+
 func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 
@@ -109,6 +166,76 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 
 	if err := brokerInstance.Ack(ctx, firstDelivery); err != nil {
 		t.Fatalf("Ack() first delivery error = %v", err)
+	}
+}
+
+func TestIntegrationWorkersIsolateQueuesByPool(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	criticalBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	bulkBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	publisher := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	deadLetters := dlq.NewService(client, publisher, slog.Default())
+
+	for _, message := range []broker.TaskMessage{
+		{
+			ID:        "integration-critical-1",
+			Name:      "integration.critical",
+			Queue:     "critical",
+			Payload:   []byte(`{"hello":"critical"}`),
+			CreatedAt: time.Now().UTC(),
+		},
+		{
+			ID:        "integration-bulk-1",
+			Name:      "integration.bulk",
+			Queue:     "bulk",
+			Payload:   []byte(`{"hello":"bulk"}`),
+			CreatedAt: time.Now().UTC(),
+		},
+	} {
+		if err := publisher.Publish(ctx, message); err != nil {
+			t.Fatalf("Publish() error = %v", err)
+		}
+	}
+
+	var mu sync.Mutex
+	processedByQueue := map[string][]string{}
+	manager := &runtimepkg.Manager{
+		Workers: []*runtimepkg.Worker{
+			newIntegrationWorkerWithQueue(criticalBroker, deadLetters, "critical", runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+				mu.Lock()
+				processedByQueue["critical"] = append(processedByQueue["critical"], msg.ID)
+				mu.Unlock()
+				return nil
+			}), tasks.DefaultRetryPolicy(1)),
+			newIntegrationWorkerWithQueue(bulkBroker, deadLetters, "bulk", runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+				mu.Lock()
+				processedByQueue["bulk"] = append(processedByQueue["bulk"], msg.ID)
+				mu.Unlock()
+				return nil
+			}), tasks.DefaultRetryPolicy(1)),
+		},
+	}
+
+	runManagerUntil(t, manager, func() (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(processedByQueue["critical"]) == 1 && len(processedByQueue["bulk"]) == 1, nil
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got := processedByQueue["critical"]; len(got) != 1 || got[0] != "integration-critical-1" {
+		t.Fatalf("critical worker processed = %+v, want [integration-critical-1]", got)
+	}
+	if got := processedByQueue["bulk"]; len(got) != 1 || got[0] != "integration-bulk-1" {
+		t.Fatalf("bulk worker processed = %+v, want [integration-bulk-1]", got)
 	}
 }
 
@@ -766,19 +893,24 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 }
 
 func newIntegrationWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {
+	return newIntegrationWorkerWithQueue(b, deadLetters, "default", handler, policy)
+}
+
+func newIntegrationWorkerWithQueue(b broker.Broker, deadLetters dlq.Publisher, queue string, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {
 	return &runtimepkg.Worker{
-		Broker:       b,
-		DeadLetter:   deadLetters,
-		Handler:      handler,
-		Logger:       slog.Default(),
-		Metrics:      observability.NewMetrics(),
-		Clock:        clock.RealClock{},
-		RetryPolicy:  policy,
-		Queue:        "default",
-		ConsumerID:   "integration-worker",
-		PollInterval: 10 * time.Millisecond,
-		LeaseTTL:     30 * time.Second,
-		Concurrency:  1,
+		Broker:      b,
+		DeadLetter:  deadLetters,
+		Handler:     handler,
+		Logger:      slog.Default(),
+		Metrics:     observability.NewMetrics(),
+		Clock:       clock.RealClock{},
+		RetryPolicy: policy,
+		PoolName:    queue,
+		Queue:       queue,
+		ConsumerID:  "integration-worker",
+		LeaseTTL:    30 * time.Second,
+		Concurrency: 1,
+		Prefetch:    1,
 	}
 }
 
@@ -957,6 +1089,49 @@ func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (b
 	case err := <-errCh:
 		if err != nil {
 			t.Fatalf("worker.Run() error = %v", err)
+		}
+	default:
+	}
+	t.Fatalf("condition was not met before timeout")
+}
+
+func runManagerUntil(t *testing.T, manager *runtimepkg.Manager, condition func() (bool, error)) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ok, err := condition()
+		if err != nil {
+			t.Fatalf("condition error = %v", err)
+		}
+		if ok {
+			cancel()
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Fatalf("manager.Run() error = %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatalf("manager did not stop after cancel")
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("manager.Run() error = %v", err)
 		}
 	default:
 	}

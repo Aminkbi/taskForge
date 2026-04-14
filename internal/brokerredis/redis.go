@@ -94,13 +94,21 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 		if err != nil {
 			return fmt.Errorf("publish task: marshal delayed entry: %w", err)
 		}
-		return b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
+		if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
 			Score:  float64(msg.ETA.UnixMilli()),
 			Member: entryPayload,
-		}).Err()
+		}).Err(); err != nil {
+			return err
+		}
+		b.metrics.IncPublished(tasks.EffectiveQueue(msg))
+		return nil
 	}
 
-	return b.publishReady(ctx, tasks.EffectiveQueue(msg), payload)
+	if err := b.publishReady(ctx, tasks.EffectiveQueue(msg), payload); err != nil {
+		return err
+	}
+	b.metrics.IncPublished(tasks.EffectiveQueue(msg))
+	return nil
 }
 
 func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {
@@ -178,6 +186,9 @@ func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
 	if acked == 0 {
 		return broker.ErrUnknownDelivery
 	}
+	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -204,13 +215,16 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	if acked == 0 {
 		return broker.ErrUnknownDelivery
 	}
+	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery, ttl time.Duration) error {
 	pending, effectiveTTL, err := b.validatePendingDelivery(ctx, delivery)
 	if err != nil {
-		b.incrementLeaseExtensionFailure()
+		b.incrementLeaseExtensionFailure(tasks.EffectiveQueue(delivery.Message))
 		b.logDeliveryRejection("lease extension rejected", delivery, pending, effectiveTTL, err)
 		return err
 	}
@@ -224,11 +238,11 @@ func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery,
 		Messages: []string{delivery.Execution.DeliveryID},
 	}).Result()
 	if err != nil {
-		b.incrementLeaseExtensionFailure()
+		b.incrementLeaseExtensionFailure(queue)
 		return fmt.Errorf("extend lease: %w", err)
 	}
 	if len(resetIDs) == 0 {
-		b.incrementLeaseExtensionFailure()
+		b.incrementLeaseExtensionFailure(queue)
 		return broker.ErrUnknownDelivery
 	}
 
@@ -342,9 +356,7 @@ func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamK
 
 		now := time.Now().UTC()
 		delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, pending.RetryCount+1))
-		if b.metrics != nil {
-			b.metrics.TasksReclaimedTotal.Inc()
-		}
+		b.metrics.IncReclaimed(queue)
 
 		b.logger.Info(
 			"reclaimed expired delivery",
@@ -455,10 +467,80 @@ func (b *RedisBroker) logDeliveryRejection(message string, delivery broker.Deliv
 	)
 }
 
-func (b *RedisBroker) incrementLeaseExtensionFailure() {
-	if b.metrics != nil {
-		b.metrics.LeaseExtensionFailures.Inc()
+func (b *RedisBroker) QueueMetricsSnapshot(ctx context.Context, queue string) (observability.QueueMetricsSnapshot, error) {
+	queue = normalizeQueue(queue)
+	streamKey := b.streamKey(queue)
+	groupName := b.groupName(queue)
+
+	length := int64(0)
+	streamInfo, err := b.client.XInfoStream(ctx, streamKey).Result()
+	if err != nil {
+		if !isMissingStream(err) {
+			return observability.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: stream %q: %w", queue, err)
+		}
+	} else {
+		length = int64(streamInfo.Length)
 	}
+
+	pendingCount := int64(0)
+	pending, err := b.client.XPending(ctx, streamKey, groupName).Result()
+	if err != nil {
+		if !isMissingGroup(err) && !isMissingStream(err) {
+			return observability.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: pending %q: %w", queue, err)
+		}
+	} else {
+		pendingCount = pending.Count
+	}
+
+	consumerCount := 0
+	consumers, err := b.client.XInfoConsumers(ctx, streamKey, groupName).Result()
+	if err != nil {
+		if !isMissingGroup(err) && !isMissingStream(err) {
+			return observability.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: consumers %q: %w", queue, err)
+		}
+	} else {
+		consumerCount = len(consumers)
+	}
+
+	ready := length - pendingCount
+	if ready < 0 {
+		ready = 0
+	}
+
+	return observability.QueueMetricsSnapshot{
+		Depth:     float64(ready),
+		Reserved:  float64(pendingCount),
+		Consumers: float64(consumerCount),
+	}, nil
+}
+
+func (b *RedisBroker) incrementLeaseExtensionFailure(queue string) {
+	b.metrics.IncLeaseExtensionFailure(queue)
+}
+
+func (b *RedisBroker) deleteFinalizedEntry(ctx context.Context, queue, deliveryID string) error {
+	deleted, err := b.client.XDel(ctx, b.streamKey(queue), deliveryID).Result()
+	if err != nil {
+		return fmt.Errorf("delete finalized task entry: %w", err)
+	}
+	if deleted == 0 {
+		return broker.ErrUnknownDelivery
+	}
+	return nil
+}
+
+func isMissingGroup(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "NOGROUP")
+}
+
+func isMissingStream(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, redis.Nil) || strings.Contains(err.Error(), "no such key")
 }
 
 func (b *RedisBroker) effectiveLeaseTTL(msg broker.TaskMessage) time.Duration {

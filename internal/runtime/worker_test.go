@@ -152,18 +152,19 @@ func (c fixedClock) Now() time.Time {
 
 func newTestWorker(b broker.Broker, deadLetterPublisher dlq.Publisher, handler Handler) *Worker {
 	return &Worker{
-		Broker:       b,
-		DeadLetter:   deadLetterPublisher,
-		Handler:      handler,
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Metrics:      observability.NewMetrics(),
-		Clock:        clock.RealClock{},
-		RetryPolicy:  tasks.DefaultRetryPolicy(3),
-		Queue:        "default",
-		ConsumerID:   "worker-1",
-		PollInterval: 10 * time.Millisecond,
-		LeaseTTL:     0,
-		Concurrency:  1,
+		Broker:      b,
+		DeadLetter:  deadLetterPublisher,
+		Handler:     handler,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics:     observability.NewMetrics(),
+		Clock:       clock.RealClock{},
+		RetryPolicy: tasks.DefaultRetryPolicy(3),
+		PoolName:    "default",
+		Queue:       "default",
+		ConsumerID:  "worker-1",
+		LeaseTTL:    0,
+		Concurrency: 1,
+		Prefetch:    1,
 	}
 }
 

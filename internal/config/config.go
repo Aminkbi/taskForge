@@ -9,6 +9,7 @@ import (
 	"time"
 
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
+	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 	defaultRedisAddr        = "localhost:6379"
 	defaultRedisDB          = 0
 	defaultWorkerConcurrent = 4
+	defaultWorkerPrefetch   = 4
 	defaultPollInterval     = time.Second
 	defaultLeaseTTL         = 30 * time.Second
 	defaultShutdownTimeout  = 10 * time.Second
@@ -32,15 +34,50 @@ type Config struct {
 	RedisAddr              string
 	RedisPassword          string
 	RedisDB                int
-	WorkerCount            int
+	WorkerPools            []WorkerPoolConfig
+	TaskTypeLimits         map[string]int
 	PollInterval           time.Duration
-	LeaseTTL               time.Duration
 	ShutdownTimeout        time.Duration
 	SchedulerLockTTL       time.Duration
 	SchedulerRenewInterval time.Duration
 	RecurringSchedules     []schedulerpkg.ScheduleDefinition
 	OTELEnabled            bool
 	ServiceName            string
+}
+
+type WorkerPoolConfig struct {
+	Name           string
+	Queue          string
+	Concurrency    int
+	Prefetch       int
+	LeaseTTL       time.Duration
+	RetryPolicy    tasks.RetryPolicy
+	TaskTypeLimits map[string]int
+}
+
+type rawRetryPolicy struct {
+	MaxAttempts    int     `json:"max_attempts"`
+	MaxDeliveries  int     `json:"max_deliveries"`
+	InitialBackoff string  `json:"initial_backoff"`
+	MaxBackoff     string  `json:"max_backoff"`
+	Multiplier     float64 `json:"multiplier"`
+	Jitter         float64 `json:"jitter"`
+	MaxTaskAge     string  `json:"max_task_age"`
+}
+
+type rawTaskLimit struct {
+	TaskName       string `json:"task_name"`
+	MaxConcurrency int    `json:"max_concurrency"`
+}
+
+type rawWorkerPool struct {
+	Name        string         `json:"name"`
+	Queue       string         `json:"queue"`
+	Concurrency int            `json:"concurrency"`
+	Prefetch    int            `json:"prefetch"`
+	LeaseTTL    string         `json:"lease_ttl"`
+	Retry       rawRetryPolicy `json:"retry"`
+	TaskLimits  []rawTaskLimit `json:"task_limits"`
 }
 
 func Load(defaultServiceName string) (Config, error) {
@@ -51,9 +88,7 @@ func Load(defaultServiceName string) (Config, error) {
 		RedisAddr:              getEnv("TASKFORGE_REDIS_ADDR", defaultRedisAddr),
 		RedisPassword:          getEnv("TASKFORGE_REDIS_PASSWORD", ""),
 		RedisDB:                defaultRedisDB,
-		WorkerCount:            defaultWorkerConcurrent,
 		PollInterval:           defaultPollInterval,
-		LeaseTTL:               defaultLeaseTTL,
 		ShutdownTimeout:        defaultShutdownTimeout,
 		SchedulerLockTTL:       defaultSchedulerLockTTL,
 		SchedulerRenewInterval: defaultSchedulerRenew,
@@ -64,16 +99,7 @@ func Load(defaultServiceName string) (Config, error) {
 	if cfg.RedisDB, err = getEnvInt("TASKFORGE_REDIS_DB", defaultRedisDB); err != nil {
 		return Config{}, err
 	}
-	if cfg.WorkerCount, err = getEnvInt("TASKFORGE_WORKER_CONCURRENCY", defaultWorkerConcurrent); err != nil {
-		return Config{}, err
-	}
-	if cfg.WorkerCount < 1 {
-		return Config{}, fmt.Errorf("TASKFORGE_WORKER_CONCURRENCY must be >= 1")
-	}
 	if cfg.PollInterval, err = getEnvDuration("TASKFORGE_POLL_INTERVAL", defaultPollInterval); err != nil {
-		return Config{}, err
-	}
-	if cfg.LeaseTTL, err = getEnvDuration("TASKFORGE_LEASE_TTL", defaultLeaseTTL); err != nil {
 		return Config{}, err
 	}
 	if cfg.ShutdownTimeout, err = getEnvDuration("TASKFORGE_SHUTDOWN_TIMEOUT", defaultShutdownTimeout); err != nil {
@@ -93,6 +119,12 @@ func Load(defaultServiceName string) (Config, error) {
 	}
 	if cfg.SchedulerRenewInterval >= cfg.SchedulerLockTTL {
 		return Config{}, fmt.Errorf("TASKFORGE_SCHEDULER_RENEW_INTERVAL must be less than TASKFORGE_SCHEDULER_LOCK_TTL")
+	}
+	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON"); err != nil {
+		return Config{}, err
+	}
+	if cfg.TaskTypeLimits, err = getTaskTypeLimits("TASKFORGE_TASK_TYPE_LIMITS_JSON"); err != nil {
+		return Config{}, err
 	}
 	if cfg.RecurringSchedules, err = getRecurringSchedules("TASKFORGE_SCHEDULES_JSON"); err != nil {
 		return Config{}, err
@@ -148,6 +180,179 @@ func getEnvBool(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s: parse bool: %w", key, err)
 	}
 	return parsed, nil
+}
+
+func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return []WorkerPoolConfig{
+			{
+				Name:        "default",
+				Queue:       "default",
+				Concurrency: defaultWorkerConcurrent,
+				Prefetch:    defaultWorkerPrefetch,
+				LeaseTTL:    defaultLeaseTTL,
+				RetryPolicy: tasks.DefaultRetryPolicy(3),
+			},
+		}, nil
+	}
+
+	var rawPools []rawWorkerPool
+	if err := json.Unmarshal([]byte(value), &rawPools); err != nil {
+		return nil, fmt.Errorf("%s: parse worker pools json: %w", key, err)
+	}
+	if len(rawPools) == 0 {
+		return nil, fmt.Errorf("%s: at least one worker pool is required", key)
+	}
+
+	pools := make([]WorkerPoolConfig, 0, len(rawPools))
+	seenNames := make(map[string]struct{}, len(rawPools))
+	seenQueues := make(map[string]struct{}, len(rawPools))
+	for _, raw := range rawPools {
+		name := strings.TrimSpace(raw.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%s: worker pool name is required", key)
+		}
+		if _, exists := seenNames[name]; exists {
+			return nil, fmt.Errorf("%s: duplicate worker pool name %q", key, name)
+		}
+		seenNames[name] = struct{}{}
+
+		queue := normalizeQueue(raw.Queue)
+		if _, exists := seenQueues[queue]; exists {
+			return nil, fmt.Errorf("%s: duplicate worker pool queue %q", key, queue)
+		}
+		seenQueues[queue] = struct{}{}
+
+		concurrency := raw.Concurrency
+		if concurrency < 1 {
+			return nil, fmt.Errorf("%s: worker pool %q concurrency must be >= 1", key, name)
+		}
+
+		prefetch := raw.Prefetch
+		if prefetch == 0 {
+			prefetch = concurrency
+		}
+		if prefetch < concurrency {
+			return nil, fmt.Errorf("%s: worker pool %q prefetch must be >= concurrency", key, name)
+		}
+
+		leaseTTL, err := time.ParseDuration(strings.TrimSpace(raw.LeaseTTL))
+		if err != nil {
+			return nil, fmt.Errorf("%s: worker pool %q lease_ttl: %w", key, name, err)
+		}
+		if leaseTTL <= 0 {
+			return nil, fmt.Errorf("%s: worker pool %q lease_ttl must be > 0", key, name)
+		}
+
+		retryPolicy, err := parseRetryPolicy(key, name, raw.Retry)
+		if err != nil {
+			return nil, err
+		}
+		taskLimits, err := parseTaskLimitEntries(key, fmt.Sprintf("worker pool %q", name), raw.TaskLimits)
+		if err != nil {
+			return nil, err
+		}
+
+		pools = append(pools, WorkerPoolConfig{
+			Name:           name,
+			Queue:          queue,
+			Concurrency:    concurrency,
+			Prefetch:       prefetch,
+			LeaseTTL:       leaseTTL,
+			RetryPolicy:    retryPolicy,
+			TaskTypeLimits: taskLimits,
+		})
+	}
+
+	return pools, nil
+}
+
+func getTaskTypeLimits(key string) (map[string]int, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return nil, nil
+	}
+
+	var rawLimits []rawTaskLimit
+	if err := json.Unmarshal([]byte(value), &rawLimits); err != nil {
+		return nil, fmt.Errorf("%s: parse task type limits json: %w", key, err)
+	}
+
+	return parseTaskLimitEntries(key, "global task type limits", rawLimits)
+}
+
+func parseTaskLimitEntries(key, scope string, rawLimits []rawTaskLimit) (map[string]int, error) {
+	if len(rawLimits) == 0 {
+		return nil, nil
+	}
+
+	limits := make(map[string]int, len(rawLimits))
+	for _, raw := range rawLimits {
+		taskName := strings.TrimSpace(raw.TaskName)
+		if taskName == "" {
+			return nil, fmt.Errorf("%s: %s: task_name is required", key, scope)
+		}
+		if raw.MaxConcurrency < 1 {
+			return nil, fmt.Errorf("%s: %s: task %q max_concurrency must be >= 1", key, scope, taskName)
+		}
+		if _, exists := limits[taskName]; exists {
+			return nil, fmt.Errorf("%s: %s: duplicate task_name %q", key, scope, taskName)
+		}
+		limits[taskName] = raw.MaxConcurrency
+	}
+	return limits, nil
+}
+
+func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPolicy, error) {
+	policy := tasks.DefaultRetryPolicy(3)
+	if raw.MaxAttempts > 0 {
+		policy.MaxAttempts = raw.MaxAttempts
+		if raw.MaxDeliveries == 0 {
+			policy.MaxDeliveries = raw.MaxAttempts
+		}
+	}
+	if raw.MaxDeliveries > 0 {
+		policy.MaxDeliveries = raw.MaxDeliveries
+		if raw.MaxAttempts == 0 {
+			policy.MaxAttempts = raw.MaxDeliveries
+		}
+	}
+
+	var err error
+	if raw.InitialBackoff != "" {
+		policy.InitialBackoff, err = time.ParseDuration(raw.InitialBackoff)
+		if err != nil {
+			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.initial_backoff: %w", key, poolName, err)
+		}
+	}
+	if raw.MaxBackoff != "" {
+		policy.MaxBackoff, err = time.ParseDuration(raw.MaxBackoff)
+		if err != nil {
+			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_backoff: %w", key, poolName, err)
+		}
+	}
+	if raw.Multiplier != 0 {
+		policy.Multiplier = raw.Multiplier
+	}
+	if raw.Jitter != 0 {
+		policy.Jitter = raw.Jitter
+	}
+	if raw.MaxTaskAge != "" {
+		policy.MaxTaskAge, err = time.ParseDuration(raw.MaxTaskAge)
+		if err != nil {
+			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_task_age: %w", key, poolName, err)
+		}
+	}
+
+	return policy, nil
+}
+
+func normalizeQueue(queue string) string {
+	if strings.TrimSpace(queue) == "" {
+		return "default"
+	}
+	return strings.TrimSpace(queue)
 }
 
 func getRecurringSchedules(key string) ([]schedulerpkg.ScheduleDefinition, error) {

@@ -14,12 +14,11 @@ import (
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
-	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 type App struct {
 	server *httpserver.Server
-	worker *runtimepkg.Worker
+	worker *runtimepkg.Manager
 }
 
 func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) *App {
@@ -29,30 +28,39 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	b := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.LeaseTTL, metrics)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil)
-	dispatcher := dlq.NewService(client, b, logger.With("component", "dlq"))
+	sharedBroker := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics)
+	dispatcher := dlq.NewService(client, sharedBroker, logger.With("component", "dlq"))
 
-	worker := &runtimepkg.Worker{
-		Broker:     b,
-		DeadLetter: dispatcher,
-		Handler: runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
-			return nil
-		}),
-		Logger:       logger.With("component", "worker-runtime"),
-		Metrics:      metrics,
-		Clock:        clock.RealClock{},
-		RetryPolicy:  tasks.DefaultRetryPolicy(3),
-		Queue:        "default",
-		ConsumerID:   cfg.ServiceName,
-		PollInterval: cfg.PollInterval,
-		LeaseTTL:     cfg.LeaseTTL,
-		Concurrency:  cfg.WorkerCount,
+	globalLimiter := runtimepkg.NewTaskTypeLimiter(cfg.TaskTypeLimits)
+	workers := make([]*runtimepkg.Worker, 0, len(cfg.WorkerPools))
+	queues := make([]string, 0, len(cfg.WorkerPools))
+	for _, pool := range cfg.WorkerPools {
+		poolBroker := brokerredis.New(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics)
+		queues = append(queues, pool.Queue)
+		workers = append(workers, &runtimepkg.Worker{
+			Broker:            poolBroker,
+			DeadLetter:        dispatcher,
+			Handler:           runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error { return nil }),
+			Logger:            logger.With("component", "worker-runtime", "pool", pool.Name, "queue", pool.Queue),
+			Metrics:           metrics,
+			Clock:             clock.RealClock{},
+			RetryPolicy:       pool.RetryPolicy,
+			PoolName:          pool.Name,
+			Queue:             pool.Queue,
+			ConsumerID:        cfg.ServiceName,
+			LeaseTTL:          pool.LeaseTTL,
+			Concurrency:       pool.Concurrency,
+			Prefetch:          pool.Prefetch,
+			GlobalTaskLimiter: globalLimiter,
+			PoolTaskLimiter:   runtimepkg.NewTaskTypeLimiter(pool.TaskTypeLimits),
+		})
 	}
+	_ = metrics.RegisterQueueMetricsCollector(sharedBroker, queues)
 
 	return &App{
 		server: server,
-		worker: worker,
+		worker: &runtimepkg.Manager{Workers: workers},
 	}
 }
 

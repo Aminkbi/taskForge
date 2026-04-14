@@ -20,7 +20,6 @@ import (
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/shutdown"
-	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 func main() {
@@ -72,29 +71,47 @@ func main() {
 	defer client.Close()
 
 	metrics := observability.NewMetrics()
-	brokerInstance := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.LeaseTTL, metrics)
+	queueNames := make([]string, 0, len(cfg.WorkerPools))
+	workers := make([]*runtimepkg.Worker, 0, len(cfg.WorkerPools))
+	globalLimiter := runtimepkg.NewTaskTypeLimiter(cfg.TaskTypeLimits)
+	for _, pool := range cfg.WorkerPools {
+		queueNames = append(queueNames, pool.Queue)
+		poolBroker := brokerredis.New(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics)
+		workers = append(workers, &runtimepkg.Worker{
+			Broker:            poolBroker,
+			Handler:           demo.Handler{Logger: logger.With("component", "demo-handler", "pool", pool.Name, "queue", pool.Queue)},
+			Logger:            logger.With("component", "worker-runtime", "pool", pool.Name, "queue", pool.Queue),
+			Metrics:           metrics,
+			Clock:             clock.RealClock{},
+			RetryPolicy:       pool.RetryPolicy,
+			PoolName:          pool.Name,
+			Queue:             pool.Queue,
+			ConsumerID:        cfg.ServiceName,
+			LeaseTTL:          pool.LeaseTTL,
+			Concurrency:       pool.Concurrency,
+			Prefetch:          pool.Prefetch,
+			GlobalTaskLimiter: globalLimiter,
+			PoolTaskLimiter:   runtimepkg.NewTaskTypeLimiter(pool.TaskTypeLimits),
+		})
+	}
+
+	if len(cfg.WorkerPools) == 0 {
+		fmt.Fprintln(os.Stderr, "demo requires at least one worker pool")
+		os.Exit(1)
+	}
+
+	brokerInstance := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics)
 	if err := brokerInstance.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
 	}
-
-	worker := &runtimepkg.Worker{
-		Broker:       brokerInstance,
-		Handler:      demo.Handler{Logger: logger.With("component", "demo-handler")},
-		Logger:       logger.With("component", "worker-runtime"),
-		Metrics:      metrics,
-		Clock:        clock.RealClock{},
-		RetryPolicy:  tasks.DefaultRetryPolicy(1),
-		Queue:        "default",
-		ConsumerID:   cfg.ServiceName,
-		PollInterval: cfg.PollInterval,
-		LeaseTTL:     cfg.LeaseTTL,
-		Concurrency:  1,
-	}
+	_ = metrics.RegisterQueueMetricsCollector(brokerInstance, queueNames)
+	manager := &runtimepkg.Manager{Workers: workers}
+	demoQueue := cfg.WorkerPools[0].Queue
 
 	recurringSchedules := cfg.RecurringSchedules
 	if settings.RecurringEvery > 0 {
-		recurringSchedules = append(recurringSchedules, buildRecurringSchedule(settings))
+		recurringSchedules = append(recurringSchedules, buildRecurringSchedule(demoQueue, settings))
 	}
 
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -126,8 +143,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := publishStartupTasks(ctx, brokerInstance, settings, cfg.WorkerPools); err != nil {
+		logger.Error("publish startup demo tasks", "error", err)
+		os.Exit(1)
+	}
+
 	if settings.DelayedAfter > 0 {
-		if err := publishDelayedDemoTask(ctx, brokerInstance, settings); err != nil {
+		if err := publishDelayedDemoTask(ctx, brokerInstance, demoQueue, settings); err != nil {
 			logger.Error("publish delayed demo task", "error", err)
 			os.Exit(1)
 		}
@@ -138,6 +160,8 @@ func main() {
 		"redis_addr", cfg.RedisAddr,
 		"redis_db", cfg.RedisDB,
 		"output_file", settings.OutputFile,
+		"worker_pools", len(cfg.WorkerPools),
+		"demo_queue", demoQueue,
 		"delayed_after", settings.DelayedAfter,
 		"recurring_every", settings.RecurringEvery,
 		"run_for", settings.RunFor,
@@ -152,7 +176,7 @@ func main() {
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- worker.Run(runCtx)
+		errCh <- manager.Run(runCtx)
 	}()
 	go func() {
 		errCh <- scheduler.Run(runCtx)
@@ -214,7 +238,7 @@ func parseDurationEnv(key string, fallback time.Duration) (time.Duration, error)
 	return parsed, nil
 }
 
-func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, settings demoSettings) error {
+func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, queue string, settings demoSettings) error {
 	payload, err := json.Marshal(demo.AppendFilePayload{
 		Path: settings.OutputFile,
 		Line: "delayed hello from scheduler",
@@ -226,14 +250,36 @@ func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, s
 	return brokerInstance.Publish(ctx, broker.TaskMessage{
 		ID:        uuid.NewString(),
 		Name:      demo.TaskAppendFile,
-		Queue:     "default",
+		Queue:     queue,
 		Payload:   payload,
 		ETA:       &eta,
 		CreatedAt: time.Now().UTC(),
 	})
 }
 
-func buildRecurringSchedule(settings demoSettings) schedulerpkg.ScheduleDefinition {
+func publishStartupTasks(ctx context.Context, brokerInstance broker.Broker, settings demoSettings, pools []config.WorkerPoolConfig) error {
+	for _, pool := range pools {
+		payload, err := json.Marshal(demo.AppendFilePayload{
+			Path: settings.OutputFile,
+			Line: fmt.Sprintf("startup hello from pool=%s queue=%s", pool.Name, pool.Queue),
+		})
+		if err != nil {
+			return err
+		}
+		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:        uuid.NewString(),
+			Name:      demo.TaskAppendFile,
+			Queue:     pool.Queue,
+			Payload:   payload,
+			CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildRecurringSchedule(queue string, settings demoSettings) schedulerpkg.ScheduleDefinition {
 	payload, _ := json.Marshal(demo.AppendFilePayload{
 		Path: settings.OutputFile,
 		Line: "recurring hello from scheduler",
@@ -242,7 +288,7 @@ func buildRecurringSchedule(settings demoSettings) schedulerpkg.ScheduleDefiniti
 	return schedulerpkg.ScheduleDefinition{
 		ID:            "demo-recurring-append-file",
 		Interval:      settings.RecurringEvery,
-		Queue:         "default",
+		Queue:         queue,
 		TaskName:      demo.TaskAppendFile,
 		Payload:       payload,
 		Enabled:       true,

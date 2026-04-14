@@ -15,9 +15,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_ADDR", "")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
-	t.Setenv("TASKFORGE_WORKER_CONCURRENCY", "")
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", "")
+	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", "")
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "")
-	t.Setenv("TASKFORGE_LEASE_TTL", "")
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "")
 	t.Setenv("TASKFORGE_SCHEDULER_LOCK_TTL", "")
 	t.Setenv("TASKFORGE_SCHEDULER_RENEW_INTERVAL", "")
@@ -36,8 +36,21 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.HTTPAddr != defaultHTTPAddr {
 		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, defaultHTTPAddr)
 	}
-	if cfg.WorkerCount != defaultWorkerConcurrent {
-		t.Fatalf("WorkerCount = %d, want %d", cfg.WorkerCount, defaultWorkerConcurrent)
+	if len(cfg.WorkerPools) != 1 {
+		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))
+	}
+	pool := cfg.WorkerPools[0]
+	if pool.Name != "default" || pool.Queue != "default" {
+		t.Fatalf("unexpected default pool identity: %+v", pool)
+	}
+	if pool.Concurrency != defaultWorkerConcurrent || pool.Prefetch != defaultWorkerPrefetch {
+		t.Fatalf("unexpected default pool sizing: %+v", pool)
+	}
+	if pool.LeaseTTL != defaultLeaseTTL {
+		t.Fatalf("default pool lease ttl = %v, want %v", pool.LeaseTTL, defaultLeaseTTL)
+	}
+	if len(cfg.TaskTypeLimits) != 0 {
+		t.Fatalf("TaskTypeLimits length = %d, want 0", len(cfg.TaskTypeLimits))
 	}
 	if cfg.PollInterval != defaultPollInterval {
 		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, defaultPollInterval)
@@ -63,9 +76,26 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_ADDR", "redis.internal:6379")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "secret")
 	t.Setenv("TASKFORGE_REDIS_DB", "2")
-	t.Setenv("TASKFORGE_WORKER_CONCURRENCY", "8")
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{
+			"name":"critical",
+			"queue":"critical",
+			"concurrency":2,
+			"prefetch":4,
+			"lease_ttl":"45s",
+			"retry":{
+				"max_deliveries":5,
+				"initial_backoff":"2s",
+				"max_backoff":"1m",
+				"multiplier":3,
+				"jitter":0.1,
+				"max_task_age":"10m"
+			},
+			"task_limits":[{"task_name":"demo.nightly","max_concurrency":1}]
+		}
+	]`)
+	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"shared.sync","max_concurrency":2}]`)
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "250ms")
-	t.Setenv("TASKFORGE_LEASE_TTL", "45s")
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_LOCK_TTL", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_RENEW_INTERVAL", "4s")
@@ -84,8 +114,27 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.RedisAddr != "redis.internal:6379" || cfg.RedisPassword != "secret" || cfg.RedisDB != 2 {
 		t.Fatalf("unexpected redis fields: %+v", cfg)
 	}
-	if cfg.WorkerCount != 8 || cfg.PollInterval != 250*time.Millisecond || cfg.LeaseTTL != 45*time.Second {
-		t.Fatalf("unexpected runtime fields: %+v", cfg)
+	if len(cfg.WorkerPools) != 1 {
+		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))
+	}
+	pool := cfg.WorkerPools[0]
+	if pool.Name != "critical" || pool.Queue != "critical" {
+		t.Fatalf("unexpected worker pool identity: %+v", pool)
+	}
+	if pool.Concurrency != 2 || pool.Prefetch != 4 || pool.LeaseTTL != 45*time.Second {
+		t.Fatalf("unexpected worker pool runtime: %+v", pool)
+	}
+	if pool.RetryPolicy.MaxDeliveries != 5 || pool.RetryPolicy.InitialBackoff != 2*time.Second || pool.RetryPolicy.MaxBackoff != time.Minute {
+		t.Fatalf("unexpected worker pool retry policy: %+v", pool.RetryPolicy)
+	}
+	if pool.TaskTypeLimits["demo.nightly"] != 1 {
+		t.Fatalf("unexpected worker pool task limits: %+v", pool.TaskTypeLimits)
+	}
+	if cfg.TaskTypeLimits["shared.sync"] != 2 {
+		t.Fatalf("unexpected global task type limits: %+v", cfg.TaskTypeLimits)
+	}
+	if cfg.PollInterval != 250*time.Millisecond {
+		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, 250*time.Millisecond)
 	}
 	if cfg.SchedulerLockTTL != 20*time.Second || cfg.SchedulerRenewInterval != 4*time.Second {
 		t.Fatalf("unexpected scheduler fields: %+v", cfg)
@@ -135,12 +184,45 @@ func TestLoadInvalidBoolean(t *testing.T) {
 	}
 }
 
-func TestLoadInvalidConcurrency(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_CONCURRENCY", "0")
+func TestLoadRejectsInvalidWorkerPools(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":0,"lease_ttl":"30s"}]`)
 
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsDuplicatePoolQueue(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{"name":"default","queue":"default","concurrency":1,"prefetch":1,"lease_ttl":"30s"},
+		{"name":"critical","queue":"default","concurrency":1,"prefetch":1,"lease_ttl":"30s"}
+	]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsInvalidTaskTypeLimit(t *testing.T) {
+	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"demo.echo","max_concurrency":0}]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadNormalizesRetryDefaults(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":1,"lease_ttl":"30s","retry":{"max_attempts":7}}]`)
+
+	cfg, err := Load("taskforge-test")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.WorkerPools[0].RetryPolicy.MaxAttempts != 7 || cfg.WorkerPools[0].RetryPolicy.MaxDeliveries != 7 {
+		t.Fatalf("unexpected normalized retry policy: %+v", cfg.WorkerPools[0].RetryPolicy)
 	}
 }
 

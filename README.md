@@ -117,7 +117,7 @@ You can also use the helper scripts:
 
 ### Demo the scheduler
 
-If you want to see delayed and recurring scheduling do real work on your machine, use the demo binary. It starts a worker plus scheduler, publishes one delayed task, registers one recurring schedule, and appends lines to a local file when tasks run.
+If you want to see delayed and recurring scheduling do real work on your machine, use the demo binary. It starts the worker manager plus scheduler, creates one immediate append task per configured worker pool, publishes one delayed task on the first pool queue, registers one recurring schedule on that same queue, and appends lines to a local file when tasks run.
 
 ```bash
 make run-demo
@@ -159,9 +159,17 @@ TASKFORGE_METRICS_ADDR=:8080
 TASKFORGE_REDIS_ADDR=localhost:6379
 TASKFORGE_REDIS_PASSWORD=
 TASKFORGE_REDIS_DB=0
-TASKFORGE_WORKER_CONCURRENCY=4
+TASKFORGE_WORKER_POOLS_JSON=[
+  {
+    "name":"default",
+    "queue":"default",
+    "concurrency":4,
+    "prefetch":4,
+    "lease_ttl":"30s"
+  }
+]
+TASKFORGE_TASK_TYPE_LIMITS_JSON=[]
 TASKFORGE_POLL_INTERVAL=1s
-TASKFORGE_LEASE_TTL=30s
 TASKFORGE_SHUTDOWN_TIMEOUT=10s
 TASKFORGE_SCHEDULER_LOCK_TTL=15s
 TASKFORGE_SCHEDULER_RENEW_INTERVAL=5s
@@ -171,6 +179,42 @@ TASKFORGE_SERVICE_NAME=taskforge
 ```
 
 `TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
+
+Workers are configured as isolated queue pools through `TASKFORGE_WORKER_POOLS_JSON`.
+Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, and queue-local task caps.
+
+Example:
+
+```env
+TASKFORGE_WORKER_POOLS_JSON=[
+  {
+    "name":"critical",
+    "queue":"critical",
+    "concurrency":2,
+    "prefetch":2,
+    "lease_ttl":"20s",
+    "task_limits":[
+      {"task_name":"reports.generate","max_concurrency":1}
+    ]
+  },
+  {
+    "name":"bulk",
+    "queue":"bulk",
+    "concurrency":6,
+    "prefetch":12,
+    "lease_ttl":"45s",
+    "retry":{
+      "max_deliveries":5,
+      "initial_backoff":"1s",
+      "max_backoff":"30s",
+      "multiplier":2
+    }
+  }
+]
+TASKFORGE_TASK_TYPE_LIMITS_JSON=[
+  {"task_name":"tenant.sync","max_concurrency":2}
+]
+```
 
 Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`. The first release is intentionally narrow:
 
@@ -196,6 +240,15 @@ TASKFORGE_SCHEDULES_JSON=[
 ]
 ```
 
+## Scaling model
+
+Phase 06 adds queue isolation as an explicit runtime model:
+
+- Shared-queue horizontal scaling: run multiple worker processes with the same pool definition and queue name when you want throughput on one queue.
+- Isolated critical queues: place critical work in its own queue and give it a dedicated worker pool so bulk backlogs do not consume that pool's leases or executor slots.
+- Scheduler scaling: the scheduler remains leader-elected through Redis, so multiple scheduler instances are acceptable but only one should actively dispatch recurring work at a time.
+- Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
+
 ## Health and metrics
 
 Every process exposes:
@@ -203,6 +256,13 @@ Every process exposes:
 - `/healthz`
 - `/readyz`
 - `/metrics`
+
+Worker metrics now include queue-aware counters and gauges, including:
+
+- `taskforge_queue_depth`
+- `taskforge_queue_reserved`
+- `taskforge_queue_consumers`
+- per-queue success, failure, retry, reclaim, and active-task metrics
 
 The API process also exposes:
 
