@@ -36,6 +36,7 @@ type ScheduleDefinition struct {
 	ID            string
 	Interval      time.Duration
 	Queue         string
+	FairnessKey   string
 	TaskName      string
 	Payload       json.RawMessage
 	Headers       map[string]string
@@ -149,12 +150,13 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 
 			nominalAt, nextRunAt, missedRuns := coalesceNextRun(state.NextRunAt, schedule.Interval, now)
 			task := broker.TaskMessage{
-				ID:        s.idFunc(),
-				Name:      schedule.TaskName,
-				Queue:     schedule.Queue,
-				Payload:   slices.Clone(schedule.Payload),
-				Headers:   cloneHeaders(schedule.Headers),
-				CreatedAt: now.UTC(),
+				ID:          s.idFunc(),
+				Name:        schedule.TaskName,
+				Queue:       schedule.Queue,
+				FairnessKey: schedule.FairnessKey,
+				Payload:     slices.Clone(schedule.Payload),
+				Headers:     cloneHeaders(schedule.Headers),
+				CreatedAt:   now.UTC(),
 			}
 			task.Headers[HeaderScheduleID] = schedule.ID
 			task.Headers[HeaderScheduleNominalAt] = nominalAt.UTC().Format(time.RFC3339Nano)
@@ -228,6 +230,8 @@ func hashScheduleDefinition(schedule ScheduleDefinition) string {
 	_, _ = hasher.Write([]byte(schedule.Interval.String()))
 	_, _ = hasher.Write([]byte{'\n'})
 	_, _ = hasher.Write([]byte(schedule.Queue))
+	_, _ = hasher.Write([]byte{'\n'})
+	_, _ = hasher.Write([]byte(schedule.FairnessKey))
 	_, _ = hasher.Write([]byte{'\n'})
 	_, _ = hasher.Write([]byte(schedule.TaskName))
 	_, _ = hasher.Write([]byte{'\n'})

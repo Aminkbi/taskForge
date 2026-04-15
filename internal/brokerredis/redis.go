@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
@@ -30,14 +31,15 @@ const (
 )
 
 type RedisBroker struct {
-	client     *redis.Client
-	logger     *slog.Logger
-	metrics    *observability.Metrics
-	leaseTTL   time.Duration
-	reserveTTL time.Duration
-	prefix     string
-	hostname   string
-	instanceID string
+	client           *redis.Client
+	logger           *slog.Logger
+	metrics          *observability.Metrics
+	leaseTTL         time.Duration
+	reserveTTL       time.Duration
+	prefix           string
+	hostname         string
+	instanceID       string
+	fairnessPolicies map[string]*fairness.Policy
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
@@ -45,7 +47,8 @@ func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metr
 }
 
 type Options struct {
-	ReserveTimeout time.Duration
+	ReserveTimeout   time.Duration
+	FairnessPolicies map[string]*fairness.Policy
 }
 
 func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics, options Options) *RedisBroker {
@@ -59,14 +62,15 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 	}
 
 	return &RedisBroker{
-		client:     client,
-		logger:     logger,
-		metrics:    metrics,
-		leaseTTL:   leaseTTL,
-		reserveTTL: reserveTimeout,
-		prefix:     defaultPrefix,
-		hostname:   hostname,
-		instanceID: fmt.Sprintf("%d", os.Getpid()),
+		client:           client,
+		logger:           logger,
+		metrics:          metrics,
+		leaseTTL:         leaseTTL,
+		reserveTTL:       reserveTimeout,
+		prefix:           defaultPrefix,
+		hostname:         hostname,
+		instanceID:       fmt.Sprintf("%d", os.Getpid()),
+		fairnessPolicies: cloneFairnessPolicies(options.FairnessPolicies),
 	}
 }
 
@@ -118,16 +122,25 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 		return nil
 	}
 
-	if err := b.publishReady(ctx, tasks.EffectiveQueue(msg), payload); err != nil {
+	queue := tasks.EffectiveQueue(msg)
+	if b.fairnessPolicy(queue) != nil {
+		if err := b.publishFairReady(ctx, msg, payload); err != nil {
+			observability.MarkSpanError(span, err)
+			return err
+		}
+	} else if err := b.publishReady(ctx, queue, payload); err != nil {
 		observability.MarkSpanError(span, err)
 		return err
 	}
-	b.metrics.IncPublished(tasks.EffectiveQueue(msg))
+	b.metrics.IncPublished(queue)
 	return nil
 }
 
 func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {
 	queue = normalizeQueue(queue)
+	if b.fairnessPolicy(queue) != nil {
+		return b.reserveFair(ctx, queue, consumerID)
+	}
 	streamKey := b.streamKey(queue)
 	groupName := b.groupName(queue)
 	consumerName := b.consumerName(consumerID)
@@ -207,7 +220,8 @@ func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
 	}
 
 	queue := tasks.EffectiveQueue(delivery.Message)
-	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
+	streamKey := b.queueStreamKey(queue, delivery.Message.FairnessKey)
+	acked, err := b.client.XAck(ctx, streamKey, b.groupName(queue), delivery.Execution.DeliveryID).Result()
 	if err != nil {
 		observability.MarkSpanError(span, err)
 		return fmt.Errorf("ack task: %w", err)
@@ -216,7 +230,7 @@ func (b *RedisBroker) Ack(ctx context.Context, delivery broker.Delivery) error {
 		observability.MarkSpanError(span, broker.ErrUnknownDelivery)
 		return broker.ErrUnknownDelivery
 	}
-	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+	if err := b.deleteFinalizedEntry(ctx, streamKey, delivery.Execution.DeliveryID); err != nil {
 		observability.MarkSpanError(span, err)
 		return err
 	}
@@ -250,7 +264,8 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	}
 
 	queue := tasks.EffectiveQueue(delivery.Message)
-	acked, err := b.client.XAck(ctx, b.streamKey(queue), b.groupName(queue), delivery.Execution.DeliveryID).Result()
+	streamKey := b.queueStreamKey(queue, delivery.Message.FairnessKey)
+	acked, err := b.client.XAck(ctx, streamKey, b.groupName(queue), delivery.Execution.DeliveryID).Result()
 	if err != nil {
 		observability.MarkSpanError(span, err)
 		return fmt.Errorf("nack task: %w", err)
@@ -259,7 +274,7 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 		observability.MarkSpanError(span, broker.ErrUnknownDelivery)
 		return broker.ErrUnknownDelivery
 	}
-	if err := b.deleteFinalizedEntry(ctx, queue, delivery.Execution.DeliveryID); err != nil {
+	if err := b.deleteFinalizedEntry(ctx, streamKey, delivery.Execution.DeliveryID); err != nil {
 		observability.MarkSpanError(span, err)
 		return err
 	}
@@ -286,7 +301,7 @@ func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery,
 
 	queue := tasks.EffectiveQueue(delivery.Message)
 	resetIDs, err := b.client.XClaimJustID(ctx, &redis.XClaimArgs{
-		Stream:   b.streamKey(queue),
+		Stream:   b.queueStreamKey(queue, delivery.Message.FairnessKey),
 		Group:    b.groupName(queue),
 		Consumer: delivery.Execution.LeaseOwner,
 		MinIdle:  0,
@@ -349,12 +364,25 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 
 		pipe := b.client.TxPipeline()
 		pipe.ZRem(ctx, b.delayedKey(), raw)
-		pipe.XAdd(ctx, &redis.XAddArgs{
-			Stream: b.streamKey(tasks.EffectiveQueue(msg)),
-			Values: map[string]interface{}{
-				streamPayloadField: string(payload),
-			},
-		})
+		queue := tasks.EffectiveQueue(msg)
+		if b.fairnessPolicy(queue) != nil {
+			fairnessKey := fairness.NormalizeKey(msg.FairnessKey)
+			pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
+			pipe.XAdd(ctx, &redis.XAddArgs{
+				Stream: b.fairnessStreamKey(queue, fairnessKey),
+				Values: map[string]interface{}{
+					streamPayloadField: string(payload),
+				},
+			})
+			pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
+		} else {
+			pipe.XAdd(ctx, &redis.XAddArgs{
+				Stream: b.streamKey(queue),
+				Values: map[string]interface{}{
+					streamPayloadField: string(payload),
+				},
+			})
+		}
 
 		if _, err := pipe.Exec(ctx); err != nil {
 			return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
@@ -482,7 +510,7 @@ func (b *RedisBroker) validatePendingDelivery(ctx context.Context, delivery brok
 
 	queue := tasks.EffectiveQueue(delivery.Message)
 	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: b.streamKey(queue),
+		Stream: b.queueStreamKey(queue, delivery.Message.FairnessKey),
 		Group:  b.groupName(queue),
 		Start:  delivery.Execution.DeliveryID,
 		End:    delivery.Execution.DeliveryID,
@@ -527,6 +555,9 @@ func (b *RedisBroker) logDeliveryRejection(message string, delivery broker.Deliv
 
 func (b *RedisBroker) QueueMetricsSnapshot(ctx context.Context, queue string) (observability.QueueMetricsSnapshot, error) {
 	queue = normalizeQueue(queue)
+	if b.fairnessPolicy(queue) != nil {
+		return b.fairQueueMetricsSnapshot(ctx, queue)
+	}
 	streamKey := b.streamKey(queue)
 	groupName := b.groupName(queue)
 
@@ -614,8 +645,8 @@ func (b *RedisBroker) incrementLeaseExtensionFailure(queue string) {
 	b.metrics.IncLeaseExtensionFailure(queue)
 }
 
-func (b *RedisBroker) deleteFinalizedEntry(ctx context.Context, queue, deliveryID string) error {
-	deleted, err := b.client.XDel(ctx, b.streamKey(queue), deliveryID).Result()
+func (b *RedisBroker) deleteFinalizedEntry(ctx context.Context, streamKey, deliveryID string) error {
+	deleted, err := b.client.XDel(ctx, streamKey, deliveryID).Result()
 	if err != nil {
 		return fmt.Errorf("delete finalized task entry: %w", err)
 	}
@@ -680,6 +711,7 @@ func normalizePublishedMessage(msg broker.TaskMessage, now time.Time) broker.Tas
 	if msg.Queue == "" {
 		msg.Queue = "default"
 	}
+	msg.FairnessKey = strings.TrimSpace(msg.FairnessKey)
 	return msg
 }
 

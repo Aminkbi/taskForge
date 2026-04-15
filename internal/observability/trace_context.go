@@ -88,6 +88,9 @@ func StartQueueSpan(ctx context.Context, component, name string, msg broker.Task
 		attribute.String("taskforge.task_id", msg.ID),
 		attribute.Int("taskforge.attempt", msg.Attempt),
 	}
+	if msg.FairnessKey != "" {
+		baseAttrs = append(baseAttrs, attribute.String("taskforge.fairness_key", msg.FairnessKey))
+	}
 	baseAttrs = append(baseAttrs, attrs...)
 	return Tracer(component).Start(ctx, name, trace.WithAttributes(baseAttrs...))
 }

@@ -31,14 +31,33 @@ func (stubSchedulerLagMetricsProvider) SchedulerLag(context.Context, time.Time, 
 	return 2.5, nil
 }
 
+type stubFairnessMetricsProvider struct{}
+
+func (stubFairnessMetricsProvider) FairnessMetricsSnapshot(context.Context, string, time.Time) ([]FairnessMetricsSnapshot, error) {
+	return []FairnessMetricsSnapshot{
+		{
+			Bucket:         "protected",
+			Depth:          2,
+			Reserved:       1,
+			OldestReadyAge: 4,
+			Weight:         2,
+		},
+	}, nil
+}
+
 func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	t.Parallel()
 
 	metrics := NewMetrics()
 	metrics.IncRetryScheduled("critical", "reports.generate", "timeout")
 	metrics.IncDeadLetterResult("critical", "reports.generate", "permanent")
+	metrics.IncFairnessReservation("critical", "protected")
+	metrics.IncFairnessQuotaDeferral("critical", "protected", "hard_quota")
 	if err := metrics.RegisterQueueMetricsCollector(stubQueueMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterQueueMetricsCollector() error = %v", err)
+	}
+	if err := metrics.RegisterFairnessMetricsCollector(stubFairnessMetricsProvider{}, []string{"critical"}); err != nil {
+		t.Fatalf("RegisterFairnessMetricsCollector() error = %v", err)
 	}
 	if err := metrics.RegisterDeadLetterMetricsCollector(stubDeadLetterMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterDeadLetterMetricsCollector() error = %v", err)
@@ -54,6 +73,12 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 
 	assertLabelNames(t, families, "taskforge_task_retry_schedules_total", []string{"queue", "result_class", "task_name"})
 	assertLabelNames(t, families, "taskforge_task_dead_letter_results_total", []string{"queue", "result_class", "task_name"})
+	assertLabelNames(t, families, "taskforge_fairness_reservations_total", []string{"fairness_bucket", "queue"})
+	assertLabelNames(t, families, "taskforge_fairness_quota_deferrals_total", []string{"fairness_bucket", "queue", "reason"})
+	assertLabelNames(t, families, "taskforge_fairness_queue_depth", []string{"fairness_bucket", "queue"})
+	assertLabelNames(t, families, "taskforge_fairness_reserved", []string{"fairness_bucket", "queue"})
+	assertLabelNames(t, families, "taskforge_fairness_oldest_ready_seconds", []string{"fairness_bucket", "queue"})
+	assertLabelNames(t, families, "taskforge_fairness_rule_weight", []string{"fairness_bucket", "queue"})
 	assertLabelNames(t, families, "taskforge_dead_letter_queue_size", []string{"queue"})
 	assertLabelNames(t, families, "taskforge_scheduler_queue_lag_seconds", []string{"queue"})
 	assertLabelNames(t, families, "taskforge_queue_depth", []string{"queue"})
@@ -61,7 +86,7 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	for _, family := range families {
 		for _, metric := range family.GetMetric() {
 			for _, label := range metric.GetLabel() {
-				if label.GetName() == "task_id" || label.GetName() == "delivery_id" {
+				if label.GetName() == "task_id" || label.GetName() == "delivery_id" || label.GetName() == "fairness_key" {
 					t.Fatalf("metric %s unexpectedly uses high-cardinality label %q", family.GetName(), label.GetName())
 				}
 			}

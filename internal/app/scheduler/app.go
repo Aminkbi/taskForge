@@ -29,7 +29,10 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	b := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics)
+	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
+	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
+		FairnessPolicies: fairnessPolicies,
+	})
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
 		client,
@@ -51,6 +54,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		queues = append(queues, pool.Queue)
 	}
 	_ = metrics.RegisterQueueMetricsCollector(b, queues)
+	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
 	_ = metrics.RegisterSchedulerLagCollector(b, queues)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {

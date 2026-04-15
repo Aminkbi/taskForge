@@ -30,7 +30,10 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	sharedBroker := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics)
+	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
+	sharedBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
+		FairnessPolicies: fairnessPolicies,
+	})
 	dispatcher := dlq.NewService(client, sharedBroker, logger.With("component", "dlq"))
 
 	globalLimiter := runtimepkg.NewTaskTypeLimiter(cfg.TaskTypeLimits)
@@ -38,7 +41,9 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	queues := make([]string, 0, len(cfg.WorkerPools))
 	recoveryChecks := make(map[string]*healthcheck.Reporter, len(cfg.WorkerPools))
 	for _, pool := range cfg.WorkerPools {
-		poolBroker := brokerredis.New(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics)
+		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
+			FairnessPolicies: fairnessPolicies,
+		})
 		queues = append(queues, pool.Queue)
 		recoveryHealth := healthcheck.NewReporter("not_ready", "worker starting")
 		recoveryChecks[pool.Name] = recoveryHealth
@@ -62,6 +67,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		})
 	}
 	_ = metrics.RegisterQueueMetricsCollector(sharedBroker, queues)
+	_ = metrics.RegisterFairnessMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterDeadLetterMetricsCollector(sharedBroker, queues)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {

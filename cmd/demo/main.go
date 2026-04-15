@@ -74,9 +74,12 @@ func main() {
 	queueNames := make([]string, 0, len(cfg.WorkerPools))
 	workers := make([]*runtimepkg.Worker, 0, len(cfg.WorkerPools))
 	globalLimiter := runtimepkg.NewTaskTypeLimiter(cfg.TaskTypeLimits)
+	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
 	for _, pool := range cfg.WorkerPools {
 		queueNames = append(queueNames, pool.Queue)
-		poolBroker := brokerredis.New(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics)
+		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
+			FairnessPolicies: fairnessPolicies,
+		})
 		workers = append(workers, &runtimepkg.Worker{
 			Broker:            poolBroker,
 			Handler:           demo.Handler{Logger: logger.With("component", "demo-handler", "pool", pool.Name, "queue", pool.Queue)},
@@ -100,12 +103,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	brokerInstance := brokerredis.New(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics)
+	brokerInstance := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
+		FairnessPolicies: fairnessPolicies,
+	})
 	if err := brokerInstance.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
 	}
 	_ = metrics.RegisterQueueMetricsCollector(brokerInstance, queueNames)
+	_ = metrics.RegisterFairnessMetricsCollector(brokerInstance, queueNames)
 	manager := &runtimepkg.Manager{Workers: workers}
 	demoQueue := cfg.WorkerPools[0].Queue
 

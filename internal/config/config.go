@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aminkbi/taskforge/internal/fairness"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
@@ -53,6 +54,7 @@ type WorkerPoolConfig struct {
 	LeaseTTL       time.Duration
 	RetryPolicy    tasks.RetryPolicy
 	TaskTypeLimits map[string]int
+	FairnessPolicy *fairness.Policy
 }
 
 type rawRetryPolicy struct {
@@ -78,6 +80,22 @@ type rawWorkerPool struct {
 	LeaseTTL    string         `json:"lease_ttl"`
 	Retry       rawRetryPolicy `json:"retry"`
 	TaskLimits  []rawTaskLimit `json:"task_limits"`
+	Fairness    *rawFairness   `json:"fairness"`
+}
+
+type rawFairness struct {
+	DefaultRule rawFairnessRule   `json:"default_rule"`
+	Rules       []rawFairnessRule `json:"rules"`
+}
+
+type rawFairnessRule struct {
+	Name                string   `json:"name"`
+	Keys                []string `json:"keys"`
+	Weight              int      `json:"weight"`
+	ReservedConcurrency int      `json:"reserved_concurrency"`
+	SoftQuota           int      `json:"soft_quota"`
+	HardQuota           int      `json:"hard_quota"`
+	Burst               int      `json:"burst"`
 }
 
 func Load(defaultServiceName string) (Config, error) {
@@ -134,6 +152,20 @@ func Load(defaultServiceName string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*fairness.Policy {
+	policies := make(map[string]*fairness.Policy)
+	for _, pool := range pools {
+		if pool.FairnessPolicy == nil {
+			continue
+		}
+		policies[normalizeQueue(pool.Queue)] = pool.FairnessPolicy
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
 }
 
 func getEnv(key, fallback string) string {
@@ -253,6 +285,10 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 		if err != nil {
 			return nil, err
 		}
+		fairnessPolicy, err := parseFairnessPolicy(key, name, raw.Fairness)
+		if err != nil {
+			return nil, err
+		}
 
 		pools = append(pools, WorkerPoolConfig{
 			Name:           name,
@@ -262,6 +298,7 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 			LeaseTTL:       leaseTTL,
 			RetryPolicy:    retryPolicy,
 			TaskTypeLimits: taskLimits,
+			FairnessPolicy: fairnessPolicy,
 		})
 	}
 
@@ -348,6 +385,59 @@ func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPoli
 	return policy, nil
 }
 
+func parseFairnessPolicy(key, poolName string, raw *rawFairness) (*fairness.Policy, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	defaultRule, err := parseFairnessRule(key, poolName, "default_rule", raw.DefaultRule, true)
+	if err != nil {
+		return nil, err
+	}
+
+	rules := make([]fairness.Rule, 0, len(raw.Rules))
+	for i, entry := range raw.Rules {
+		rule, err := parseFairnessRule(key, poolName, fmt.Sprintf("rules[%d]", i), entry, false)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+
+	policy, err := fairness.NewPolicy(defaultRule, rules)
+	if err != nil {
+		return nil, fmt.Errorf("%s: worker pool %q fairness: %w", key, poolName, err)
+	}
+	return policy, nil
+}
+
+func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefault bool) (fairness.Rule, error) {
+	rule := fairness.Rule{
+		Name:                strings.TrimSpace(raw.Name),
+		Weight:              raw.Weight,
+		ReservedConcurrency: raw.ReservedConcurrency,
+		SoftQuota:           raw.SoftQuota,
+		HardQuota:           raw.HardQuota,
+		Burst:               raw.Burst,
+	}
+
+	if !isDefault {
+		if len(raw.Keys) == 0 {
+			return fairness.Rule{}, fmt.Errorf("%s: worker pool %q fairness %s keys are required", key, poolName, scope)
+		}
+		rule.Keys = make([]string, 0, len(raw.Keys))
+		for _, fairnessKey := range raw.Keys {
+			trimmed := strings.TrimSpace(fairnessKey)
+			if trimmed == "" {
+				return fairness.Rule{}, fmt.Errorf("%s: worker pool %q fairness %s keys must be non-empty", key, poolName, scope)
+			}
+			rule.Keys = append(rule.Keys, trimmed)
+		}
+	}
+
+	return rule, nil
+}
+
 func normalizeQueue(queue string) string {
 	if strings.TrimSpace(queue) == "" {
 		return "default"
@@ -365,6 +455,7 @@ func getRecurringSchedules(key string) ([]schedulerpkg.ScheduleDefinition, error
 		ID            string            `json:"id"`
 		Interval      string            `json:"interval"`
 		Queue         string            `json:"queue"`
+		FairnessKey   string            `json:"fairness_key"`
 		TaskName      string            `json:"task_name"`
 		Payload       json.RawMessage   `json:"payload"`
 		Headers       map[string]string `json:"headers"`
@@ -434,6 +525,7 @@ func getRecurringSchedules(key string) ([]schedulerpkg.ScheduleDefinition, error
 			ID:            raw.ID,
 			Interval:      interval,
 			Queue:         queue,
+			FairnessKey:   strings.TrimSpace(raw.FairnessKey),
 			TaskName:      raw.TaskName,
 			Payload:       append(json.RawMessage(nil), raw.Payload...),
 			Headers:       raw.Headers,

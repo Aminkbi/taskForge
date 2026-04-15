@@ -22,6 +22,18 @@ type QueueMetricsProvider interface {
 	QueueMetricsSnapshot(ctx context.Context, queue string) (QueueMetricsSnapshot, error)
 }
 
+type FairnessMetricsSnapshot struct {
+	Bucket         string
+	Depth          float64
+	Reserved       float64
+	OldestReadyAge float64
+	Weight         float64
+}
+
+type FairnessMetricsProvider interface {
+	FairnessMetricsSnapshot(ctx context.Context, queue string, now time.Time) ([]FairnessMetricsSnapshot, error)
+}
+
 type DeadLetterMetricsProvider interface {
 	DeadLetterQueueSize(ctx context.Context, queue string) (float64, error)
 }
@@ -44,6 +56,8 @@ type Metrics struct {
 	TaskDeadLetterResults  *prometheus.CounterVec
 	TaskExecutionDuration  *prometheus.HistogramVec
 	WorkerActiveTasks      *prometheus.GaugeVec
+	FairnessReservations   *prometheus.CounterVec
+	FairnessQuotaDeferrals *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -104,6 +118,14 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_worker_active_tasks",
 			Help: "Current number of active worker tasks.",
 		}, []string{"queue", "task_name"}),
+		FairnessReservations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_fairness_reservations_total",
+			Help: "Total number of fairness-aware reservations by queue and fairness bucket.",
+		}, []string{"queue", "fairness_bucket"}),
+		FairnessQuotaDeferrals: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_fairness_quota_deferrals_total",
+			Help: "Total number of fairness quota deferrals by queue, fairness bucket, and reason.",
+		}, []string{"queue", "fairness_bucket", "reason"}),
 	}
 
 	registry.MustRegister(
@@ -119,6 +141,8 @@ func NewMetrics() *Metrics {
 		m.TaskDeadLetterResults,
 		m.TaskExecutionDuration,
 		m.WorkerActiveTasks,
+		m.FairnessReservations,
+		m.FairnessQuotaDeferrals,
 	)
 
 	return m
@@ -221,6 +245,20 @@ func (m *Metrics) DecActiveTask(queue, taskName string) {
 	m.WorkerActiveTasks.WithLabelValues(queue, taskName).Dec()
 }
 
+func (m *Metrics) IncFairnessReservation(queue, bucket string) {
+	if m == nil {
+		return
+	}
+	m.FairnessReservations.WithLabelValues(queue, sanitizeFairnessBucket(bucket)).Inc()
+}
+
+func (m *Metrics) IncFairnessQuotaDeferral(queue, bucket, reason string) {
+	if m == nil {
+		return
+	}
+	m.FairnessQuotaDeferrals.WithLabelValues(queue, sanitizeFairnessBucket(bucket), sanitizeResultClass(reason)).Inc()
+}
+
 func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
 	if m == nil || provider == nil || len(queues) == 0 {
 		return nil
@@ -268,6 +306,41 @@ func (m *Metrics) RegisterDeadLetterMetricsCollector(provider DeadLetterMetricsP
 	})
 }
 
+func (m *Metrics) RegisterFairnessMetricsCollector(provider FairnessMetricsProvider, queues []string) error {
+	if m == nil || provider == nil || len(queues) == 0 {
+		return nil
+	}
+
+	return m.Registry.Register(&fairnessMetricsCollector{
+		provider: provider,
+		queues:   normalizeQueues(queues),
+		depth: prometheus.NewDesc(
+			"taskforge_fairness_queue_depth",
+			"Current ready depth for a fairness bucket on a queue.",
+			[]string{"queue", "fairness_bucket"},
+			nil,
+		),
+		reserved: prometheus.NewDesc(
+			"taskforge_fairness_reserved",
+			"Current reserved deliveries for a fairness bucket on a queue.",
+			[]string{"queue", "fairness_bucket"},
+			nil,
+		),
+		oldestReadyAge: prometheus.NewDesc(
+			"taskforge_fairness_oldest_ready_seconds",
+			"Age in seconds of the oldest ready work in a fairness bucket.",
+			[]string{"queue", "fairness_bucket"},
+			nil,
+		),
+		weight: prometheus.NewDesc(
+			"taskforge_fairness_rule_weight",
+			"Configured scheduling weight for a fairness bucket.",
+			[]string{"queue", "fairness_bucket"},
+			nil,
+		),
+	})
+}
+
 func (m *Metrics) RegisterSchedulerLagCollector(provider SchedulerLagMetricsProvider, queues []string) error {
 	if m == nil || provider == nil || len(queues) == 0 {
 		return nil
@@ -298,6 +371,41 @@ type queueMetricsCollector struct {
 	depth     *prometheus.Desc
 	reserved  *prometheus.Desc
 	consumers *prometheus.Desc
+}
+
+type fairnessMetricsCollector struct {
+	provider       FairnessMetricsProvider
+	queues         []string
+	depth          *prometheus.Desc
+	reserved       *prometheus.Desc
+	oldestReadyAge *prometheus.Desc
+	weight         *prometheus.Desc
+}
+
+func (c *fairnessMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.depth
+	ch <- c.reserved
+	ch <- c.oldestReadyAge
+	ch <- c.weight
+}
+
+func (c *fairnessMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, queue := range c.queues {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		snapshots, err := c.provider.FairnessMetricsSnapshot(ctx, queue, time.Now().UTC())
+		cancel()
+		if err != nil {
+			continue
+		}
+
+		for _, snapshot := range snapshots {
+			bucket := sanitizeFairnessBucket(snapshot.Bucket)
+			ch <- prometheus.MustNewConstMetric(c.depth, prometheus.GaugeValue, snapshot.Depth, queue, bucket)
+			ch <- prometheus.MustNewConstMetric(c.reserved, prometheus.GaugeValue, snapshot.Reserved, queue, bucket)
+			ch <- prometheus.MustNewConstMetric(c.oldestReadyAge, prometheus.GaugeValue, snapshot.OldestReadyAge, queue, bucket)
+			ch <- prometheus.MustNewConstMetric(c.weight, prometheus.GaugeValue, snapshot.Weight, queue, bucket)
+		}
+	}
 }
 
 func (c *queueMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -380,4 +488,12 @@ func sanitizeResultClass(resultClass string) string {
 		return "unknown"
 	}
 	return resultClass
+}
+
+func sanitizeFairnessBucket(bucket string) string {
+	bucket = strings.TrimSpace(bucket)
+	if bucket == "" {
+		return "default"
+	}
+	return bucket
 }

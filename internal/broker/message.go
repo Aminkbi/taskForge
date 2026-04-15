@@ -8,6 +8,7 @@ type TaskMessage struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
 	Queue             string            `json:"queue"`
+	FairnessKey       string            `json:"fairness_key,omitempty"`
 	Payload           []byte            `json:"payload"`
 	Headers           map[string]string `json:"headers,omitempty"`
 	Attempt           int               `json:"attempt"`

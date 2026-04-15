@@ -17,6 +17,7 @@ func WithDelivery(logger *slog.Logger, delivery broker.Delivery) *slog.Logger {
 		"task_id", delivery.Execution.TaskID,
 		"delivery_id", delivery.Execution.DeliveryID,
 		"queue", tasks.EffectiveQueue(delivery.Message),
+		"fairness_key", delivery.Message.FairnessKey,
 		"worker_identity", delivery.Execution.LeaseOwner,
 		"delivery_count", delivery.Execution.DeliveryCount,
 		"lease_expiry", delivery.Execution.LeaseExpiresAt,

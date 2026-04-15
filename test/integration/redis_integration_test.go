@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
@@ -23,6 +24,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/brokerredis"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/dlq"
+	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/observability"
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
@@ -171,6 +173,186 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 
 	if err := brokerInstance.Ack(ctx, firstDelivery); err != nil {
 		t.Fatalf("Ack() first delivery error = %v", err)
+	}
+}
+
+func TestRedisBrokerFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+		{Name: "tenant-b", Keys: []string{"tenant-b"}},
+	})
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	for i := 0; i < 6; i++ {
+		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:          "tenant-a-" + strconv.Itoa(i),
+			Name:        "integration.shared",
+			Queue:       "default",
+			FairnessKey: "tenant-a",
+			Payload:     []byte(`{"tenant":"a"}`),
+			CreatedAt:   time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("Publish() tenant-a error = %v", err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:          "tenant-b-" + strconv.Itoa(i),
+			Name:        "integration.shared",
+			Queue:       "default",
+			FairnessKey: "tenant-b",
+			Payload:     []byte(`{"tenant":"b"}`),
+			CreatedAt:   time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("Publish() tenant-b error = %v", err)
+		}
+	}
+
+	first, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() first error = %v", err)
+	}
+	second, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() second error = %v", err)
+	}
+
+	keys := map[string]bool{
+		first.Message.FairnessKey:  true,
+		second.Message.FairnessKey: true,
+	}
+	if !keys["tenant-a"] || !keys["tenant-b"] {
+		t.Fatalf("first two fairness keys = %q, %q, want tenant-a and tenant-b", first.Message.FairnessKey, second.Message.FairnessKey)
+	}
+
+	if err := brokerInstance.Ack(ctx, first); err != nil {
+		t.Fatalf("Ack() first error = %v", err)
+	}
+	if err := brokerInstance.Ack(ctx, second); err != nil {
+		t.Fatalf("Ack() second error = %v", err)
+	}
+}
+
+func TestRedisBrokerFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, fairness.Rule{HardQuota: 1}, []fairness.Rule{
+		{Name: "vip", Keys: []string{"vip"}, ReservedConcurrency: 1, HardQuota: 1},
+	})
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	for i := 0; i < 3; i++ {
+		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:          "noise-" + strconv.Itoa(i),
+			Name:        "integration.shared",
+			Queue:       "default",
+			FairnessKey: "noise",
+			Payload:     []byte(`{"tenant":"noise"}`),
+			CreatedAt:   time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("Publish() noise error = %v", err)
+		}
+	}
+
+	first, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() first error = %v", err)
+	}
+	if first.Message.FairnessKey != "noise" {
+		t.Fatalf("first fairness key = %q, want noise", first.Message.FairnessKey)
+	}
+
+	if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		ID:          "vip-1",
+		Name:        "integration.shared",
+		Queue:       "default",
+		FairnessKey: "vip",
+		Payload:     []byte(`{"tenant":"vip"}`),
+		CreatedAt:   time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("Publish() vip error = %v", err)
+	}
+
+	second, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() second error = %v", err)
+	}
+	if second.Message.FairnessKey != "vip" {
+		t.Fatalf("second fairness key = %q, want vip", second.Message.FairnessKey)
+	}
+
+	if err := brokerInstance.Ack(ctx, first); err != nil {
+		t.Fatalf("Ack() first error = %v", err)
+	}
+	if err := brokerInstance.Ack(ctx, second); err != nil {
+		t.Fatalf("Ack() second error = %v", err)
+	}
+}
+
+func TestRedisBrokerFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+		{Name: "alpha", Keys: []string{"alpha"}, HardQuota: 1},
+		{Name: "beta", Keys: []string{"beta"}, HardQuota: 1},
+	})
+	metrics := observability.NewMetrics()
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, metrics, brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	for _, fairnessKey := range []string{"alpha", "alpha", "beta"} {
+		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:          fairnessKey + "-" + uuid.NewString(),
+			Name:        "integration.shared",
+			Queue:       "default",
+			FairnessKey: fairnessKey,
+			Payload:     []byte(`{"tenant":"` + fairnessKey + `"}`),
+			CreatedAt:   time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("Publish() %s error = %v", fairnessKey, err)
+		}
+	}
+
+	first, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() first error = %v", err)
+	}
+	if first.Message.FairnessKey != "alpha" {
+		t.Fatalf("first fairness key = %q, want alpha", first.Message.FairnessKey)
+	}
+
+	second, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() second error = %v", err)
+	}
+	if second.Message.FairnessKey != "beta" {
+		t.Fatalf("second fairness key = %q, want beta", second.Message.FairnessKey)
+	}
+
+	metricValue := metricCounterValue(t, metrics.Registry, "taskforge_fairness_quota_deferrals_total", map[string]string{
+		"queue":           "default",
+		"fairness_bucket": "alpha",
+		"reason":          "hard_quota",
+	})
+	if metricValue < 1 {
+		t.Fatalf("quota deferrals = %v, want >= 1", metricValue)
+	}
+
+	if err := brokerInstance.Ack(ctx, first); err != nil {
+		t.Fatalf("Ack() first error = %v", err)
+	}
+	if err := brokerInstance.Ack(ctx, second); err != nil {
+		t.Fatalf("Ack() second error = %v", err)
 	}
 }
 
@@ -1146,6 +1328,16 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 	return ctx, brokerredis.NewWithOptions(client, slog.Default(), leaseTTL, nil, brokerredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	}), client
+}
+
+func mustFairnessPolicy(t *testing.T, defaultRule fairness.Rule, rules []fairness.Rule) *fairness.Policy {
+	t.Helper()
+
+	policy, err := fairness.NewPolicy(defaultRule, rules)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	return policy
 }
 
 func newIntegrationWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -92,6 +93,27 @@ func TestNormalizeQueue(t *testing.T) {
 	}
 	if got := normalizeQueue("priority"); got != "priority" {
 		t.Fatalf("normalizeQueue() = %q, want %q", got, "priority")
+	}
+}
+
+func TestQueueStreamKeyUsesFairnessPartitionWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	policy, err := fairness.NewPolicy(fairness.Rule{}, nil)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+
+	b := &RedisBroker{
+		prefix:           defaultPrefix,
+		fairnessPolicies: map[string]*fairness.Policy{"critical": policy},
+	}
+
+	if got := b.queueStreamKey("critical", "tenant-a"); got == b.streamKey("critical") {
+		t.Fatalf("queueStreamKey() = %q, want fairness stream distinct from queue stream", got)
+	}
+	if got := b.queueStreamKey("default", "tenant-a"); got != b.streamKey("default") {
+		t.Fatalf("queueStreamKey() = %q, want %q", got, b.streamKey("default"))
 	}
 }
 

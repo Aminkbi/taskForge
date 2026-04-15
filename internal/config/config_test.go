@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aminkbi/taskforge/internal/fairness"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 )
 
@@ -91,7 +92,13 @@ func TestLoadOverrides(t *testing.T) {
 				"jitter":0.1,
 				"max_task_age":"10m"
 			},
-			"task_limits":[{"task_name":"demo.nightly","max_concurrency":1}]
+			"task_limits":[{"task_name":"demo.nightly","max_concurrency":1}],
+			"fairness":{
+				"default_rule":{"soft_quota":1,"hard_quota":2},
+				"rules":[
+					{"name":"protected","keys":["tenant-vip"],"weight":2,"reserved_concurrency":1,"soft_quota":1,"hard_quota":1}
+				]
+			}
 		}
 	]`)
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"shared.sync","max_concurrency":2}]`)
@@ -99,7 +106,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_LOCK_TTL", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_RENEW_INTERVAL", "4s")
-	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"nightly","interval":"15m","queue":"critical","task_name":"demo.nightly","payload":{"job":"nightly"},"headers":{"x-source":"config"},"misfire_policy":"coalesce","start_at":"2026-04-14T10:00:00Z"}]`)
+	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"nightly","interval":"15m","queue":"critical","fairness_key":"tenant-vip","task_name":"demo.nightly","payload":{"job":"nightly"},"headers":{"x-source":"config"},"misfire_policy":"coalesce","start_at":"2026-04-14T10:00:00Z"}]`)
 	t.Setenv("TASKFORGE_OTEL_ENABLED", "true")
 	t.Setenv("TASKFORGE_SERVICE_NAME", "custom-service")
 
@@ -130,6 +137,17 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.TaskTypeLimits["demo.nightly"] != 1 {
 		t.Fatalf("unexpected worker pool task limits: %+v", pool.TaskTypeLimits)
 	}
+	if pool.FairnessPolicy == nil {
+		t.Fatalf("expected worker pool fairness policy")
+	}
+	protected := pool.FairnessPolicy.Resolve("tenant-vip")
+	if protected.Bucket != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 {
+		t.Fatalf("unexpected fairness rule resolution: %+v", protected)
+	}
+	defaultRule := pool.FairnessPolicy.Resolve(fairness.DefaultKey)
+	if defaultRule.Bucket != "default" || defaultRule.SoftQuota != 1 || defaultRule.HardQuota != 2 {
+		t.Fatalf("unexpected default fairness rule: %+v", defaultRule)
+	}
 	if cfg.TaskTypeLimits["shared.sync"] != 2 {
 		t.Fatalf("unexpected global task type limits: %+v", cfg.TaskTypeLimits)
 	}
@@ -145,6 +163,9 @@ func TestLoadOverrides(t *testing.T) {
 	schedule := cfg.RecurringSchedules[0]
 	if schedule.ID != "nightly" || schedule.Queue != "critical" || schedule.TaskName != "demo.nightly" {
 		t.Fatalf("unexpected schedule identity fields: %+v", schedule)
+	}
+	if schedule.FairnessKey != "tenant-vip" {
+		t.Fatalf("schedule fairness key = %q, want %q", schedule.FairnessKey, "tenant-vip")
 	}
 	if schedule.Interval != 15*time.Minute {
 		t.Fatalf("schedule interval = %v, want %v", schedule.Interval, 15*time.Minute)
@@ -207,6 +228,25 @@ func TestLoadRejectsDuplicatePoolQueue(t *testing.T) {
 
 func TestLoadRejectsInvalidTaskTypeLimit(t *testing.T) {
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"demo.echo","max_concurrency":0}]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsInvalidFairnessPolicy(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{
+			"name":"default",
+			"queue":"default",
+			"concurrency":1,
+			"lease_ttl":"30s",
+			"fairness":{
+				"default_rule":{"soft_quota":2,"hard_quota":1}
+			}
+		}
+	]`)
 
 	_, err := Load("taskforge-test")
 	if err == nil {
