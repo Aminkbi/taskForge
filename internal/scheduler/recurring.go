@@ -45,23 +45,32 @@ type ScheduleDefinition struct {
 }
 
 type ScheduleState struct {
-	NextRunAt        time.Time `json:"next_run_at"`
-	LastDispatchedAt time.Time `json:"last_dispatched_at,omitempty"`
-	DefinitionHash   string    `json:"definition_hash"`
+	NextRunAt        time.Time     `json:"next_run_at"`
+	LastDispatchedAt time.Time     `json:"last_dispatched_at,omitempty"`
+	DefinitionHash   string        `json:"definition_hash"`
+	MisfirePolicy    MisfirePolicy `json:"misfire_policy"`
 }
 
 type ScheduleStateStore interface {
-	Load(ctx context.Context, scheduleID string) (ScheduleState, bool, error)
-	Save(ctx context.Context, scheduleID string, state ScheduleState) error
+	ReconcileConfigured(ctx context.Context, schedules []ScheduleDefinition, now time.Time) error
+	DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error)
+	LoadStates(ctx context.Context, scheduleIDs []string) (map[string]ScheduleState, error)
+	SaveIndexed(ctx context.Context, scheduleID string, state ScheduleState) error
+	RemoveSchedule(ctx context.Context, scheduleID string) error
+	RemoveFromDueIndex(ctx context.Context, scheduleID string) error
 }
 
 type RecurringService struct {
-	publisher broker.Broker
-	store     ScheduleStateStore
-	schedules []ScheduleDefinition
-	logger    *slog.Logger
-	idFunc    func() string
+	publisher    broker.Broker
+	store        ScheduleStateStore
+	schedules    []ScheduleDefinition
+	scheduleByID map[string]ScheduleDefinition
+	logger       *slog.Logger
+	idFunc       func() string
+	reconciled   bool
 }
+
+const recurringDueBatchLimit int64 = 100
 
 func NewRecurringService(
 	publisher broker.Broker,
@@ -69,11 +78,17 @@ func NewRecurringService(
 	schedules []ScheduleDefinition,
 	logger *slog.Logger,
 ) *RecurringService {
+	scheduleByID := make(map[string]ScheduleDefinition, len(schedules))
+	for _, schedule := range schedules {
+		scheduleByID[schedule.ID] = schedule
+	}
+
 	return &RecurringService{
-		publisher: publisher,
-		store:     store,
-		schedules: slices.Clone(schedules),
-		logger:    logger,
+		publisher:    publisher,
+		store:        store,
+		schedules:    slices.Clone(schedules),
+		scheduleByID: scheduleByID,
+		logger:       logger,
 		idFunc: func() string {
 			return uuid.NewString()
 		},
@@ -81,69 +96,97 @@ func NewRecurringService(
 }
 
 func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, error) {
-	dispatched := 0
-	for _, schedule := range s.schedules {
-		if !schedule.Enabled {
-			continue
+	if !s.reconciled {
+		if err := s.store.ReconcileConfigured(ctx, s.schedules, now); err != nil {
+			return 0, fmt.Errorf("reconcile recurring schedules: %w", err)
 		}
-
-		state, exists, err := s.store.Load(ctx, schedule.ID)
-		if err != nil {
-			return dispatched, fmt.Errorf("load schedule %s state: %w", schedule.ID, err)
-		}
-
-		definitionHash := hashScheduleDefinition(schedule)
-		if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
-			state = initialScheduleState(schedule, now, definitionHash)
-			if err := s.store.Save(ctx, schedule.ID, state); err != nil {
-				return dispatched, fmt.Errorf("save initial schedule %s state: %w", schedule.ID, err)
-			}
-		}
-
-		if state.NextRunAt.After(now) {
-			continue
-		}
-
-		nominalAt, nextRunAt, missedRuns := coalesceNextRun(state.NextRunAt, schedule.Interval, now)
-		task := broker.TaskMessage{
-			ID:        s.idFunc(),
-			Name:      schedule.TaskName,
-			Queue:     schedule.Queue,
-			Payload:   slices.Clone(schedule.Payload),
-			Headers:   cloneHeaders(schedule.Headers),
-			CreatedAt: now.UTC(),
-		}
-		task.Headers[HeaderScheduleID] = schedule.ID
-		task.Headers[HeaderScheduleNominalAt] = nominalAt.UTC().Format(time.RFC3339Nano)
-		task.Headers[HeaderScheduleDispatchedAt] = now.UTC().Format(time.RFC3339Nano)
-		task.Headers[HeaderScheduleMisfirePolicy] = string(schedule.MisfirePolicy)
-		task.Headers[HeaderScheduleMissedRuns] = fmt.Sprintf("%d", missedRuns)
-
-		if err := s.publisher.Publish(ctx, task); err != nil {
-			return dispatched, fmt.Errorf("publish recurring task for %s: %w", schedule.ID, err)
-		}
-
-		state.NextRunAt = nextRunAt.UTC()
-		state.LastDispatchedAt = now.UTC()
-		state.DefinitionHash = definitionHash
-		if err := s.store.Save(ctx, schedule.ID, state); err != nil {
-			return dispatched, fmt.Errorf("save dispatched schedule %s state: %w", schedule.ID, err)
-		}
-
-		dispatched++
-		if s.logger != nil {
-			s.logger.Info(
-				"dispatched recurring task",
-				"schedule_id", schedule.ID,
-				"nominal_at", nominalAt.UTC(),
-				"dispatched_at", now.UTC(),
-				"next_run_at", state.NextRunAt,
-				"missed_runs", missedRuns,
-			)
-		}
+		s.reconciled = true
 	}
 
-	return dispatched, nil
+	dispatched := 0
+	for {
+		dueIDs, err := s.store.DueScheduleIDs(ctx, now, recurringDueBatchLimit)
+		if err != nil {
+			return dispatched, fmt.Errorf("query due recurring schedules: %w", err)
+		}
+		if len(dueIDs) == 0 {
+			return dispatched, nil
+		}
+
+		states, err := s.store.LoadStates(ctx, dueIDs)
+		if err != nil {
+			return dispatched, fmt.Errorf("load due recurring schedule states: %w", err)
+		}
+
+		for _, scheduleID := range dueIDs {
+			schedule, configured := s.scheduleByID[scheduleID]
+			if !configured {
+				if err := s.store.RemoveSchedule(ctx, scheduleID); err != nil {
+					return dispatched, fmt.Errorf("cleanup unknown recurring schedule %s: %w", scheduleID, err)
+				}
+				continue
+			}
+
+			if !schedule.Enabled {
+				if err := s.store.RemoveFromDueIndex(ctx, scheduleID); err != nil {
+					return dispatched, fmt.Errorf("remove disabled recurring schedule %s from due index: %w", scheduleID, err)
+				}
+				continue
+			}
+
+			definitionHash := hashScheduleDefinition(schedule)
+			state, exists := states[scheduleID]
+			if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
+				state = initialScheduleState(schedule, now, definitionHash)
+				if err := s.store.SaveIndexed(ctx, scheduleID, state); err != nil {
+					return dispatched, fmt.Errorf("save initial schedule %s state: %w", scheduleID, err)
+				}
+			}
+
+			if state.NextRunAt.After(now) {
+				continue
+			}
+
+			nominalAt, nextRunAt, missedRuns := coalesceNextRun(state.NextRunAt, schedule.Interval, now)
+			task := broker.TaskMessage{
+				ID:        s.idFunc(),
+				Name:      schedule.TaskName,
+				Queue:     schedule.Queue,
+				Payload:   slices.Clone(schedule.Payload),
+				Headers:   cloneHeaders(schedule.Headers),
+				CreatedAt: now.UTC(),
+			}
+			task.Headers[HeaderScheduleID] = schedule.ID
+			task.Headers[HeaderScheduleNominalAt] = nominalAt.UTC().Format(time.RFC3339Nano)
+			task.Headers[HeaderScheduleDispatchedAt] = now.UTC().Format(time.RFC3339Nano)
+			task.Headers[HeaderScheduleMisfirePolicy] = string(schedule.MisfirePolicy)
+			task.Headers[HeaderScheduleMissedRuns] = fmt.Sprintf("%d", missedRuns)
+
+			if err := s.publisher.Publish(ctx, task); err != nil {
+				return dispatched, fmt.Errorf("publish recurring task for %s: %w", schedule.ID, err)
+			}
+
+			state.NextRunAt = nextRunAt.UTC()
+			state.LastDispatchedAt = now.UTC()
+			state.DefinitionHash = definitionHash
+			state.MisfirePolicy = schedule.MisfirePolicy
+			if err := s.store.SaveIndexed(ctx, schedule.ID, state); err != nil {
+				return dispatched, fmt.Errorf("save dispatched schedule %s state: %w", schedule.ID, err)
+			}
+
+			dispatched++
+			if s.logger != nil {
+				s.logger.Info(
+					"dispatched recurring task",
+					"schedule_id", schedule.ID,
+					"nominal_at", nominalAt.UTC(),
+					"dispatched_at", now.UTC(),
+					"next_run_at", state.NextRunAt,
+					"missed_runs", missedRuns,
+				)
+			}
+		}
+	}
 }
 
 func initialScheduleState(schedule ScheduleDefinition, now time.Time, definitionHash string) ScheduleState {
@@ -152,8 +195,9 @@ func initialScheduleState(schedule ScheduleDefinition, now time.Time, definition
 		nextRunAt = schedule.StartAt.UTC()
 	}
 	return ScheduleState{
-		NextRunAt:      nextRunAt,
+		NextRunAt:      nextRunAt.UTC(),
 		DefinitionHash: definitionHash,
+		MisfirePolicy:  schedule.MisfirePolicy,
 	}
 }
 

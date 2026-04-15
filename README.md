@@ -243,6 +243,7 @@ Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`
 - interval schedules only
 - `coalesce` misfire policy only
 - scheduler leadership enforced through a Redis lock
+- durable recurring state plus a Redis due-time index keyed by `next_run_at`
 
 Example:
 
@@ -269,7 +270,9 @@ Phase 06 adds queue isolation as an explicit runtime model:
 - Shared-queue horizontal scaling: run multiple worker processes with the same pool definition and queue name when you want throughput on one queue.
 - Isolated critical queues: place critical work in its own queue and give it a dedicated worker pool so bulk backlogs do not consume that pool's leases or executor slots.
 - Scheduler scaling: the scheduler remains leader-elected through Redis, so multiple scheduler instances are acceptable but only one should actively dispatch recurring work at a time.
+- Recurring scheduler scaling: steady-state recurring dispatch work is proportional to schedules due in the current window, not the total configured schedule count. Inactive or far-future schedules stay in Redis durable state and the recurring due-time sorted set without forcing a full scan each tick.
 - Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
+- Recurring Redis considerations: the main cost of large recurring fleets is Redis memory plus sorted-set maintenance for `next_run_at`, rather than scheduler CPU spent scanning every configured schedule.
 
 ## Health and metrics
 

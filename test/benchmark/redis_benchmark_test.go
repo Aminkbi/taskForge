@@ -199,6 +199,49 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "ns/scheduler_lag")
 }
 
+func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
+	dueAt := time.Date(2026, 4, 15, 10, 0, 0, 123000000, time.UTC)
+	warmupNow := dueAt.Add(-time.Hour)
+	dispatchNow := dueAt.Add(250 * time.Millisecond)
+
+	for _, totalSchedules := range recurringBenchmarkScheduleCounts() {
+		b.Run(fmt.Sprintf("schedules_%d", totalSchedules), func(b *testing.B) {
+			env := newBenchEnv(b, 30*time.Second)
+			schedules := benchmarkRecurringSchedules(totalSchedules, 5, dueAt)
+
+			b.StopTimer()
+			for i := 0; i < b.N; i++ {
+				if err := env.client.FlushDB(env.ctx).Err(); err != nil {
+					b.Fatalf("FlushDB() error = %v", err)
+				}
+
+				recurring := schedulerpkg.NewRecurringService(
+					env.broker,
+					schedulerpkg.NewRedisScheduleStateStore(env.client),
+					schedules,
+					env.logger,
+				)
+
+				if dispatched, err := recurring.SyncDue(env.ctx, warmupNow); err != nil {
+					b.Fatalf("warmup recurring SyncDue() error = %v", err)
+				} else if dispatched != 0 {
+					b.Fatalf("warmup recurring SyncDue() dispatched = %d, want 0", dispatched)
+				}
+
+				b.StartTimer()
+				dispatched, err := recurring.SyncDue(env.ctx, dispatchNow)
+				b.StopTimer()
+				if err != nil {
+					b.Fatalf("recurring SyncDue() error = %v", err)
+				}
+				if dispatched != 5 {
+					b.Fatalf("recurring SyncDue() dispatched = %d, want 5", dispatched)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkRetryStormThroughput(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
 	deadLetters := dlq.NewService(env.client, env.broker, env.logger)
@@ -284,7 +327,7 @@ func newBenchEnv(b *testing.B, leaseTTL time.Duration) *benchEnv {
 		db = parsed
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	client := redis.NewClient(&redis.Options{
 		Addr: envOrDefault("TASKFORGE_REDIS_ADDR", "localhost:6379"),
 		DB:   db,
@@ -324,6 +367,36 @@ func benchmarkMessage(prefix string, i int) broker.TaskMessage {
 		Payload:   payload,
 		CreatedAt: time.Now().UTC(),
 	}
+}
+
+func benchmarkRecurringSchedules(total, dueCount int, dueAt time.Time) []schedulerpkg.ScheduleDefinition {
+	schedules := make([]schedulerpkg.ScheduleDefinition, 0, total)
+	for i := 0; i < total; i++ {
+		startAt := dueAt.Add(365 * 24 * time.Hour)
+		if i < dueCount {
+			startAt = dueAt
+		}
+
+		schedules = append(schedules, schedulerpkg.ScheduleDefinition{
+			ID:            fmt.Sprintf("bench-recurring-%d", i),
+			Interval:      time.Second,
+			Queue:         "default",
+			TaskName:      "benchmark.recurring",
+			Payload:       json.RawMessage(fmt.Sprintf(`{"index":%d}`, i)),
+			Enabled:       true,
+			MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+			StartAt:       &startAt,
+		})
+	}
+	return schedules
+}
+
+func recurringBenchmarkScheduleCounts() []int {
+	counts := []int{10, 1000}
+	if os.Getenv("TASKFORGE_RUN_HEAVY_BENCHMARKS") == "1" {
+		counts = append(counts, 100000)
+	}
+	return counts
 }
 
 func newBenchWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtime.Handler, leaseTTL time.Duration) *runtime.Worker {

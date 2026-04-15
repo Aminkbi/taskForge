@@ -746,6 +746,120 @@ func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
 	}
 }
 
+func TestSchedulerRecurringDueIndexDispatchesSmallDueSet(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	schedules := make([]schedulerpkg.ScheduleDefinition, 0, 253)
+	for i := 0; i < 3; i++ {
+		startAt := now.Add(-time.Second)
+		schedules = append(schedules, schedulerpkg.ScheduleDefinition{
+			ID:            "integration-recurring-due-" + strconv.Itoa(i),
+			Interval:      10 * time.Second,
+			Queue:         "default",
+			TaskName:      "integration.recurring",
+			Payload:       json.RawMessage(`{"hello":"due"}`),
+			Enabled:       true,
+			MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+			StartAt:       &startAt,
+		})
+	}
+	for i := 0; i < 250; i++ {
+		startAt := now.Add(24*time.Hour + time.Duration(i)*time.Minute)
+		schedules = append(schedules, schedulerpkg.ScheduleDefinition{
+			ID:            "integration-recurring-future-" + strconv.Itoa(i),
+			Interval:      10 * time.Second,
+			Queue:         "default",
+			TaskName:      "integration.recurring",
+			Payload:       json.RawMessage(`{"hello":"future"}`),
+			Enabled:       true,
+			MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+			StartAt:       &startAt,
+		})
+	}
+
+	scheduler := newIntegrationScheduler(t, client, "scheduler-a", schedules)
+	ctxScheduler, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := runScheduler(ctxScheduler, scheduler)
+	waitForStreamLength(t, client, "taskforge:stream:default", 3)
+	cancel()
+	waitForSchedulerStop(t, errCh)
+
+	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	if len(messages) != 3 {
+		t.Fatalf("stream messages = %d, want 3", len(messages))
+	}
+	for _, msg := range messages {
+		if !strings.HasPrefix(msg.Headers[schedulerpkg.HeaderScheduleID], "integration-recurring-due-") {
+			t.Fatalf("unexpected schedule_id %q, want due schedule", msg.Headers[schedulerpkg.HeaderScheduleID])
+		}
+	}
+
+	indexCount, err := client.ZCard(ctx, "taskforge:scheduler:recurring:due").Result()
+	if err != nil {
+		t.Fatalf("ZCard() recurring due index error = %v", err)
+	}
+	if indexCount != 253 {
+		t.Fatalf("recurring due index size = %d, want 253", indexCount)
+	}
+}
+
+func TestSchedulerRecurringRescheduleUpdatesDueIndex(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	startAt := time.Now().UTC().Add(-time.Second)
+	scheduleID := "integration-recurring-reindex"
+	interval := 750 * time.Millisecond
+	scheduler := newIntegrationScheduler(t, client, "scheduler-a", []schedulerpkg.ScheduleDefinition{{
+		ID:            scheduleID,
+		Interval:      interval,
+		Queue:         "default",
+		TaskName:      "integration.recurring",
+		Payload:       json.RawMessage(`{"hello":"reindex"}`),
+		Enabled:       true,
+		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+		StartAt:       &startAt,
+	}})
+
+	ctxScheduler, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := runScheduler(ctxScheduler, scheduler)
+
+	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	state := loadRecurringScheduleState(t, ctx, client, scheduleID)
+	if state.LastDispatchedAt.IsZero() {
+		t.Fatal("LastDispatchedAt is zero after recurring dispatch")
+	}
+	if !state.NextRunAt.After(state.LastDispatchedAt) {
+		t.Fatalf("NextRunAt = %v, want after LastDispatchedAt %v", state.NextRunAt, state.LastDispatchedAt)
+	}
+	if state.MisfirePolicy != schedulerpkg.MisfirePolicyCoalesce {
+		t.Fatalf("MisfirePolicy = %q, want %q", state.MisfirePolicy, schedulerpkg.MisfirePolicyCoalesce)
+	}
+
+	score, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result()
+	if err != nil {
+		t.Fatalf("ZScore() recurring due index error = %v", err)
+	}
+	if int64(score) != state.NextRunAt.UnixMilli() {
+		t.Fatalf("due index score = %d, want %d", int64(score), state.NextRunAt.UnixMilli())
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 1 {
+		t.Fatalf("stream length after short wait = %d, want 1", streamLen)
+	}
+
+	cancel()
+	waitForSchedulerStop(t, errCh)
+}
+
 func TestWorkerPermanentErrorGoesDirectlyToDeadLetter(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
@@ -1182,6 +1296,21 @@ func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Cli
 		messages = append(messages, msg)
 	}
 	return messages
+}
+
+func loadRecurringScheduleState(t *testing.T, ctx context.Context, client *redis.Client, scheduleID string) schedulerpkg.ScheduleState {
+	t.Helper()
+
+	payload, err := client.Get(ctx, "taskforge:schedule:state:"+scheduleID).Bytes()
+	if err != nil {
+		t.Fatalf("Get() recurring schedule state error = %v", err)
+	}
+
+	var state schedulerpkg.ScheduleState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		t.Fatalf("unmarshal recurring schedule state: %v", err)
+	}
+	return state
 }
 
 func mustParseRFC3339Time(t *testing.T, value string) time.Time {

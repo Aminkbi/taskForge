@@ -84,6 +84,7 @@ Response:
 2. If leadership is flapping, stabilize Redis and scheduler connectivity first.
 3. Reduce scheduler poll interval only if Redis can tolerate the additional load.
 4. Check whether delayed workload volume exceeds what one leader can release per tick.
+5. For recurring-heavy deployments, inspect the recurring due-time sorted set and confirm the lag is coming from schedules due now, not from a large number of inactive or far-future schedules.
 
 ## Queue starvation
 

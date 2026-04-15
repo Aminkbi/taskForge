@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,6 +26,9 @@ func TestInitialScheduleStateWithoutStartAtStartsAfterOneInterval(t *testing.T) 
 
 	if !state.NextRunAt.Equal(now.Add(15 * time.Minute)) {
 		t.Fatalf("NextRunAt = %v, want %v", state.NextRunAt, now.Add(15*time.Minute))
+	}
+	if state.MisfirePolicy != MisfirePolicyCoalesce {
+		t.Fatalf("MisfirePolicy = %q, want %q", state.MisfirePolicy, MisfirePolicyCoalesce)
 	}
 }
 
@@ -71,25 +75,7 @@ func TestRecurringServiceDispatchesCoalescedRun(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 4, 14, 10, 25, 0, 0, time.UTC)
-	store := &stubScheduleStateStore{
-		states: map[string]ScheduleState{
-			"nightly": {
-				NextRunAt: time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC),
-				DefinitionHash: hashScheduleDefinition(ScheduleDefinition{
-					ID:            "nightly",
-					Interval:      10 * time.Minute,
-					Queue:         "critical",
-					TaskName:      "demo.nightly",
-					Payload:       json.RawMessage(`{"job":"nightly"}`),
-					Headers:       map[string]string{"x-source": "test"},
-					Enabled:       true,
-					MisfirePolicy: MisfirePolicyCoalesce,
-				}),
-			},
-		},
-	}
-	publisher := &stubRecurringPublisher{}
-	service := NewRecurringService(publisher, store, []ScheduleDefinition{{
+	schedule := ScheduleDefinition{
 		ID:            "nightly",
 		Interval:      10 * time.Minute,
 		Queue:         "critical",
@@ -98,7 +84,18 @@ func TestRecurringServiceDispatchesCoalescedRun(t *testing.T) {
 		Headers:       map[string]string{"x-source": "test"},
 		Enabled:       true,
 		MisfirePolicy: MisfirePolicyCoalesce,
-	}}, nil)
+	}
+	store := newStubScheduleStateStore()
+	store.states[schedule.ID] = ScheduleState{
+		NextRunAt:      time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC),
+		DefinitionHash: hashScheduleDefinition(schedule),
+		MisfirePolicy:  schedule.MisfirePolicy,
+	}
+	store.dueIndex[schedule.ID] = store.states[schedule.ID].NextRunAt
+	store.persistedIDs[schedule.ID] = struct{}{}
+
+	publisher := &stubRecurringPublisher{}
+	service := NewRecurringService(publisher, store, []ScheduleDefinition{schedule}, nil)
 	service.idFunc = func() string { return "recurring-task-1" }
 
 	dispatched, err := service.SyncDue(context.Background(), now)
@@ -125,46 +122,223 @@ func TestRecurringServiceDispatchesCoalescedRun(t *testing.T) {
 	if store.states["nightly"].NextRunAt.Format(time.RFC3339) != "2026-04-14T10:30:00Z" {
 		t.Fatalf("next run = %v, want 2026-04-14T10:30:00Z", store.states["nightly"].NextRunAt)
 	}
+	if !store.dueIndex["nightly"].Equal(store.states["nightly"].NextRunAt) {
+		t.Fatalf("due index next run = %v, want %v", store.dueIndex["nightly"], store.states["nightly"].NextRunAt)
+	}
 }
 
-func TestRecurringServiceSkipsDisabledSchedule(t *testing.T) {
+func TestRecurringServiceUsesDueIndexInsteadOfFullScheduleScan(t *testing.T) {
 	t.Parallel()
 
-	store := &stubScheduleStateStore{states: map[string]ScheduleState{}}
-	publisher := &stubRecurringPublisher{}
-	service := NewRecurringService(publisher, store, []ScheduleDefinition{{
-		ID:            "disabled",
-		Interval:      time.Minute,
+	now := time.Date(2026, 4, 14, 10, 25, 0, 0, time.UTC)
+	dueSchedule := ScheduleDefinition{
+		ID:            "due",
+		Interval:      10 * time.Minute,
 		Queue:         "default",
-		TaskName:      "demo.disabled",
-		Payload:       json.RawMessage(`{}`),
-		Enabled:       false,
+		TaskName:      "demo.due",
+		Payload:       json.RawMessage(`{"job":"due"}`),
+		Enabled:       true,
 		MisfirePolicy: MisfirePolicyCoalesce,
-	}}, nil)
+	}
+	futureSchedule := ScheduleDefinition{
+		ID:            "future",
+		Interval:      10 * time.Minute,
+		Queue:         "default",
+		TaskName:      "demo.future",
+		Payload:       json.RawMessage(`{"job":"future"}`),
+		Enabled:       true,
+		MisfirePolicy: MisfirePolicyCoalesce,
+	}
 
-	dispatched, err := service.SyncDue(context.Background(), time.Now().UTC())
+	store := newStubScheduleStateStore()
+	store.states[dueSchedule.ID] = ScheduleState{
+		NextRunAt:      now.Add(-5 * time.Minute),
+		DefinitionHash: hashScheduleDefinition(dueSchedule),
+		MisfirePolicy:  dueSchedule.MisfirePolicy,
+	}
+	store.states[futureSchedule.ID] = ScheduleState{
+		NextRunAt:      now.Add(30 * time.Minute),
+		DefinitionHash: hashScheduleDefinition(futureSchedule),
+		MisfirePolicy:  futureSchedule.MisfirePolicy,
+	}
+	store.dueIndex[dueSchedule.ID] = store.states[dueSchedule.ID].NextRunAt
+	store.dueIndex[futureSchedule.ID] = store.states[futureSchedule.ID].NextRunAt
+	store.persistedIDs[dueSchedule.ID] = struct{}{}
+	store.persistedIDs[futureSchedule.ID] = struct{}{}
+
+	publisher := &stubRecurringPublisher{}
+	service := NewRecurringService(publisher, store, []ScheduleDefinition{dueSchedule, futureSchedule}, nil)
+	service.idFunc = func() string { return "recurring-task-1" }
+
+	dispatched, err := service.SyncDue(context.Background(), now)
+	if err != nil {
+		t.Fatalf("SyncDue() error = %v", err)
+	}
+	if dispatched != 1 {
+		t.Fatalf("SyncDue() dispatched = %d, want 1", dispatched)
+	}
+	if len(publisher.messages) != 1 {
+		t.Fatalf("published messages = %d, want 1", len(publisher.messages))
+	}
+	if !slices.Equal(store.loadCalls, []string{"due"}) {
+		t.Fatalf("LoadStates() ids = %v, want [due]", store.loadCalls)
+	}
+}
+
+func TestRecurringServiceReconcileIndexesEnabledSchedulesAndCleansUpRemovedOnes(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC)
+	startAt := now.Add(2 * time.Minute)
+	store := newStubScheduleStateStore()
+	store.states["removed"] = ScheduleState{
+		NextRunAt:      now.Add(time.Hour),
+		DefinitionHash: "old-hash",
+		MisfirePolicy:  MisfirePolicyCoalesce,
+	}
+	store.persistedIDs["removed"] = struct{}{}
+	store.dueIndex["removed"] = now.Add(time.Hour)
+
+	service := NewRecurringService(&stubRecurringPublisher{}, store, []ScheduleDefinition{
+		{
+			ID:            "enabled",
+			Interval:      15 * time.Minute,
+			Queue:         "default",
+			TaskName:      "demo.enabled",
+			Payload:       json.RawMessage(`{"job":"enabled"}`),
+			Enabled:       true,
+			MisfirePolicy: MisfirePolicyCoalesce,
+			StartAt:       &startAt,
+		},
+		{
+			ID:            "disabled",
+			Interval:      15 * time.Minute,
+			Queue:         "default",
+			TaskName:      "demo.disabled",
+			Payload:       json.RawMessage(`{"job":"disabled"}`),
+			Enabled:       false,
+			MisfirePolicy: MisfirePolicyCoalesce,
+			StartAt:       &startAt,
+		},
+	}, nil)
+
+	dispatched, err := service.SyncDue(context.Background(), now)
 	if err != nil {
 		t.Fatalf("SyncDue() error = %v", err)
 	}
 	if dispatched != 0 {
 		t.Fatalf("SyncDue() dispatched = %d, want 0", dispatched)
 	}
-	if len(publisher.messages) != 0 {
-		t.Fatalf("published messages = %d, want 0", len(publisher.messages))
+	if _, ok := store.dueIndex["enabled"]; !ok {
+		t.Fatal("enabled schedule missing from due index after reconcile")
+	}
+	if _, ok := store.states["disabled"]; !ok {
+		t.Fatal("disabled schedule state missing after reconcile")
+	}
+	if _, ok := store.dueIndex["disabled"]; ok {
+		t.Fatal("disabled schedule should not remain in due index after reconcile")
+	}
+	if _, ok := store.states["removed"]; ok {
+		t.Fatal("removed schedule state still exists after reconcile")
+	}
+	if _, ok := store.dueIndex["removed"]; ok {
+		t.Fatal("removed schedule due index entry still exists after reconcile")
 	}
 }
 
 type stubScheduleStateStore struct {
-	states map[string]ScheduleState
+	states       map[string]ScheduleState
+	dueIndex     map[string]time.Time
+	persistedIDs map[string]struct{}
+	loadCalls    []string
 }
 
-func (s *stubScheduleStateStore) Load(_ context.Context, scheduleID string) (ScheduleState, bool, error) {
-	state, ok := s.states[scheduleID]
-	return state, ok, nil
+func newStubScheduleStateStore() *stubScheduleStateStore {
+	return &stubScheduleStateStore{
+		states:       map[string]ScheduleState{},
+		dueIndex:     map[string]time.Time{},
+		persistedIDs: map[string]struct{}{},
+	}
 }
 
-func (s *stubScheduleStateStore) Save(_ context.Context, scheduleID string, state ScheduleState) error {
+func (s *stubScheduleStateStore) ReconcileConfigured(_ context.Context, schedules []ScheduleDefinition, now time.Time) error {
+	configured := make(map[string]ScheduleDefinition, len(schedules))
+	for _, schedule := range schedules {
+		configured[schedule.ID] = schedule
+
+		state, exists := s.states[schedule.ID]
+		definitionHash := hashScheduleDefinition(schedule)
+		if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
+			state = initialScheduleState(schedule, now, definitionHash)
+		}
+		state.DefinitionHash = definitionHash
+		state.MisfirePolicy = schedule.MisfirePolicy
+		s.states[schedule.ID] = state
+		s.persistedIDs[schedule.ID] = struct{}{}
+
+		if schedule.Enabled {
+			s.dueIndex[schedule.ID] = state.NextRunAt
+			continue
+		}
+		delete(s.dueIndex, schedule.ID)
+	}
+
+	for scheduleID := range s.persistedIDs {
+		if _, ok := configured[scheduleID]; ok {
+			continue
+		}
+		delete(s.persistedIDs, scheduleID)
+		delete(s.states, scheduleID)
+		delete(s.dueIndex, scheduleID)
+	}
+
+	return nil
+}
+
+func (s *stubScheduleStateStore) DueScheduleIDs(_ context.Context, now time.Time, limit int64) ([]string, error) {
+	ids := make([]string, 0, len(s.dueIndex))
+	for scheduleID, nextRunAt := range s.dueIndex {
+		if nextRunAt.After(now) {
+			continue
+		}
+		ids = append(ids, scheduleID)
+	}
+	slices.Sort(ids)
+	if int64(len(ids)) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
+func (s *stubScheduleStateStore) LoadStates(_ context.Context, scheduleIDs []string) (map[string]ScheduleState, error) {
+	s.loadCalls = append(s.loadCalls, scheduleIDs...)
+	states := make(map[string]ScheduleState, len(scheduleIDs))
+	for _, scheduleID := range scheduleIDs {
+		state, ok := s.states[scheduleID]
+		if !ok {
+			continue
+		}
+		states[scheduleID] = state
+	}
+	return states, nil
+}
+
+func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, scheduleID string, state ScheduleState) error {
 	s.states[scheduleID] = state
+	s.dueIndex[scheduleID] = state.NextRunAt
+	s.persistedIDs[scheduleID] = struct{}{}
+	return nil
+}
+
+func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, scheduleID string) error {
+	delete(s.states, scheduleID)
+	delete(s.dueIndex, scheduleID)
+	delete(s.persistedIDs, scheduleID)
+	return nil
+}
+
+func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, scheduleID string) error {
+	delete(s.dueIndex, scheduleID)
 	return nil
 }
 
