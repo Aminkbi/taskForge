@@ -25,10 +25,40 @@ import (
 )
 
 const (
-	defaultPrefix         = "taskforge"
-	defaultReserveTimeout = time.Second
-	streamPayloadField    = "message"
-	reclaimScanCount      = 20
+	defaultPrefix            = "taskforge"
+	defaultReserveTimeout    = time.Second
+	defaultPublishReceiptTTL = 7 * 24 * time.Hour
+	streamPayloadField       = "message"
+	reclaimScanCount         = 20
+)
+
+var (
+	publishReadyWithReceiptScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[2]) == 1 then
+  return 0
+end
+redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
+redis.call("PSETEX", KEYS[2], ARGV[3], "1")
+return 1
+`)
+	publishFairReadyWithReceiptScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[4]) == 1 then
+  return 0
+end
+redis.call("SADD", KEYS[1], ARGV[1])
+redis.call("XADD", KEYS[2], "*", ARGV[2], ARGV[3])
+redis.call("LPUSH", KEYS[3], ARGV[4])
+redis.call("PSETEX", KEYS[4], ARGV[5], "1")
+return 1
+`)
+	publishDelayedWithReceiptScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[2]) == 1 then
+  return 0
+end
+redis.call("ZADD", KEYS[1], ARGV[1], ARGV[2])
+redis.call("PSETEX", KEYS[2], ARGV[3], "1")
+return 1
+`)
 )
 
 type RedisBroker struct {
@@ -264,7 +294,10 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	if requeue {
 		requeued := delivery.Message
 		requeued.ETA = nil
-		if _, err := b.Publish(ctx, requeued, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := b.Publish(ctx, requeued, broker.PublishOptions{
+			Source:           broker.PublishSourceNew,
+			DeduplicationKey: fmt.Sprintf("requeue:%s", delivery.Execution.DeliveryID),
+		}); err != nil {
 			observability.MarkSpanError(span, err)
 			return err
 		}
@@ -364,61 +397,20 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 		msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
 		msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
 		msg.ETA = nil
-		queue := tasks.EffectiveQueue(msg)
-		eval, err := b.evaluateAdmission(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceDueRelease}, now)
-		if err != nil {
-			return moved, fmt.Errorf("move due tasks: evaluate admission: %w", err)
-		}
-		b.observeAdmissionDecision(queue, broker.PublishSourceDueRelease, eval)
-
-		pipe := b.client.TxPipeline()
-		pipe.ZRem(ctx, b.delayedKey(), raw)
-		if eval.decision == broker.AdmissionDecisionDeferred {
-			if eval.deferUntil == nil {
-				return moved, fmt.Errorf("move due tasks: missing deferred release time")
-			}
-			msg = b.annotateDeferredMessage(msg, broker.PublishSourceDueRelease, eval.reason, *eval.deferUntil, now)
-			entryPayload, err := json.Marshal(delayedEntry{
-				EntryID:      uuid.NewString(),
-				ScheduledFor: msg.ETA.UTC(),
-				Message:      msg,
-			})
-			if err != nil {
-				return moved, fmt.Errorf("move due tasks: marshal deferred entry: %w", err)
-			}
-			pipe.ZAdd(ctx, b.delayedKey(), redis.Z{
-				Score:  float64(msg.ETA.UnixMilli()),
-				Member: entryPayload,
-			})
-		} else {
-			payload, err := json.Marshal(msg)
-			if err != nil {
-				return moved, fmt.Errorf("move due tasks: marshal ready message: %w", err)
-			}
-			if b.fairnessPolicy(queue) != nil {
-				fairnessKey := fairness.NormalizeKey(msg.FairnessKey)
-				pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
-				pipe.XAdd(ctx, &redis.XAddArgs{
-					Stream: b.fairnessStreamKey(queue, fairnessKey),
-					Values: map[string]interface{}{
-						streamPayloadField: string(payload),
-					},
-				})
-				pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
-			} else {
-				pipe.XAdd(ctx, &redis.XAddArgs{
-					Stream: b.streamKey(queue),
-					Values: map[string]interface{}{
-						streamPayloadField: string(payload),
-					},
-				})
-			}
-		}
-
-		if _, err := pipe.Exec(ctx); err != nil {
+		if _, err := b.publishMessage(ctx, msg, broker.PublishOptions{
+			Source:           broker.PublishSourceDueRelease,
+			DeduplicationKey: fmt.Sprintf("delayed:%s", entry.EntryID),
+		}, now); err != nil {
 			return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
 		}
-		moved++
+
+		removed, err := b.client.ZRem(ctx, b.delayedKey(), raw).Result()
+		if err != nil {
+			return moved, fmt.Errorf("move due tasks: remove delayed entry: %w", err)
+		}
+		if removed == 1 {
+			moved++
+		}
 	}
 
 	return moved, nil
@@ -523,19 +515,48 @@ func (b *RedisBroker) publishReady(ctx context.Context, queue string, payload []
 	return nil
 }
 
+func (b *RedisBroker) publishReadyWithReceipt(ctx context.Context, queue string, payload []byte, receiptKey string) (bool, error) {
+	published, err := publishReadyWithReceiptScript.Run(
+		ctx,
+		b.client,
+		[]string{b.streamKey(queue), receiptKey},
+		streamPayloadField,
+		string(payload),
+		b.publishReceiptTTL().Milliseconds(),
+	).Int64()
+	if err != nil {
+		return false, fmt.Errorf("publish task: add stream entry: %w", err)
+	}
+	return published == 1, nil
+}
+
 func (b *RedisBroker) publishMessage(ctx context.Context, msg broker.TaskMessage, opts broker.PublishOptions, now time.Time) (broker.PublishResult, error) {
+	opts = opts.Normalize()
 	queue := tasks.EffectiveQueue(msg)
+	result := broker.PublishResult{
+		Decision: broker.AdmissionDecisionAccepted,
+		Queue:    queue,
+	}
+
+	if opts.DeduplicationKey != "" {
+		exists, err := b.publishReceiptExists(ctx, opts.DeduplicationKey)
+		if err != nil {
+			return broker.PublishResult{}, err
+		}
+		if exists {
+			result.Deduplicated = true
+			return result, nil
+		}
+	}
+
 	eval, err := b.evaluateAdmission(ctx, msg, opts, now)
 	if err != nil {
 		return broker.PublishResult{}, err
 	}
 	b.observeAdmissionDecision(queue, opts.Source, eval)
 
-	result := broker.PublishResult{
-		Decision: eval.decision,
-		Reason:   eval.reason,
-		Queue:    queue,
-	}
+	result.Decision = eval.decision
+	result.Reason = eval.reason
 
 	switch eval.decision {
 	case broker.AdmissionDecisionRejected:
@@ -554,40 +575,76 @@ func (b *RedisBroker) publishMessage(ctx context.Context, msg broker.TaskMessage
 	}
 
 	if msg.ETA != nil && msg.ETA.After(now) {
-		if err := b.publishDelayed(ctx, msg); err != nil {
+		published, err := b.publishDelayed(ctx, msg, opts.DeduplicationKey)
+		if err != nil {
 			return broker.PublishResult{}, err
 		}
-		b.metrics.IncPublished(queue)
+		result.Deduplicated = !published
+		if published {
+			b.metrics.IncPublished(queue)
+		}
 		return result, nil
 	}
 
 	if b.fairnessPolicy(queue) != nil {
-		if err := b.publishFairReady(ctx, msg, payload); err != nil {
+		published, err := b.publishFairReady(ctx, msg, payload, opts.DeduplicationKey, now)
+		if err != nil {
 			return broker.PublishResult{}, err
 		}
-	} else if err := b.publishReady(ctx, queue, payload); err != nil {
+		result.Deduplicated = !published
+		if published {
+			b.metrics.IncPublished(queue)
+		}
+		return result, nil
+	}
+	published, err := b.publishReadyWithDedup(ctx, queue, payload, opts.DeduplicationKey)
+	if err != nil {
 		return broker.PublishResult{}, err
 	}
-	b.metrics.IncPublished(queue)
+	result.Deduplicated = !published
+	if published {
+		b.metrics.IncPublished(queue)
+	}
 	return result, nil
 }
 
-func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage) error {
+func (b *RedisBroker) publishReadyWithDedup(ctx context.Context, queue string, payload []byte, deduplicationKey string) (bool, error) {
+	if deduplicationKey == "" {
+		return true, b.publishReady(ctx, queue, payload)
+	}
+	return b.publishReadyWithReceipt(ctx, queue, payload, b.publishReceiptKey(deduplicationKey))
+}
+
+func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage, deduplicationKey string) (bool, error) {
 	entryPayload, err := json.Marshal(delayedEntry{
 		EntryID:      uuid.NewString(),
 		ScheduledFor: msg.ETA.UTC(),
 		Message:      msg,
 	})
 	if err != nil {
-		return fmt.Errorf("publish task: marshal delayed entry: %w", err)
+		return false, fmt.Errorf("publish task: marshal delayed entry: %w", err)
 	}
-	if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
-		Score:  float64(msg.ETA.UnixMilli()),
-		Member: entryPayload,
-	}).Err(); err != nil {
-		return err
+	if deduplicationKey == "" {
+		if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
+			Score:  float64(msg.ETA.UnixMilli()),
+			Member: entryPayload,
+		}).Err(); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	return nil
+	published, err := publishDelayedWithReceiptScript.Run(
+		ctx,
+		b.client,
+		[]string{b.delayedKey(), b.publishReceiptKey(deduplicationKey)},
+		msg.ETA.UTC().UnixMilli(),
+		string(entryPayload),
+		b.publishReceiptTTL().Milliseconds(),
+	).Int64()
+	if err != nil {
+		return false, err
+	}
+	return published == 1, nil
 }
 
 func (b *RedisBroker) ensureGroup(ctx context.Context, streamKey, groupName string) error {
@@ -793,6 +850,22 @@ func (b *RedisBroker) consumerName(consumerID string) string {
 
 func (b *RedisBroker) delayedKey() string {
 	return fmt.Sprintf("%s:delayed", b.prefix)
+}
+
+func (b *RedisBroker) publishReceiptKey(deduplicationKey string) string {
+	return fmt.Sprintf("%s:publish:receipt:%x", b.prefix, sha256Sum(deduplicationKey))
+}
+
+func (b *RedisBroker) publishReceiptTTL() time.Duration {
+	return defaultPublishReceiptTTL
+}
+
+func (b *RedisBroker) publishReceiptExists(ctx context.Context, deduplicationKey string) (bool, error) {
+	exists, err := b.client.Exists(ctx, b.publishReceiptKey(deduplicationKey)).Result()
+	if err != nil {
+		return false, fmt.Errorf("publish task: inspect receipt: %w", err)
+	}
+	return exists > 0, nil
 }
 
 func normalizeQueue(queue string) string {

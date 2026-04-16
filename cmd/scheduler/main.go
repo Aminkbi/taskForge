@@ -16,7 +16,7 @@ func main() {
 	ctx, stop := shutdown.NotifyContext(context.Background())
 	defer stop()
 
-	cfg, err := config.Load("taskforge-scheduler")
+	cfg, err := config.LoadForRole("taskforge-scheduler", config.ServiceRoleScheduler)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)

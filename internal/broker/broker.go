@@ -17,7 +17,8 @@ const (
 )
 
 type PublishOptions struct {
-	Source PublishSource
+	Source           PublishSource
+	DeduplicationKey string
 }
 
 func (o PublishOptions) Normalize() PublishOptions {
@@ -40,6 +41,7 @@ type PublishResult struct {
 	Reason        string
 	Queue         string
 	DeferredUntil *time.Time
+	Deduplicated  bool
 }
 
 // Broker exposes TaskForge's internal at-least-once delivery contract.

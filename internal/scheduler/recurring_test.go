@@ -185,6 +185,51 @@ func TestRecurringServiceUsesDueIndexInsteadOfFullScheduleScan(t *testing.T) {
 	}
 }
 
+func TestRecurringServiceSkipsDispatchCountWhenAdvanceLosesRace(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 14, 10, 25, 0, 0, time.UTC)
+	schedule := ScheduleDefinition{
+		ID:            "nightly",
+		Interval:      10 * time.Minute,
+		Queue:         "default",
+		TaskName:      "demo.nightly",
+		Payload:       json.RawMessage(`{"job":"nightly"}`),
+		Enabled:       true,
+		MisfirePolicy: MisfirePolicyCoalesce,
+	}
+	store := newStubScheduleStateStore()
+	store.states[schedule.ID] = ScheduleState{
+		NextRunAt:      time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC),
+		DefinitionHash: hashScheduleDefinition(schedule),
+		MisfirePolicy:  schedule.MisfirePolicy,
+	}
+	store.dueIndex[schedule.ID] = store.states[schedule.ID].NextRunAt
+	store.persistedIDs[schedule.ID] = struct{}{}
+	store.advanceOK[schedule.ID] = false
+
+	publisher := &stubRecurringPublisher{}
+	service := NewRecurringService(publisher, store, []ScheduleDefinition{schedule}, nil)
+	service.idFunc = func() string { return "recurring-task-1" }
+
+	dispatched, err := service.SyncDue(context.Background(), now)
+	if err != nil {
+		t.Fatalf("SyncDue() error = %v", err)
+	}
+	if dispatched != 0 {
+		t.Fatalf("SyncDue() dispatched = %d, want 0", dispatched)
+	}
+	if len(publisher.messages) != 1 {
+		t.Fatalf("published messages = %d, want 1", len(publisher.messages))
+	}
+	if publisher.options[0].DeduplicationKey != "recurring:nightly:2026-04-14T10:00:00Z" {
+		t.Fatalf("deduplication key = %q, want %q", publisher.options[0].DeduplicationKey, "recurring:nightly:2026-04-14T10:00:00Z")
+	}
+	if !store.states[schedule.ID].NextRunAt.Equal(time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("state should remain unchanged after failed advance, got %v", store.states[schedule.ID].NextRunAt)
+	}
+}
+
 func TestRecurringServiceReconcileIndexesEnabledSchedulesAndCleansUpRemovedOnes(t *testing.T) {
 	t.Parallel()
 
@@ -251,6 +296,8 @@ type stubScheduleStateStore struct {
 	dueIndex     map[string]time.Time
 	persistedIDs map[string]struct{}
 	loadCalls    []string
+	advanceCalls []string
+	advanceOK    map[string]bool
 }
 
 func newStubScheduleStateStore() *stubScheduleStateStore {
@@ -258,6 +305,7 @@ func newStubScheduleStateStore() *stubScheduleStateStore {
 		states:       map[string]ScheduleState{},
 		dueIndex:     map[string]time.Time{},
 		persistedIDs: map[string]struct{}{},
+		advanceOK:    map[string]bool{},
 	}
 }
 
@@ -330,6 +378,26 @@ func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, scheduleID strin
 	return nil
 }
 
+func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+	s.advanceCalls = append(s.advanceCalls, scheduleID)
+	if allowed, ok := s.advanceOK[scheduleID]; ok && !allowed {
+		return false, nil
+	}
+
+	current, ok := s.states[scheduleID]
+	if !ok {
+		return false, nil
+	}
+	if !current.NextRunAt.Equal(expected.NextRunAt) || current.DefinitionHash != expected.DefinitionHash {
+		return false, nil
+	}
+
+	s.states[scheduleID] = next
+	s.dueIndex[scheduleID] = next.NextRunAt
+	s.persistedIDs[scheduleID] = struct{}{}
+	return true, nil
+}
+
 func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, scheduleID string) error {
 	delete(s.states, scheduleID)
 	delete(s.dueIndex, scheduleID)
@@ -344,10 +412,12 @@ func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, scheduleI
 
 type stubRecurringPublisher struct {
 	messages []broker.TaskMessage
+	options  []broker.PublishOptions
 }
 
-func (s *stubRecurringPublisher) Publish(_ context.Context, msg broker.TaskMessage, _ broker.PublishOptions) (broker.PublishResult, error) {
+func (s *stubRecurringPublisher) Publish(_ context.Context, msg broker.TaskMessage, opts broker.PublishOptions) (broker.PublishResult, error) {
 	s.messages = append(s.messages, msg)
+	s.options = append(s.options, opts)
 	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 

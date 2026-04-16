@@ -29,7 +29,11 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 
 	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
 	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
-	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
+	leaseTTL := config.DefaultLeaseTTL()
+	if len(cfg.WorkerPools) > 0 {
+		leaseTTL = cfg.WorkerPools[0].LeaseTTL
+	}
+	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
 		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),

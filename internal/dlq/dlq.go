@@ -127,7 +127,7 @@ func (s *Service) PublishDeadLetter(ctx context.Context, envelope Envelope) erro
 	}
 
 	msg := broker.TaskMessage{
-		ID:        fmt.Sprintf("dlq:%s:%d", envelope.OriginalTask.ID, time.Now().UTC().UnixNano()),
+		ID:        fmt.Sprintf("dlq:%s", envelope.DeliveryID),
 		Name:      "taskforge.dead_letter",
 		Queue:     DeadLetterQueue(envelope.OriginalTask.Queue),
 		Payload:   payload,
@@ -141,7 +141,10 @@ func (s *Service) PublishDeadLetter(ctx context.Context, envelope Envelope) erro
 		msg.Headers["dead_letter_trace_id"] = envelope.TraceID
 	}
 
-	if _, err := s.Broker.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceDeadLetter}); err != nil {
+	if _, err := s.Broker.Publish(ctx, msg, broker.PublishOptions{
+		Source:           broker.PublishSourceDeadLetter,
+		DeduplicationKey: fmt.Sprintf("dead_letter:%s", envelope.DeliveryID),
+	}); err != nil {
 		observability.MarkSpanError(span, err)
 		return err
 	}

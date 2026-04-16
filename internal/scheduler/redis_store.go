@@ -163,6 +163,60 @@ func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, scheduleID st
 	return nil
 }
 
+func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+	stateKey := s.stateKey(scheduleID)
+	dueIndexKey := s.dueIndexKey()
+	expectedNextRunAt := expected.NextRunAt.UTC()
+	expectedDefinitionHash := expected.DefinitionHash
+
+	for {
+		advanced := false
+		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+			payload, err := tx.Get(ctx, stateKey).Result()
+			if err != nil {
+				if err == redis.Nil {
+					return nil
+				}
+				return fmt.Errorf("load schedule state: %w", err)
+			}
+
+			var current ScheduleState
+			if err := json.Unmarshal([]byte(payload), &current); err != nil {
+				return fmt.Errorf("unmarshal schedule state: %w", err)
+			}
+			if !current.NextRunAt.UTC().Equal(expectedNextRunAt) || current.DefinitionHash != expectedDefinitionHash {
+				return nil
+			}
+
+			nextPayload, err := json.Marshal(next)
+			if err != nil {
+				return fmt.Errorf("marshal schedule state: %w", err)
+			}
+
+			_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+				pipe.Set(ctx, stateKey, nextPayload, 0)
+				pipe.SAdd(ctx, s.scheduleIDsKey(), scheduleID)
+				pipe.ZAdd(ctx, dueIndexKey, redis.Z{
+					Score:  float64(next.NextRunAt.UTC().UnixMilli()),
+					Member: scheduleID,
+				})
+				return nil
+			})
+			if err == nil {
+				advanced = true
+			}
+			return err
+		}, stateKey)
+		if err == nil {
+			return advanced, nil
+		}
+		if err == redis.TxFailedErr {
+			continue
+		}
+		return false, fmt.Errorf("advance schedule state: %w", err)
+	}
+}
+
 func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, scheduleID string) error {
 	pipe := s.client.TxPipeline()
 	pipe.Del(ctx, s.stateKey(scheduleID))

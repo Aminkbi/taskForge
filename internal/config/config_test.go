@@ -240,6 +240,30 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadForRoleAllowsEmptyWorkerPoolsForScheduler(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
+
+	cfg, err := LoadForRole("taskforge-scheduler", ServiceRoleScheduler)
+	if err != nil {
+		t.Fatalf("LoadForRole() error = %v", err)
+	}
+	if len(cfg.WorkerPools) != 0 {
+		t.Fatalf("WorkerPools length = %d, want 0", len(cfg.WorkerPools))
+	}
+}
+
+func TestLoadForRoleAllowsEmptyWorkerPoolsForAPI(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
+
+	cfg, err := LoadForRole("taskforge-api", ServiceRoleAPI)
+	if err != nil {
+		t.Fatalf("LoadForRole() error = %v", err)
+	}
+	if len(cfg.WorkerPools) != 0 {
+		t.Fatalf("WorkerPools length = %d, want 0", len(cfg.WorkerPools))
+	}
+}
+
 func TestLoadInvalidDuration(t *testing.T) {
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "not-a-duration")
 
@@ -264,6 +288,15 @@ func TestLoadRejectsInvalidWorkerPools(t *testing.T) {
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsEmptyWorkerPoolsForWorkerRole(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
+
+	_, err := LoadForRole("taskforge-worker", ServiceRoleWorker)
+	if err == nil {
+		t.Fatal("LoadForRole() error = nil, want non-nil")
 	}
 }
 

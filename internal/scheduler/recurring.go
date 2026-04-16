@@ -57,6 +57,7 @@ type ScheduleStateStore interface {
 	DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error)
 	LoadStates(ctx context.Context, scheduleIDs []string) (map[string]ScheduleState, error)
 	SaveIndexed(ctx context.Context, scheduleID string, state ScheduleState) error
+	AdvanceIfUnchanged(ctx context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error)
 	RemoveSchedule(ctx context.Context, scheduleID string) error
 	RemoveFromDueIndex(ctx context.Context, scheduleID string) error
 }
@@ -148,6 +149,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 				continue
 			}
 
+			expectedState := state
 			nominalAt, nextRunAt, missedRuns := coalesceNextRun(state.NextRunAt, schedule.Interval, now)
 			task := broker.TaskMessage{
 				ID:          s.idFunc(),
@@ -164,16 +166,24 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 			task.Headers[HeaderScheduleMisfirePolicy] = string(schedule.MisfirePolicy)
 			task.Headers[HeaderScheduleMissedRuns] = fmt.Sprintf("%d", missedRuns)
 
-			if _, err := s.publisher.Publish(ctx, task, broker.PublishOptions{Source: broker.PublishSourceRecurring}); err != nil {
+			if _, err := s.publisher.Publish(ctx, task, broker.PublishOptions{
+				Source:           broker.PublishSourceRecurring,
+				DeduplicationKey: fmt.Sprintf("recurring:%s:%s", schedule.ID, nominalAt.UTC().Format(time.RFC3339Nano)),
+			}); err != nil {
 				return dispatched, fmt.Errorf("publish recurring task for %s: %w", schedule.ID, err)
 			}
 
-			state.NextRunAt = nextRunAt.UTC()
-			state.LastDispatchedAt = now.UTC()
-			state.DefinitionHash = definitionHash
-			state.MisfirePolicy = schedule.MisfirePolicy
-			if err := s.store.SaveIndexed(ctx, schedule.ID, state); err != nil {
+			nextState := expectedState
+			nextState.NextRunAt = nextRunAt.UTC()
+			nextState.LastDispatchedAt = now.UTC()
+			nextState.DefinitionHash = definitionHash
+			nextState.MisfirePolicy = schedule.MisfirePolicy
+			advanced, err := s.store.AdvanceIfUnchanged(ctx, schedule.ID, expectedState, nextState)
+			if err != nil {
 				return dispatched, fmt.Errorf("save dispatched schedule %s state: %w", schedule.ID, err)
+			}
+			if !advanced {
+				return dispatched, nil
 			}
 
 			dispatched++
@@ -183,7 +193,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 					"schedule_id", schedule.ID,
 					"nominal_at", nominalAt.UTC(),
 					"dispatched_at", now.UTC(),
-					"next_run_at", state.NextRunAt,
+					"next_run_at", nextState.NextRunAt,
 					"missed_runs", missedRuns,
 				)
 			}

@@ -62,6 +62,9 @@ func TestWorkerProcessTaskRetriesFailedTask(t *testing.T) {
 	if b.published[0].ETA == nil {
 		t.Fatalf("Published ETA is nil")
 	}
+	if got := b.publishOpts[0].DeduplicationKey; got != "retry:delivery-1" {
+		t.Fatalf("Publish deduplication key = %q, want %q", got, "retry:delivery-1")
+	}
 	if got := b.published[0].Headers["last_error"]; got != "boom" {
 		t.Fatalf("Published last_error = %q, want %q", got, "boom")
 	}
@@ -179,6 +182,7 @@ type stubBroker struct {
 	acked       []broker.Delivery
 	nacked      []broker.Delivery
 	published   []broker.TaskMessage
+	publishOpts []broker.PublishOptions
 	rejectRetry bool
 }
 
@@ -191,6 +195,7 @@ func (b *stubBroker) Publish(_ context.Context, msg broker.TaskMessage, opts bro
 		}, &broker.AdmissionError{Queue: msg.Queue, Reason: "queue_pending_cap"}
 	}
 	b.published = append(b.published, msg)
+	b.publishOpts = append(b.publishOpts, opts)
 	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 

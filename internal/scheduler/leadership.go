@@ -20,12 +20,10 @@ var (
 	acquireLeadershipScript = redis.NewScript(`
 local current = redis.call("GET", KEYS[1])
 if current then
-  return {0, 0}
+  return 0
 end
-local fence = redis.call("INCR", KEYS[2])
-local value = ARGV[1] .. "|" .. tostring(fence)
-redis.call("PSETEX", KEYS[1], ARGV[2], value)
-return {1, fence}
+redis.call("PSETEX", KEYS[1], ARGV[2], ARGV[1])
+return 1
 `)
 	renewLeadershipScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -53,14 +51,12 @@ type RedisLeaderElector struct {
 	prefix        string
 	mu            sync.RWMutex
 	lastRenewedAt time.Time
-	fenceToken    int64
 	leader        bool
 }
 
 type LeadershipSnapshot struct {
 	Leader        bool
 	Owner         string
-	FenceToken    int64
 	LastRenewedAt time.Time
 }
 
@@ -129,54 +125,39 @@ func (e *RedisLeaderElector) Release(ctx context.Context) error {
 
 	snapshot := e.Snapshot()
 	if released == 1 && e.logger != nil {
-		e.logger.Info("scheduler leadership released", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
+		e.logger.Info("scheduler leadership released", "owner", snapshot.Owner)
 	}
 
 	e.mu.Lock()
 	e.leader = false
-	e.fenceToken = 0
 	e.lastRenewedAt = time.Time{}
 	e.mu.Unlock()
 	return nil
 }
 
 func (e *RedisLeaderElector) acquire(ctx context.Context, now time.Time) (bool, error) {
-	values, err := acquireLeadershipScript.Run(
+	acquired, err := acquireLeadershipScript.Run(
 		ctx,
 		e.client,
-		[]string{e.lockKey(), e.fenceKey()},
+		[]string{e.lockKey()},
 		e.owner,
 		e.ttl.Milliseconds(),
-	).Slice()
+	).Int64()
 	if err != nil {
 		return false, fmt.Errorf("acquire scheduler leadership: %w", err)
 	}
 
-	if len(values) != 2 {
-		return false, fmt.Errorf("acquire scheduler leadership: unexpected response size %d", len(values))
-	}
-
-	acquired, err := toInt64(values[0])
-	if err != nil {
-		return false, fmt.Errorf("acquire scheduler leadership: parse acquired flag: %w", err)
-	}
 	if acquired == 0 {
 		return false, nil
 	}
 
-	fenceToken, err := toInt64(values[1])
-	if err != nil {
-		return false, fmt.Errorf("acquire scheduler leadership: parse fence token: %w", err)
-	}
-
 	e.mu.Lock()
 	e.leader = true
-	e.fenceToken = fenceToken
 	e.lastRenewedAt = now
 	e.mu.Unlock()
 	snapshot := e.Snapshot()
 	if e.logger != nil {
-		e.logger.Info("scheduler leadership acquired", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
+		e.logger.Info("scheduler leadership acquired", "owner", snapshot.Owner)
 	}
 	return true, nil
 }
@@ -196,11 +177,10 @@ func (e *RedisLeaderElector) renew(ctx context.Context, now time.Time) (bool, er
 	if renewed == 0 {
 		snapshot := e.Snapshot()
 		if e.logger != nil {
-			e.logger.Warn("scheduler leadership lost", "owner", snapshot.Owner, "fence_token", snapshot.FenceToken)
+			e.logger.Warn("scheduler leadership lost", "owner", snapshot.Owner)
 		}
 		e.mu.Lock()
 		e.leader = false
-		e.fenceToken = 0
 		e.lastRenewedAt = time.Time{}
 		e.mu.Unlock()
 		return false, nil
@@ -216,12 +196,8 @@ func (e *RedisLeaderElector) lockKey() string {
 	return fmt.Sprintf("%s:scheduler:leader", e.prefix)
 }
 
-func (e *RedisLeaderElector) fenceKey() string {
-	return fmt.Sprintf("%s:scheduler:fence", e.prefix)
-}
-
 func (e *RedisLeaderElector) lockValue() string {
-	return fmt.Sprintf("%s|%d", e.owner, e.fenceToken)
+	return e.owner
 }
 
 func (e *RedisLeaderElector) Snapshot() LeadershipSnapshot {
@@ -231,23 +207,6 @@ func (e *RedisLeaderElector) Snapshot() LeadershipSnapshot {
 	return LeadershipSnapshot{
 		Leader:        e.leader,
 		Owner:         e.owner,
-		FenceToken:    e.fenceToken,
 		LastRenewedAt: e.lastRenewedAt,
-	}
-}
-
-func toInt64(value any) (int64, error) {
-	switch typed := value.(type) {
-	case int64:
-		return typed, nil
-	case string:
-		var parsed int64
-		_, err := fmt.Sscanf(typed, "%d", &parsed)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("unexpected type %T", value)
 	}
 }

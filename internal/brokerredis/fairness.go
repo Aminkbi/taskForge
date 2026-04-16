@@ -78,24 +78,46 @@ func (b *RedisBroker) fairnessCursorKey(queue, tier string) string {
 	return fmt.Sprintf("%s:fairness:%s:cursor:%s", b.prefix, normalizeQueue(queue), tier)
 }
 
-func (b *RedisBroker) publishFairReady(ctx context.Context, msg broker.TaskMessage, payload []byte) error {
+func (b *RedisBroker) publishFairReady(ctx context.Context, msg broker.TaskMessage, payload []byte, deduplicationKey string, now time.Time) (bool, error) {
 	queue := normalizeQueue(msg.Queue)
 	fairnessKey := fairness.NormalizeKey(msg.FairnessKey)
 	streamKey := b.fairnessStreamKey(queue, fairnessKey)
 
-	pipe := b.client.TxPipeline()
-	pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
-	pipe.XAdd(ctx, &redis.XAddArgs{
-		Stream: streamKey,
-		Values: map[string]interface{}{
-			streamPayloadField: string(payload),
-		},
-	})
-	pipe.LPush(ctx, b.fairnessNotifyKey(queue), time.Now().UTC().Format(time.RFC3339Nano))
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("publish task: fairness queue entry: %w", err)
+	if deduplicationKey == "" {
+		pipe := b.client.TxPipeline()
+		pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
+		pipe.XAdd(ctx, &redis.XAddArgs{
+			Stream: streamKey,
+			Values: map[string]interface{}{
+				streamPayloadField: string(payload),
+			},
+		})
+		pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
+		if _, err := pipe.Exec(ctx); err != nil {
+			return false, fmt.Errorf("publish task: fairness queue entry: %w", err)
+		}
+		return true, nil
 	}
-	return nil
+
+	published, err := publishFairReadyWithReceiptScript.Run(
+		ctx,
+		b.client,
+		[]string{
+			b.fairnessKeysSetKey(queue),
+			streamKey,
+			b.fairnessNotifyKey(queue),
+			b.publishReceiptKey(deduplicationKey),
+		},
+		fairnessKey,
+		streamPayloadField,
+		string(payload),
+		now.UTC().Format(time.RFC3339Nano),
+		b.publishReceiptTTL().Milliseconds(),
+	).Int64()
+	if err != nil {
+		return false, fmt.Errorf("publish task: fairness queue entry: %w", err)
+	}
+	return published == 1, nil
 }
 
 func (b *RedisBroker) reserveFair(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {

@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -137,5 +139,16 @@ func TestAdaptiveHandlerReturnsPoolAndBudgetSnapshots(t *testing.T) {
 	}
 	if len(payload.Budgets) != 1 || payload.Budgets[0].Budget != "downstream" || payload.Budgets[0].InUse != 2 {
 		t.Fatalf("budget payload = %+v, want downstream in_use=2", payload.Budgets)
+	}
+}
+
+func TestNewAllowsEmptyWorkerPools(t *testing.T) {
+	t.Parallel()
+
+	app := New(config.Config{
+		RedisAddr: ":6379",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	if app == nil {
+		t.Fatal("New() returned nil")
 	}
 }

@@ -1117,6 +1117,112 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	}
 }
 
+func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	message := broker.TaskMessage{
+		ID:        "integration-dedup-publish",
+		Name:      "integration.dedup",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"dedup"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	first, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{
+		Source:           broker.PublishSourceNew,
+		DeduplicationKey: "test:publish-once",
+	})
+	if err != nil {
+		t.Fatalf("first Publish() error = %v", err)
+	}
+	second, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{
+		Source:           broker.PublishSourceNew,
+		DeduplicationKey: "test:publish-once",
+	})
+	if err != nil {
+		t.Fatalf("second Publish() error = %v", err)
+	}
+	if first.Deduplicated {
+		t.Fatal("first Publish() should not be marked deduplicated")
+	}
+	if !second.Deduplicated {
+		t.Fatal("second Publish() should be marked deduplicated")
+	}
+
+	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 1 {
+		t.Fatalf("stream length = %d, want 1", streamLen)
+	}
+}
+
+func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	brokerA := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	brokerB := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+
+	eta := time.Now().UTC().Add(-time.Second)
+	message := broker.TaskMessage{
+		ID:        "integration-move-due-dedup",
+		Name:      "integration.delayed",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"once"}`),
+		ETA:       &eta,
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := brokerA.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	releasedAt := time.Now().UTC()
+	start := make(chan struct{})
+	results := make(chan int, 2)
+	errs := make(chan error, 2)
+	move := func(b *brokerredis.RedisBroker) {
+		<-start
+		moved, err := b.MoveDue(ctx, releasedAt, 10)
+		if err != nil {
+			errs <- err
+			return
+		}
+		results <- moved
+	}
+
+	go move(brokerA)
+	go move(brokerB)
+	close(start)
+
+	for range 2 {
+		select {
+		case err := <-errs:
+			t.Fatalf("MoveDue() error = %v", err)
+		case <-results:
+		}
+	}
+
+	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 1 {
+		t.Fatalf("stream length = %d, want 1", streamLen)
+	}
+	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
+	if err != nil {
+		t.Fatalf("ZCard() error = %v", err)
+	}
+	if delayedCount != 0 {
+		t.Fatalf("delayed count = %d, want 0", delayedCount)
+	}
+}
+
 func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
@@ -1281,6 +1387,78 @@ func TestSchedulerFastFailoverDoesNotDuplicateRecurringRun(t *testing.T) {
 	}
 	if missedRuns < 0 {
 		t.Fatalf("missed runs = %d, want >= 0", missedRuns)
+	}
+}
+
+func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	startAt := now.Add(-time.Second)
+	schedule := schedulerpkg.ScheduleDefinition{
+		ID:            "integration-recurring-concurrent",
+		Interval:      time.Minute,
+		Queue:         "default",
+		TaskName:      "integration.recurring",
+		Payload:       json.RawMessage(`{"hello":"recurring"}`),
+		Enabled:       true,
+		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+		StartAt:       &startAt,
+	}
+	store := schedulerpkg.NewRedisScheduleStateStore(client)
+	if err := store.ReconcileConfigured(ctx, []schedulerpkg.ScheduleDefinition{schedule}, now); err != nil {
+		t.Fatalf("ReconcileConfigured() error = %v", err)
+	}
+
+	brokerA := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	brokerB := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+	serviceA := schedulerpkg.NewRecurringService(brokerA, store, []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
+	serviceB := schedulerpkg.NewRecurringService(brokerB, schedulerpkg.NewRedisScheduleStateStore(client), []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
+
+	start := make(chan struct{})
+	results := make(chan int, 2)
+	errs := make(chan error, 2)
+	syncDue := func(service *schedulerpkg.RecurringService) {
+		<-start
+		dispatched, err := service.SyncDue(ctx, now)
+		if err != nil {
+			errs <- err
+			return
+		}
+		results <- dispatched
+	}
+
+	go syncDue(serviceA)
+	go syncDue(serviceB)
+	close(start)
+
+	totalDispatched := 0
+	for range 2 {
+		select {
+		case err := <-errs:
+			t.Fatalf("SyncDue() error = %v", err)
+		case dispatched := <-results:
+			totalDispatched += dispatched
+		}
+	}
+
+	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 1 {
+		t.Fatalf("stream length = %d, want 1", streamLen)
+	}
+	if totalDispatched != 1 {
+		t.Fatalf("total dispatched = %d, want 1", totalDispatched)
+	}
+	finalState := loadRecurringScheduleState(t, ctx, client, schedule.ID)
+	if !finalState.NextRunAt.After(now) {
+		t.Fatalf("next run = %v, want after %v", finalState.NextRunAt, now)
 	}
 }
 
@@ -1880,10 +2058,7 @@ func waitForSchedulerLeaderOwner(t *testing.T, client *redis.Client) string {
 	for time.Now().Before(deadline) {
 		value, err := client.Get(context.Background(), "taskforge:scheduler:leader").Result()
 		if err == nil && value != "" {
-			owner, _, found := strings.Cut(value, "|")
-			if found && owner != "" {
-				return owner
-			}
+			return value
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

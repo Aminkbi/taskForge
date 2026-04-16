@@ -608,7 +608,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 		if w.abandonIfLeaseLost(retryDelivery, brokerLease, "publish_retry") {
 			return nil
 		}
-		if _, publishErr := w.Broker.Publish(execCtx, next, broker.PublishOptions{Source: broker.PublishSourceRetry}); publishErr != nil {
+		if _, publishErr := w.Broker.Publish(execCtx, next, broker.PublishOptions{
+			Source:           broker.PublishSourceRetry,
+			DeduplicationKey: fmt.Sprintf("retry:%s", failedDelivery.Execution.DeliveryID),
+		}); publishErr != nil {
 			observability.MarkSpanError(span, publishErr)
 			var admissionErr *broker.AdmissionError
 			if errors.As(publishErr, &admissionErr) {

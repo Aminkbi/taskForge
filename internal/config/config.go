@@ -28,6 +28,14 @@ const (
 	defaultSchedulerRenew   = 5 * time.Second
 )
 
+type ServiceRole string
+
+const (
+	ServiceRoleWorker    ServiceRole = "worker"
+	ServiceRoleScheduler ServiceRole = "scheduler"
+	ServiceRoleAPI       ServiceRole = "api"
+)
+
 type Config struct {
 	LogLevel               string
 	HTTPAddr               string
@@ -183,6 +191,10 @@ type rawAdaptive struct {
 }
 
 func Load(defaultServiceName string) (Config, error) {
+	return LoadForRole(defaultServiceName, ServiceRoleWorker)
+}
+
+func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	cfg := Config{
 		LogLevel:               getEnv("TASKFORGE_LOG_LEVEL", defaultLogLevel),
 		HTTPAddr:               getEnv("TASKFORGE_HTTP_ADDR", defaultHTTPAddr),
@@ -222,7 +234,7 @@ func Load(defaultServiceName string) (Config, error) {
 	if cfg.SchedulerRenewInterval >= cfg.SchedulerLockTTL {
 		return Config{}, fmt.Errorf("TASKFORGE_SCHEDULER_RENEW_INTERVAL must be less than TASKFORGE_SCHEDULER_LOCK_TTL")
 	}
-	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON"); err != nil {
+	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON", role); err != nil {
 		return Config{}, err
 	}
 	if cfg.DependencyBudgets, err = getDependencyBudgets("TASKFORGE_DEPENDENCY_BUDGETS_JSON"); err != nil {
@@ -242,6 +254,10 @@ func Load(defaultServiceName string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func DefaultLeaseTTL() time.Duration {
+	return defaultLeaseTTL
 }
 
 func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*fairness.Policy {
@@ -318,9 +334,12 @@ func getEnvBool(key string, fallback bool) (bool, error) {
 	return parsed, nil
 }
 
-func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
+func getWorkerPools(key string, role ServiceRole) ([]WorkerPoolConfig, error) {
 	value := getEnv(key, "")
 	if value == "" {
+		if role == ServiceRoleScheduler || role == ServiceRoleAPI {
+			return nil, nil
+		}
 		return []WorkerPoolConfig{
 			{
 				Name:        "default",
@@ -338,6 +357,9 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 		return nil, fmt.Errorf("%s: parse worker pools json: %w", key, err)
 	}
 	if len(rawPools) == 0 {
+		if role == ServiceRoleScheduler || role == ServiceRoleAPI {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("%s: at least one worker pool is required", key)
 	}
 
