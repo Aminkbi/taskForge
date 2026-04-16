@@ -44,6 +44,8 @@ type RedisBroker struct {
 	admissionPolicies map[string]AdmissionPolicy
 	admissionStateMu  sync.RWMutex
 	admissionStates   map[string]observability.AdmissionStatusSnapshot
+	budgetStore       *BudgetStore
+	adaptiveStore     *AdaptiveStateStore
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
@@ -54,6 +56,7 @@ type Options struct {
 	ReserveTimeout    time.Duration
 	FairnessPolicies  map[string]*fairness.Policy
 	AdmissionPolicies map[string]AdmissionPolicy
+	DependencyBudgets map[string]int
 }
 
 func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics, options Options) *RedisBroker {
@@ -78,7 +81,31 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 		fairnessPolicies:  cloneFairnessPolicies(options.FairnessPolicies),
 		admissionPolicies: cloneAdmissionPolicies(options.AdmissionPolicies),
 		admissionStates:   make(map[string]observability.AdmissionStatusSnapshot),
+		budgetStore:       NewBudgetStore(client, metrics, defaultPrefix, options.DependencyBudgets),
+		adaptiveStore:     NewAdaptiveStateStore(client, defaultPrefix),
 	}
+}
+
+func (b *RedisBroker) BudgetManager() *BudgetStore {
+	return b.budgetStore
+}
+
+func (b *RedisBroker) AdaptiveStateStore() *AdaptiveStateStore {
+	return b.adaptiveStore
+}
+
+func (b *RedisBroker) DependencyBudgetUsageSnapshots(ctx context.Context) ([]observability.DependencyBudgetUsageSnapshot, error) {
+	if b.budgetStore == nil {
+		return nil, nil
+	}
+	return b.budgetStore.DependencyBudgetUsageSnapshots(ctx)
+}
+
+func (b *RedisBroker) AdaptiveStatusSnapshot(ctx context.Context, pool string) (observability.AdaptivePoolSnapshot, error) {
+	if b.adaptiveStore == nil {
+		return observability.AdaptivePoolSnapshot{Pool: pool}, nil
+	}
+	return b.adaptiveStore.AdaptiveStatusSnapshot(ctx, pool)
 }
 
 func (b *RedisBroker) Ping(ctx context.Context) error {

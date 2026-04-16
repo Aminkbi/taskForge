@@ -35,6 +35,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	sharedBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
+		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 	})
 	dispatcher := dlq.NewService(client, sharedBroker, logger.With("component", "dlq"))
 
@@ -46,6 +47,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
 			FairnessPolicies:  fairnessPolicies,
 			AdmissionPolicies: admissionPolicies,
+			DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 		})
 		queues = append(queues, pool.Queue)
 		recoveryHealth := healthcheck.NewReporter("not_ready", "worker starting")
@@ -67,12 +69,18 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			RecoveryHealth:    recoveryHealth,
 			GlobalTaskLimiter: globalLimiter,
 			PoolTaskLimiter:   runtimepkg.NewTaskTypeLimiter(pool.TaskTypeLimits),
+			BudgetManager:     sharedBroker.BudgetManager(),
+			TaskBudgets:       runtimeTaskBudgets(cfg.TaskBudgets),
+			QueueMetrics:      poolBroker,
+			Adaptive:          runtimeAdaptiveConfig(pool.Adaptive),
+			AdaptiveStore:     sharedBroker.AdaptiveStateStore(),
 		})
 	}
 	_ = metrics.RegisterQueueMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterFairnessMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterDeadLetterMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterAdmissionStatusCollector(sharedBroker, queues)
+	_ = metrics.RegisterDependencyBudgetCollector(sharedBroker)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := sharedBroker.Ping(ctx); err != nil {
@@ -118,6 +126,47 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		server: server,
 		worker: &runtimepkg.Manager{Workers: workers},
 	}
+}
+
+func runtimeAdaptiveConfig(cfg config.AdaptiveConcurrencyConfig) runtimepkg.AdaptiveConfig {
+	return runtimepkg.AdaptiveConfig{
+		Enabled:                cfg.Enabled,
+		MinConcurrency:         cfg.MinConcurrency,
+		MaxConcurrency:         cfg.MaxConcurrency,
+		ControlPeriod:          cfg.ControlPeriod,
+		Cooldown:               cfg.Cooldown,
+		ScaleUpStep:            cfg.ScaleUpStep,
+		ScaleDownStep:          cfg.ScaleDownStep,
+		LatencyThreshold:       cfg.LatencyThreshold,
+		ErrorRateThreshold:     cfg.ErrorRateThreshold,
+		BacklogThreshold:       cfg.BacklogThreshold,
+		HealthyWindowsRequired: cfg.HealthyWindowsRequired,
+	}
+}
+
+func runtimeTaskBudgets(cfg map[string]config.TaskBudgetConfig) map[string]runtimepkg.TaskBudget {
+	if len(cfg) == 0 {
+		return nil
+	}
+	budgets := make(map[string]runtimepkg.TaskBudget, len(cfg))
+	for taskName, budget := range cfg {
+		budgets[taskName] = runtimepkg.TaskBudget{
+			Budget: budget.Budget,
+			Tokens: budget.Tokens,
+		}
+	}
+	return budgets
+}
+
+func dependencyBudgetCapacities(cfg map[string]config.DependencyBudgetConfig) map[string]int {
+	if len(cfg) == 0 {
+		return nil
+	}
+	capacities := make(map[string]int, len(cfg))
+	for name, budget := range cfg {
+		capacities[name] = budget.Capacity
+	}
+	return capacities
 }
 
 func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {

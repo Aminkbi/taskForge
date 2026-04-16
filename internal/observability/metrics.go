@@ -60,24 +60,60 @@ type AdmissionStatusProvider interface {
 	AdmissionStatusSnapshot(ctx context.Context, queue string, now time.Time) (AdmissionStatusSnapshot, error)
 }
 
+type DependencyBudgetUsageSnapshot struct {
+	Budget   string
+	Capacity float64
+	InUse    float64
+}
+
+type DependencyBudgetUsageProvider interface {
+	DependencyBudgetUsageSnapshots(ctx context.Context) ([]DependencyBudgetUsageSnapshot, error)
+}
+
+type AdaptivePoolSnapshot struct {
+	Pool                  string
+	Queue                 string
+	AdaptiveEnabled       bool
+	ConfiguredConcurrency float64
+	EffectiveConcurrency  float64
+	MinConcurrency        float64
+	MaxConcurrency        float64
+	AvgLatencySeconds     float64
+	ErrorRate             float64
+	BudgetBlocked         float64
+	Backlog               float64
+	HealthyWindows        float64
+	LastAdjustmentAction  string
+	LastAdjustmentReason  string
+	LastAdjustedAt        time.Time
+}
+
+type AdaptiveStatusProvider interface {
+	AdaptiveStatusSnapshot(ctx context.Context, pool string) (AdaptivePoolSnapshot, error)
+}
+
 type Metrics struct {
-	Registry               *prometheus.Registry
-	TasksPublishedTotal    *prometheus.CounterVec
-	TasksReservedTotal     *prometheus.CounterVec
-	TasksReclaimedTotal    *prometheus.CounterVec
-	TasksCompletedTotal    *prometheus.CounterVec
-	TasksFailedTotal       *prometheus.CounterVec
-	TasksRetriedTotal      *prometheus.CounterVec
-	TasksDeadLetteredTotal *prometheus.CounterVec
-	LeaseExtensionFailures *prometheus.CounterVec
-	TaskRetrySchedules     *prometheus.CounterVec
-	TaskDeadLetterResults  *prometheus.CounterVec
-	TaskExecutionDuration  *prometheus.HistogramVec
-	BrokerReserveLatency   *prometheus.HistogramVec
-	WorkerActiveTasks      *prometheus.GaugeVec
-	FairnessReservations   *prometheus.CounterVec
-	FairnessQuotaDeferrals *prometheus.CounterVec
-	AdmissionDecisions     *prometheus.CounterVec
+	Registry                           *prometheus.Registry
+	TasksPublishedTotal                *prometheus.CounterVec
+	TasksReservedTotal                 *prometheus.CounterVec
+	TasksReclaimedTotal                *prometheus.CounterVec
+	TasksCompletedTotal                *prometheus.CounterVec
+	TasksFailedTotal                   *prometheus.CounterVec
+	TasksRetriedTotal                  *prometheus.CounterVec
+	TasksDeadLetteredTotal             *prometheus.CounterVec
+	LeaseExtensionFailures             *prometheus.CounterVec
+	TaskRetrySchedules                 *prometheus.CounterVec
+	TaskDeadLetterResults              *prometheus.CounterVec
+	TaskExecutionDuration              *prometheus.HistogramVec
+	BrokerReserveLatency               *prometheus.HistogramVec
+	WorkerActiveTasks                  *prometheus.GaugeVec
+	FairnessReservations               *prometheus.CounterVec
+	FairnessQuotaDeferrals             *prometheus.CounterVec
+	AdmissionDecisions                 *prometheus.CounterVec
+	WorkerEffectiveConcurrency         *prometheus.GaugeVec
+	WorkerConcurrencyAdjustmentsTotal  *prometheus.CounterVec
+	DependencyBudgetBlockedTotal       *prometheus.CounterVec
+	DependencyBudgetLeaseRenewFailures *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -155,6 +191,22 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_admission_decisions_total",
 			Help: "Total number of publish admission decisions by queue, source, decision, and reason.",
 		}, []string{"queue", "source", "decision", "reason"}),
+		WorkerEffectiveConcurrency: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "taskforge_worker_effective_concurrency",
+			Help: "Current effective worker concurrency by pool and queue.",
+		}, []string{"pool", "queue"}),
+		WorkerConcurrencyAdjustmentsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_worker_concurrency_adjustments_total",
+			Help: "Total number of worker concurrency adjustments by pool, reason, and action.",
+		}, []string{"pool", "reason", "action"}),
+		DependencyBudgetBlockedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_dependency_budget_blocked_total",
+			Help: "Total number of dispatch attempts blocked by dependency budget exhaustion.",
+		}, []string{"budget"}),
+		DependencyBudgetLeaseRenewFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_dependency_budget_lease_renew_failures_total",
+			Help: "Total number of dependency budget lease renewals that failed.",
+		}, []string{"budget"}),
 	}
 
 	registry.MustRegister(
@@ -174,6 +226,10 @@ func NewMetrics() *Metrics {
 		m.FairnessReservations,
 		m.FairnessQuotaDeferrals,
 		m.AdmissionDecisions,
+		m.WorkerEffectiveConcurrency,
+		m.WorkerConcurrencyAdjustmentsTotal,
+		m.DependencyBudgetBlockedTotal,
+		m.DependencyBudgetLeaseRenewFailures,
 	)
 
 	return m
@@ -304,6 +360,34 @@ func (m *Metrics) IncAdmissionDecision(queue, source, decision, reason string) {
 	m.AdmissionDecisions.WithLabelValues(queue, sanitizeAdmissionSource(source), sanitizeAdmissionDecision(decision), sanitizeAdmissionReason(reason)).Inc()
 }
 
+func (m *Metrics) SetWorkerEffectiveConcurrency(pool, queue string, value float64) {
+	if m == nil {
+		return
+	}
+	m.WorkerEffectiveConcurrency.WithLabelValues(sanitizePoolName(pool), queue).Set(value)
+}
+
+func (m *Metrics) IncWorkerConcurrencyAdjustment(pool, reason, action string) {
+	if m == nil {
+		return
+	}
+	m.WorkerConcurrencyAdjustmentsTotal.WithLabelValues(sanitizePoolName(pool), sanitizeAdaptiveReason(reason), sanitizeAdaptiveAction(action)).Inc()
+}
+
+func (m *Metrics) IncDependencyBudgetBlocked(budget string) {
+	if m == nil {
+		return
+	}
+	m.DependencyBudgetBlockedTotal.WithLabelValues(sanitizeBudgetName(budget)).Inc()
+}
+
+func (m *Metrics) IncDependencyBudgetLeaseRenewFailure(budget string) {
+	if m == nil {
+		return
+	}
+	m.DependencyBudgetLeaseRenewFailures.WithLabelValues(sanitizeBudgetName(budget)).Inc()
+}
+
 func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
 	if m == nil || provider == nil || len(queues) == 0 {
 		return nil
@@ -426,6 +510,28 @@ func (m *Metrics) RegisterAdmissionStatusCollector(provider AdmissionStatusProvi
 	})
 }
 
+func (m *Metrics) RegisterDependencyBudgetCollector(provider DependencyBudgetUsageProvider) error {
+	if m == nil || provider == nil {
+		return nil
+	}
+
+	return m.Registry.Register(&dependencyBudgetCollector{
+		provider: provider,
+		capacity: prometheus.NewDesc(
+			"taskforge_dependency_budget_capacity",
+			"Configured token capacity for a dependency budget.",
+			[]string{"budget"},
+			nil,
+		),
+		inUse: prometheus.NewDesc(
+			"taskforge_dependency_budget_in_use",
+			"Current number of dependency budget tokens in use.",
+			[]string{"budget"},
+			nil,
+		),
+	})
+}
+
 func normalizeQueues(queues []string) []string {
 	cleanQueues := slices.Clone(queues)
 	slices.Sort(cleanQueues)
@@ -532,6 +638,12 @@ type admissionStatusCollector struct {
 	signal   *prometheus.Desc
 }
 
+type dependencyBudgetCollector struct {
+	provider DependencyBudgetUsageProvider
+	capacity *prometheus.Desc
+	inUse    *prometheus.Desc
+}
+
 func (c *schedulerLagCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.lag
 }
@@ -579,6 +691,26 @@ func (c *admissionStatusCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+func (c *dependencyBudgetCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.capacity
+	ch <- c.inUse
+}
+
+func (c *dependencyBudgetCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	snapshots, err := c.provider.DependencyBudgetUsageSnapshots(ctx)
+	cancel()
+	if err != nil {
+		return
+	}
+
+	for _, snapshot := range snapshots {
+		budget := sanitizeBudgetName(snapshot.Budget)
+		ch <- prometheus.MustNewConstMetric(c.capacity, prometheus.GaugeValue, snapshot.Capacity, budget)
+		ch <- prometheus.MustNewConstMetric(c.inUse, prometheus.GaugeValue, snapshot.InUse, budget)
+	}
+}
+
 func sanitizeTaskName(taskName string) string {
 	taskName = strings.TrimSpace(taskName)
 	if taskName == "" {
@@ -617,6 +749,38 @@ func sanitizeAdmissionDecision(decision string) string {
 		return "unknown"
 	}
 	return decision
+}
+
+func sanitizePoolName(pool string) string {
+	pool = strings.TrimSpace(pool)
+	if pool == "" {
+		return "default"
+	}
+	return pool
+}
+
+func sanitizeBudgetName(budget string) string {
+	budget = strings.TrimSpace(budget)
+	if budget == "" {
+		return "unknown"
+	}
+	return budget
+}
+
+func sanitizeAdaptiveReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "none"
+	}
+	return reason
+}
+
+func sanitizeAdaptiveAction(action string) string {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return "none"
+	}
+	return action
 }
 
 func sanitizeAdmissionReason(reason string) string {

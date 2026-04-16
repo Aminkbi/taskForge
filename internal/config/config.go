@@ -36,6 +36,8 @@ type Config struct {
 	RedisPassword          string
 	RedisDB                int
 	WorkerPools            []WorkerPoolConfig
+	DependencyBudgets      map[string]DependencyBudgetConfig
+	TaskBudgets            map[string]TaskBudgetConfig
 	TaskTypeLimits         map[string]int
 	PollInterval           time.Duration
 	ShutdownTimeout        time.Duration
@@ -56,6 +58,32 @@ type WorkerPoolConfig struct {
 	TaskTypeLimits map[string]int
 	FairnessPolicy *fairness.Policy
 	Admission      AdmissionPolicy
+	Adaptive       AdaptiveConcurrencyConfig
+}
+
+type DependencyBudgetConfig struct {
+	Name     string
+	Capacity int
+}
+
+type TaskBudgetConfig struct {
+	TaskName string
+	Budget   string
+	Tokens   int
+}
+
+type AdaptiveConcurrencyConfig struct {
+	Enabled                bool
+	MinConcurrency         int
+	MaxConcurrency         int
+	ControlPeriod          time.Duration
+	Cooldown               time.Duration
+	ScaleUpStep            int
+	ScaleDownStep          int
+	LatencyThreshold       time.Duration
+	ErrorRateThreshold     float64
+	BacklogThreshold       int64
+	HealthyWindowsRequired int
 }
 
 type AdmissionMode string
@@ -101,6 +129,18 @@ type rawWorkerPool struct {
 	TaskLimits  []rawTaskLimit `json:"task_limits"`
 	Fairness    *rawFairness   `json:"fairness"`
 	Admission   *rawAdmission  `json:"admission"`
+	Adaptive    *rawAdaptive   `json:"adaptive"`
+}
+
+type rawDependencyBudget struct {
+	Name     string `json:"name"`
+	Capacity int    `json:"capacity"`
+}
+
+type rawTaskBudget struct {
+	TaskName string `json:"task_name"`
+	Budget   string `json:"budget"`
+	Tokens   int    `json:"tokens"`
 }
 
 type rawFairness struct {
@@ -126,6 +166,20 @@ type rawAdmission struct {
 	MaxRetryBacklog          int64  `json:"max_retry_backlog"`
 	MaxDeadLetterSize        int64  `json:"max_dead_letter_size"`
 	DeferInterval            string `json:"defer_interval"`
+}
+
+type rawAdaptive struct {
+	Enabled                bool    `json:"enabled"`
+	MinConcurrency         int     `json:"min_concurrency"`
+	MaxConcurrency         int     `json:"max_concurrency"`
+	ControlPeriod          string  `json:"control_period"`
+	Cooldown               string  `json:"cooldown"`
+	ScaleUpStep            int     `json:"scale_up_step"`
+	ScaleDownStep          int     `json:"scale_down_step"`
+	LatencyThreshold       string  `json:"latency_threshold"`
+	ErrorRateThreshold     float64 `json:"error_rate_threshold"`
+	BacklogThreshold       int64   `json:"backlog_threshold"`
+	HealthyWindowsRequired int     `json:"healthy_windows_required"`
 }
 
 func Load(defaultServiceName string) (Config, error) {
@@ -169,6 +223,12 @@ func Load(defaultServiceName string) (Config, error) {
 		return Config{}, fmt.Errorf("TASKFORGE_SCHEDULER_RENEW_INTERVAL must be less than TASKFORGE_SCHEDULER_LOCK_TTL")
 	}
 	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON"); err != nil {
+		return Config{}, err
+	}
+	if cfg.DependencyBudgets, err = getDependencyBudgets("TASKFORGE_DEPENDENCY_BUDGETS_JSON"); err != nil {
+		return Config{}, err
+	}
+	if cfg.TaskBudgets, err = getTaskBudgets("TASKFORGE_TASK_BUDGETS_JSON", cfg.DependencyBudgets); err != nil {
 		return Config{}, err
 	}
 	if cfg.TaskTypeLimits, err = getTaskTypeLimits("TASKFORGE_TASK_TYPE_LIMITS_JSON"); err != nil {
@@ -337,6 +397,10 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 		if err != nil {
 			return nil, err
 		}
+		adaptivePolicy, err := parseAdaptivePolicy(key, name, concurrency, prefetch, raw.Adaptive)
+		if err != nil {
+			return nil, err
+		}
 
 		pools = append(pools, WorkerPoolConfig{
 			Name:           name,
@@ -348,6 +412,7 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 			TaskTypeLimits: taskLimits,
 			FairnessPolicy: fairnessPolicy,
 			Admission:      admissionPolicy,
+			Adaptive:       adaptivePolicy,
 		})
 	}
 
@@ -388,6 +453,88 @@ func parseTaskLimitEntries(key, scope string, rawLimits []rawTaskLimit) (map[str
 		limits[taskName] = raw.MaxConcurrency
 	}
 	return limits, nil
+}
+
+func getDependencyBudgets(key string) (map[string]DependencyBudgetConfig, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return nil, nil
+	}
+
+	var rawBudgets []rawDependencyBudget
+	if err := json.Unmarshal([]byte(value), &rawBudgets); err != nil {
+		return nil, fmt.Errorf("%s: parse dependency budgets json: %w", key, err)
+	}
+	if len(rawBudgets) == 0 {
+		return nil, nil
+	}
+
+	budgets := make(map[string]DependencyBudgetConfig, len(rawBudgets))
+	for _, raw := range rawBudgets {
+		name := strings.TrimSpace(raw.Name)
+		if name == "" {
+			return nil, fmt.Errorf("%s: budget name is required", key)
+		}
+		if raw.Capacity < 1 {
+			return nil, fmt.Errorf("%s: budget %q capacity must be >= 1", key, name)
+		}
+		if _, exists := budgets[name]; exists {
+			return nil, fmt.Errorf("%s: duplicate budget %q", key, name)
+		}
+		budgets[name] = DependencyBudgetConfig{
+			Name:     name,
+			Capacity: raw.Capacity,
+		}
+	}
+
+	return budgets, nil
+}
+
+func getTaskBudgets(key string, budgets map[string]DependencyBudgetConfig) (map[string]TaskBudgetConfig, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return nil, nil
+	}
+
+	var rawMappings []rawTaskBudget
+	if err := json.Unmarshal([]byte(value), &rawMappings); err != nil {
+		return nil, fmt.Errorf("%s: parse task budgets json: %w", key, err)
+	}
+	if len(rawMappings) == 0 {
+		return nil, nil
+	}
+
+	mappings := make(map[string]TaskBudgetConfig, len(rawMappings))
+	for _, raw := range rawMappings {
+		taskName := strings.TrimSpace(raw.TaskName)
+		if taskName == "" {
+			return nil, fmt.Errorf("%s: task_name is required", key)
+		}
+		if _, exists := mappings[taskName]; exists {
+			return nil, fmt.Errorf("%s: duplicate task budget mapping for %q", key, taskName)
+		}
+		budget := strings.TrimSpace(raw.Budget)
+		if budget == "" {
+			return nil, fmt.Errorf("%s: task %q budget is required", key, taskName)
+		}
+		if _, exists := budgets[budget]; !exists {
+			return nil, fmt.Errorf("%s: task %q references unknown budget %q", key, taskName, budget)
+		}
+		tokens := raw.Tokens
+		if tokens == 0 {
+			tokens = 1
+		}
+		if tokens < 1 {
+			return nil, fmt.Errorf("%s: task %q tokens must be >= 1", key, taskName)
+		}
+		mappings[taskName] = TaskBudgetConfig{
+			TaskName: taskName,
+			Budget:   budget,
+			Tokens:   tokens,
+		}
+	}
+
+	return mappings, nil
 }
 
 func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPolicy, error) {
@@ -539,6 +686,68 @@ func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness b
 	}
 
 	return policy, nil
+}
+
+func parseAdaptivePolicy(key, poolName string, concurrency, prefetch int, raw *rawAdaptive) (AdaptiveConcurrencyConfig, error) {
+	if raw == nil || !raw.Enabled {
+		return AdaptiveConcurrencyConfig{}, nil
+	}
+
+	controlPeriod, err := time.ParseDuration(strings.TrimSpace(raw.ControlPeriod))
+	if err != nil {
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period: %w", key, poolName, err)
+	}
+	cooldown, err := time.ParseDuration(strings.TrimSpace(raw.Cooldown))
+	if err != nil {
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown: %w", key, poolName, err)
+	}
+	latencyThreshold, err := time.ParseDuration(strings.TrimSpace(raw.LatencyThreshold))
+	if err != nil {
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold: %w", key, poolName, err)
+	}
+
+	adaptive := AdaptiveConcurrencyConfig{
+		Enabled:                true,
+		MinConcurrency:         raw.MinConcurrency,
+		MaxConcurrency:         raw.MaxConcurrency,
+		ControlPeriod:          controlPeriod,
+		Cooldown:               cooldown,
+		ScaleUpStep:            raw.ScaleUpStep,
+		ScaleDownStep:          raw.ScaleDownStep,
+		LatencyThreshold:       latencyThreshold,
+		ErrorRateThreshold:     raw.ErrorRateThreshold,
+		BacklogThreshold:       raw.BacklogThreshold,
+		HealthyWindowsRequired: raw.HealthyWindowsRequired,
+	}
+
+	switch {
+	case adaptive.MinConcurrency < 1:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.min_concurrency must be >= 1", key, poolName)
+	case adaptive.MaxConcurrency < adaptive.MinConcurrency:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.max_concurrency must be >= min_concurrency", key, poolName)
+	case concurrency < adaptive.MinConcurrency || concurrency > adaptive.MaxConcurrency:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q concurrency must be between adaptive min_concurrency and max_concurrency", key, poolName)
+	case prefetch < adaptive.MaxConcurrency:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q prefetch must be >= adaptive.max_concurrency", key, poolName)
+	case adaptive.ControlPeriod <= 0:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period must be > 0", key, poolName)
+	case adaptive.Cooldown < 0:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown must be >= 0", key, poolName)
+	case adaptive.ScaleUpStep < 1:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_up_step must be >= 1", key, poolName)
+	case adaptive.ScaleDownStep < 1:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_down_step must be >= 1", key, poolName)
+	case adaptive.LatencyThreshold <= 0:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold must be > 0", key, poolName)
+	case adaptive.ErrorRateThreshold < 0:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.error_rate_threshold must be >= 0", key, poolName)
+	case adaptive.BacklogThreshold < 0:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.backlog_threshold must be >= 0", key, poolName)
+	case adaptive.HealthyWindowsRequired < 1:
+		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.healthy_windows_required must be >= 1", key, poolName)
+	}
+
+	return adaptive, nil
 }
 
 func normalizeQueue(queue string) string {

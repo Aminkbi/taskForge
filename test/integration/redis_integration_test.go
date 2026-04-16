@@ -87,6 +87,117 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 	}
 }
 
+func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	metrics := observability.NewMetrics()
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, metrics, brokerredis.Options{
+		ReserveTimeout:    ciReserveTimeout,
+		DependencyBudgets: map[string]int{"downstream": 1},
+	})
+	for _, msg := range []broker.TaskMessage{
+		{
+			ID:        "budgeted-1",
+			Name:      "integration.shared-budget",
+			Queue:     "critical",
+			CreatedAt: time.Now().UTC(),
+		},
+		{
+			ID:        "budgeted-2",
+			Name:      "integration.shared-budget",
+			Queue:     "bulk",
+			CreatedAt: time.Now().UTC(),
+		},
+	} {
+		if _, err := brokerInstance.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() error = %v", err)
+		}
+	}
+
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	handler := runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	})
+
+	workers := &runtimepkg.Manager{
+		Workers: []*runtimepkg.Worker{
+			{
+				Broker:        brokerInstance,
+				Handler:       handler,
+				Logger:        slog.Default(),
+				Metrics:       metrics,
+				Clock:         clock.RealClock{},
+				RetryPolicy:   tasks.DefaultRetryPolicy(1),
+				PoolName:      "critical",
+				Queue:         "critical",
+				ConsumerID:    "integration-worker",
+				LeaseTTL:      30 * time.Second,
+				Concurrency:   1,
+				Prefetch:      1,
+				BudgetManager: brokerInstance.BudgetManager(),
+				TaskBudgets: map[string]runtimepkg.TaskBudget{
+					"integration.shared-budget": {Budget: "downstream", Tokens: 1},
+				},
+			},
+			{
+				Broker:        brokerInstance,
+				Handler:       handler,
+				Logger:        slog.Default(),
+				Metrics:       metrics,
+				Clock:         clock.RealClock{},
+				RetryPolicy:   tasks.DefaultRetryPolicy(1),
+				PoolName:      "bulk",
+				Queue:         "bulk",
+				ConsumerID:    "integration-worker",
+				LeaseTTL:      30 * time.Second,
+				Concurrency:   1,
+				Prefetch:      1,
+				BudgetManager: brokerInstance.BudgetManager(),
+				TaskBudgets: map[string]runtimepkg.TaskBudget{
+					"integration.shared-budget": {Budget: "downstream", Tokens: 1},
+				},
+			},
+		},
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- workers.Run(runCtx)
+	}()
+
+	first := waitForTaskStart(t, started)
+	select {
+	case second := <-started:
+		t.Fatalf("second task started before budget capacity was released: %q", second)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+	second := waitForTaskStart(t, started)
+	if first == second {
+		t.Fatalf("expected distinct tasks to start, got %q twice", first)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("workers.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("workers did not stop before timeout")
+	}
+}
+
 func TestRedisBrokerQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -849,6 +960,75 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 
 	if err := brokerInstance.Ack(ctx, delivery); err != nil {
 		t.Fatalf("Ack() error = %v", err)
+	}
+}
+
+func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
+
+	for _, id := range []string{"integration-pending-1", "integration-pending-2"} {
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:        id,
+			Name:      "integration.pending_blocked",
+			Queue:     "default",
+			Payload:   []byte(`{"hello":"pending"}`),
+			CreatedAt: time.Now().UTC(),
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() error = %v", err)
+		}
+	}
+
+	started := make(chan string, 2)
+	releaseFirst := make(chan struct{})
+	worker := newIntegrationWorker(brokerInstance, nil, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		if msg.ID != "integration-pending-1" {
+			return nil
+		}
+		select {
+		case <-releaseFirst:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}), tasks.DefaultRetryPolicy(1))
+	worker.Concurrency = 2
+	worker.Prefetch = 2
+	worker.LeaseTTL = ciLeaseTTL
+	worker.GlobalTaskLimiter = runtimepkg.NewTaskTypeLimiter(map[string]int{"integration.pending_blocked": 1})
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(runCtx)
+	}()
+
+	if first := waitForTaskStart(t, started); first != "integration-pending-1" {
+		t.Fatalf("first started task = %q, want integration-pending-1", first)
+	}
+
+	time.Sleep(ciWaitForExpiry)
+
+	reserveCtx, reserveCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer reserveCancel()
+	if _, err := brokerInstance.Reserve(reserveCtx, "default", "consumer-b"); !errors.Is(err, broker.ErrNoTask) {
+		t.Fatalf("Reserve() while second delivery is locally pending error = %v, want %v", err, broker.ErrNoTask)
+	}
+
+	close(releaseFirst)
+	if second := waitForTaskStart(t, started); second != "integration-pending-2" {
+		t.Fatalf("second started task = %q, want integration-pending-2", second)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop before timeout")
 	}
 }
 
@@ -1648,6 +1828,18 @@ func waitForSchedulerStop(t *testing.T, errCh <-chan error) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("scheduler did not stop before timeout")
+	}
+}
+
+func waitForTaskStart(t *testing.T, started <-chan string) string {
+	t.Helper()
+
+	select {
+	case id := <-started:
+		return id
+	case <-time.After(time.Second):
+		t.Fatal("task did not start before timeout")
+		return ""
 	}
 }
 

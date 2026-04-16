@@ -190,6 +190,8 @@ TASKFORGE_WORKER_POOLS_JSON=[
     "lease_ttl":"30s"
   }
 ]
+TASKFORGE_DEPENDENCY_BUDGETS_JSON=[]
+TASKFORGE_TASK_BUDGETS_JSON=[]
 TASKFORGE_TASK_TYPE_LIMITS_JSON=[]
 TASKFORGE_POLL_INTERVAL=1s
 TASKFORGE_SHUTDOWN_TIMEOUT=10s
@@ -203,7 +205,10 @@ TASKFORGE_SERVICE_NAME=taskforge
 `TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
 
 Workers are configured as isolated queue pools through `TASKFORGE_WORKER_POOLS_JSON`.
-Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, queue-local task caps, optional fairness rules, and queue-local admission control.
+Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, queue-local task caps, optional fairness rules, optional adaptive concurrency control, and queue-local admission control.
+
+Dependency budgets are configured globally through `TASKFORGE_DEPENDENCY_BUDGETS_JSON` and `TASKFORGE_TASK_BUDGETS_JSON`.
+Budgets are cluster-wide Redis-backed token pools held for the full task execution. Task budget attachment is static by task type in this phase.
 
 Admission control is evaluated at publish time from Redis-visible queue state. Each queue can disable it, defer new work into the delayed set, or reject new work when configured thresholds are exceeded. Overload does not fail `/readyz`; operators should inspect admission metrics or the API admin endpoint instead.
 
@@ -232,6 +237,19 @@ TASKFORGE_WORKER_POOLS_JSON=[
       "max_dead_letter_size":1000,
       "defer_interval":"5s"
     },
+    "adaptive":{
+      "enabled":true,
+      "min_concurrency":1,
+      "max_concurrency":6,
+      "control_period":"5s",
+      "cooldown":"15s",
+      "scale_up_step":1,
+      "scale_down_step":1,
+      "latency_threshold":"500ms",
+      "error_rate_threshold":0.2,
+      "backlog_threshold":10,
+      "healthy_windows_required":2
+    },
     "task_limits":[
       {"task_name":"reports.generate","max_concurrency":1}
     ]
@@ -249,6 +267,12 @@ TASKFORGE_WORKER_POOLS_JSON=[
       "multiplier":2
     }
   }
+]
+TASKFORGE_DEPENDENCY_BUDGETS_JSON=[
+  {"name":"external-api","capacity":4}
+]
+TASKFORGE_TASK_BUDGETS_JSON=[
+  {"task_name":"reports.generate","budget":"external-api","tokens":1}
 ]
 TASKFORGE_TASK_TYPE_LIMITS_JSON=[
   {"task_name":"tenant.sync","max_concurrency":2}
@@ -307,6 +331,12 @@ Worker metrics now include queue-aware counters and gauges, including:
 - `taskforge_admission_decisions_total`
 - `taskforge_admission_state`
 - `taskforge_admission_signal`
+- `taskforge_worker_effective_concurrency`
+- `taskforge_worker_concurrency_adjustments_total`
+- `taskforge_dependency_budget_capacity`
+- `taskforge_dependency_budget_in_use`
+- `taskforge_dependency_budget_blocked_total`
+- `taskforge_dependency_budget_lease_renew_failures_total`
 - per-queue success, failure, retry, reclaim, and active-task metrics
 
 The API process also exposes:
@@ -314,8 +344,11 @@ The API process also exposes:
 - `/`
 - `/v1/admin/ping`
 - `/v1/admin/admission`
+- `/v1/admin/adaptive`
 
 `/v1/admin/admission` reports each queue's configured mode, current admission state, dominant rejection or defer reason, the latest signal snapshot, and `defer_interval`.
+
+`/v1/admin/adaptive` reports each worker pool's effective concurrency, configured bounds, latest adjustment reason, sampled adaptive signals, and cluster-wide dependency budget usage.
 
 ## Testing
 

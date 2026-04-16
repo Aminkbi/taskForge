@@ -63,6 +63,14 @@ func (stubAdmissionStatusProvider) AdmissionStatusSnapshot(context.Context, stri
 	}, nil
 }
 
+type stubDependencyBudgetProvider struct{}
+
+func (stubDependencyBudgetProvider) DependencyBudgetUsageSnapshots(context.Context) ([]DependencyBudgetUsageSnapshot, error) {
+	return []DependencyBudgetUsageSnapshot{
+		{Budget: "downstream", Capacity: 5, InUse: 2},
+	}, nil
+}
+
 func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	t.Parallel()
 
@@ -73,6 +81,10 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	metrics.IncFairnessQuotaDeferral("critical", "protected", "hard_quota")
 	metrics.IncAdmissionDecision("critical", "retry", "deferred", "queue_pending_cap")
 	metrics.ObserveReserveLatency("critical", 0.25)
+	metrics.SetWorkerEffectiveConcurrency("critical", "critical", 2)
+	metrics.IncWorkerConcurrencyAdjustment("critical", "latency", "scale_down")
+	metrics.IncDependencyBudgetBlocked("downstream")
+	metrics.IncDependencyBudgetLeaseRenewFailure("downstream")
 	if err := metrics.RegisterQueueMetricsCollector(stubQueueMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterQueueMetricsCollector() error = %v", err)
 	}
@@ -87,6 +99,9 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	}
 	if err := metrics.RegisterAdmissionStatusCollector(stubAdmissionStatusProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterAdmissionStatusCollector() error = %v", err)
+	}
+	if err := metrics.RegisterDependencyBudgetCollector(stubDependencyBudgetProvider{}); err != nil {
+		t.Fatalf("RegisterDependencyBudgetCollector() error = %v", err)
 	}
 
 	families, err := metrics.Registry.Gather()
@@ -109,6 +124,12 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	assertLabelNames(t, families, "taskforge_admission_decisions_total", []string{"decision", "queue", "reason", "source"})
 	assertLabelNames(t, families, "taskforge_admission_state", []string{"queue", "state"})
 	assertLabelNames(t, families, "taskforge_admission_signal", []string{"queue", "signal"})
+	assertLabelNames(t, families, "taskforge_worker_effective_concurrency", []string{"pool", "queue"})
+	assertLabelNames(t, families, "taskforge_worker_concurrency_adjustments_total", []string{"action", "pool", "reason"})
+	assertLabelNames(t, families, "taskforge_dependency_budget_capacity", []string{"budget"})
+	assertLabelNames(t, families, "taskforge_dependency_budget_in_use", []string{"budget"})
+	assertLabelNames(t, families, "taskforge_dependency_budget_blocked_total", []string{"budget"})
+	assertLabelNames(t, families, "taskforge_dependency_budget_lease_renew_failures_total", []string{"budget"})
 
 	for _, family := range families {
 		for _, metric := range family.GetMetric() {

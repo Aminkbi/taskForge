@@ -17,6 +17,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", "")
+	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", "")
+	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", "")
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", "")
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "")
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "")
@@ -53,6 +55,12 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.TaskTypeLimits) != 0 {
 		t.Fatalf("TaskTypeLimits length = %d, want 0", len(cfg.TaskTypeLimits))
 	}
+	if len(cfg.DependencyBudgets) != 0 {
+		t.Fatalf("DependencyBudgets length = %d, want 0", len(cfg.DependencyBudgets))
+	}
+	if len(cfg.TaskBudgets) != 0 {
+		t.Fatalf("TaskBudgets length = %d, want 0", len(cfg.TaskBudgets))
+	}
 	if cfg.PollInterval != defaultPollInterval {
 		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, defaultPollInterval)
 	}
@@ -82,7 +90,7 @@ func TestLoadOverrides(t *testing.T) {
 			"name":"critical",
 			"queue":"critical",
 			"concurrency":2,
-			"prefetch":4,
+			"prefetch":6,
 			"lease_ttl":"45s",
 			"retry":{
 				"max_deliveries":5,
@@ -107,9 +115,24 @@ func TestLoadOverrides(t *testing.T) {
 				"max_retry_backlog":3,
 				"max_dead_letter_size":2,
 				"defer_interval":"5s"
+			},
+			"adaptive":{
+				"enabled":true,
+				"min_concurrency":1,
+				"max_concurrency":6,
+				"control_period":"2s",
+				"cooldown":"6s",
+				"scale_up_step":1,
+				"scale_down_step":2,
+				"latency_threshold":"500ms",
+				"error_rate_threshold":0.25,
+				"backlog_threshold":10,
+				"healthy_windows_required":3
 			}
 		}
 	]`)
+	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"downstream-api","capacity":5}]`)
+	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", `[{"task_name":"demo.nightly","budget":"downstream-api","tokens":2}]`)
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"shared.sync","max_concurrency":2}]`)
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "250ms")
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "20s")
@@ -137,7 +160,7 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.Name != "critical" || pool.Queue != "critical" {
 		t.Fatalf("unexpected worker pool identity: %+v", pool)
 	}
-	if pool.Concurrency != 2 || pool.Prefetch != 4 || pool.LeaseTTL != 45*time.Second {
+	if pool.Concurrency != 2 || pool.Prefetch != 6 || pool.LeaseTTL != 45*time.Second {
 		t.Fatalf("unexpected worker pool runtime: %+v", pool)
 	}
 	if pool.RetryPolicy.MaxDeliveries != 5 || pool.RetryPolicy.InitialBackoff != 2*time.Second || pool.RetryPolicy.MaxBackoff != time.Minute {
@@ -155,6 +178,15 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.MaxDeadLetterSize != 2 || pool.Admission.DeferInterval != 5*time.Second {
 		t.Fatalf("unexpected admission timing values: %+v", pool.Admission)
 	}
+	if !pool.Adaptive.Enabled || pool.Adaptive.MinConcurrency != 1 || pool.Adaptive.MaxConcurrency != 6 {
+		t.Fatalf("unexpected adaptive config: %+v", pool.Adaptive)
+	}
+	if pool.Adaptive.ControlPeriod != 2*time.Second || pool.Adaptive.Cooldown != 6*time.Second || pool.Adaptive.LatencyThreshold != 500*time.Millisecond {
+		t.Fatalf("unexpected adaptive timing config: %+v", pool.Adaptive)
+	}
+	if pool.Adaptive.ScaleUpStep != 1 || pool.Adaptive.ScaleDownStep != 2 || pool.Adaptive.ErrorRateThreshold != 0.25 || pool.Adaptive.BacklogThreshold != 10 || pool.Adaptive.HealthyWindowsRequired != 3 {
+		t.Fatalf("unexpected adaptive thresholds: %+v", pool.Adaptive)
+	}
 	protected := pool.FairnessPolicy.Resolve("tenant-vip")
 	if protected.Bucket != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 {
 		t.Fatalf("unexpected fairness rule resolution: %+v", protected)
@@ -165,6 +197,12 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.TaskTypeLimits["shared.sync"] != 2 {
 		t.Fatalf("unexpected global task type limits: %+v", cfg.TaskTypeLimits)
+	}
+	if cfg.DependencyBudgets["downstream-api"].Capacity != 5 {
+		t.Fatalf("unexpected dependency budgets: %+v", cfg.DependencyBudgets)
+	}
+	if cfg.TaskBudgets["demo.nightly"].Budget != "downstream-api" || cfg.TaskBudgets["demo.nightly"].Tokens != 2 {
+		t.Fatalf("unexpected task budgets: %+v", cfg.TaskBudgets)
 	}
 	if cfg.PollInterval != 250*time.Millisecond {
 		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, 250*time.Millisecond)
@@ -247,6 +285,59 @@ func TestLoadRejectsInvalidTaskTypeLimit(t *testing.T) {
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsUnknownTaskBudgetReference(t *testing.T) {
+	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"known","capacity":1}]`)
+	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", `[{"task_name":"demo.echo","budget":"missing"}]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsInvalidAdaptiveBounds(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{
+			"name":"default",
+			"queue":"default",
+			"concurrency":2,
+			"prefetch":2,
+			"lease_ttl":"30s",
+			"adaptive":{
+				"enabled":true,
+				"min_concurrency":1,
+				"max_concurrency":3,
+				"control_period":"1s",
+				"cooldown":"1s",
+				"scale_up_step":1,
+				"scale_down_step":1,
+				"latency_threshold":"1s",
+				"error_rate_threshold":0.5,
+				"backlog_threshold":1,
+				"healthy_windows_required":1
+			}
+		}
+	]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadTaskBudgetDefaultsTokensToOne(t *testing.T) {
+	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"downstream","capacity":2}]`)
+	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", `[{"task_name":"demo.echo","budget":"downstream"}]`)
+
+	cfg, err := Load("taskforge-test")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.TaskBudgets["demo.echo"].Tokens != 1 {
+		t.Fatalf("task budget tokens = %d, want 1", cfg.TaskBudgets["demo.echo"].Tokens)
 	}
 }
 

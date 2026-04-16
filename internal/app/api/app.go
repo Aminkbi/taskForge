@@ -32,6 +32,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
+		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 	})
 
 	queues := make([]string, 0, len(cfg.WorkerPools))
@@ -44,6 +45,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
 	_ = metrics.RegisterDeadLetterMetricsCollector(b, queues)
 	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
+	_ = metrics.RegisterDependencyBudgetCollector(b)
 
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil, func(mux *http.ServeMux) {
 		mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -57,9 +59,91 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			_, _ = w.Write([]byte(`{"status":"ok","time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`))
 		})
 		mux.HandleFunc("/v1/admin/admission", admissionHandler(b, queues))
+		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
 	})
 
 	return &App{server: server}
+}
+
+func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budgetProvider observability.DependencyBudgetUsageProvider, pools []config.WorkerPoolConfig) http.HandlerFunc {
+	type poolStatus struct {
+		Pool                  string             `json:"pool"`
+		Queue                 string             `json:"queue"`
+		AdaptiveEnabled       bool               `json:"adaptive_enabled"`
+		ConfiguredConcurrency float64            `json:"configured_concurrency"`
+		EffectiveConcurrency  float64            `json:"effective_concurrency"`
+		MinConcurrency        float64            `json:"min_concurrency"`
+		MaxConcurrency        float64            `json:"max_concurrency"`
+		LastAdjustmentAction  string             `json:"last_adjustment_action,omitempty"`
+		LastAdjustmentReason  string             `json:"last_adjustment_reason,omitempty"`
+		LastAdjustedAt        string             `json:"last_adjusted_at,omitempty"`
+		HealthyWindows        float64            `json:"healthy_windows"`
+		Signals               map[string]float64 `json:"signals"`
+	}
+	type budgetStatus struct {
+		Budget   string  `json:"budget"`
+		Capacity float64 `json:"capacity"`
+		InUse    float64 `json:"in_use"`
+	}
+	type responseBody struct {
+		Pools   []poolStatus   `json:"pools"`
+		Budgets []budgetStatus `json:"budgets"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		response := responseBody{
+			Pools:   make([]poolStatus, 0, len(pools)),
+			Budgets: make([]budgetStatus, 0),
+		}
+
+		for _, pool := range pools {
+			snapshot, err := statusProvider.AdaptiveStatusSnapshot(r.Context(), pool.Name)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			lastAdjustedAt := ""
+			if !snapshot.LastAdjustedAt.IsZero() {
+				lastAdjustedAt = snapshot.LastAdjustedAt.UTC().Format(time.RFC3339Nano)
+			}
+			response.Pools = append(response.Pools, poolStatus{
+				Pool:                  pool.Name,
+				Queue:                 pool.Queue,
+				AdaptiveEnabled:       snapshot.AdaptiveEnabled,
+				ConfiguredConcurrency: snapshot.ConfiguredConcurrency,
+				EffectiveConcurrency:  snapshot.EffectiveConcurrency,
+				MinConcurrency:        snapshot.MinConcurrency,
+				MaxConcurrency:        snapshot.MaxConcurrency,
+				LastAdjustmentAction:  snapshot.LastAdjustmentAction,
+				LastAdjustmentReason:  snapshot.LastAdjustmentReason,
+				LastAdjustedAt:        lastAdjustedAt,
+				HealthyWindows:        snapshot.HealthyWindows,
+				Signals: map[string]float64{
+					"avg_latency_seconds": snapshot.AvgLatencySeconds,
+					"error_rate":          snapshot.ErrorRate,
+					"budget_blocked":      snapshot.BudgetBlocked,
+					"backlog":             snapshot.Backlog,
+				},
+			})
+		}
+
+		budgets, err := budgetProvider.DependencyBudgetUsageSnapshots(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, budget := range budgets {
+			response.Budgets = append(response.Budgets, budgetStatus{
+				Budget:   budget.Budget,
+				Capacity: budget.Capacity,
+				InUse:    budget.InUse,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(response)
+	}
 }
 
 func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
@@ -129,4 +213,15 @@ func admissionHandler(provider observability.AdmissionStatusProvider, queues []s
 func (a *App) Run(ctx context.Context) error {
 	a.server.SetReady(true)
 	return a.server.Run(ctx)
+}
+
+func dependencyBudgetCapacities(cfg map[string]config.DependencyBudgetConfig) map[string]int {
+	if len(cfg) == 0 {
+		return nil
+	}
+	capacities := make(map[string]int, len(cfg))
+	for name, budget := range cfg {
+		capacities[name] = budget.Capacity
+	}
+	return capacities
 }

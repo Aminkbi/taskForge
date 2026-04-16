@@ -28,7 +28,7 @@ func TestWorkerProcessTaskAcksSucceededDelivery(t *testing.T) {
 	}))
 	delivery := testDelivery()
 
-	if err := w.processTask(context.Background(), delivery); err != nil {
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
 	if len(b.acked) != 1 {
@@ -50,7 +50,7 @@ func TestWorkerProcessTaskRetriesFailedTask(t *testing.T) {
 	w.RetryPolicy = tasks.DefaultRetryPolicy(3)
 
 	delivery := testDelivery()
-	if err := w.processTask(context.Background(), delivery); err != nil {
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
 	if len(b.published) != 1 {
@@ -88,7 +88,7 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	w.RetryPolicy = tasks.DefaultRetryPolicy(1)
 
 	delivery := testDelivery()
-	if err := w.processTask(context.Background(), delivery); err != nil {
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
 	if len(deadLetters.envelopes) != 1 {
@@ -122,7 +122,7 @@ func TestWorkerProcessTaskDeadLettersRetryRejectedByAdmission(t *testing.T) {
 	w.RetryPolicy = tasks.DefaultRetryPolicy(3)
 
 	delivery := testDelivery()
-	if err := w.processTask(context.Background(), delivery); err != nil {
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
 	if len(deadLetters.envelopes) != 1 {
@@ -161,7 +161,7 @@ func TestWorkerProcessTaskPreservesTraceContext(t *testing.T) {
 	delivery := testDelivery()
 	delivery.Message.Headers = headers
 
-	if err := w.processTask(context.Background(), delivery); err != nil {
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
 		t.Fatalf("processTask() error = %v", err)
 	}
 	if !got.IsValid() {

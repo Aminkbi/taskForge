@@ -34,6 +34,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
+		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 	})
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -59,6 +60,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
 	_ = metrics.RegisterSchedulerLagCollector(b, queues)
 	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
+	_ = metrics.RegisterDependencyBudgetCollector(b)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := b.Ping(ctx); err != nil {
@@ -162,4 +164,15 @@ func schedulerOwnerToken(serviceName string) string {
 		hostname = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%s:%d", serviceName, hostname, os.Getpid())
+}
+
+func dependencyBudgetCapacities(cfg map[string]config.DependencyBudgetConfig) map[string]int {
+	if len(cfg) == 0 {
+		return nil
+	}
+	capacities := make(map[string]int, len(cfg))
+	for name, budget := range cfg {
+		capacities[name] = budget.Capacity
+	}
+	return capacities
 }

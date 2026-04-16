@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,35 +75,24 @@ func TestManagerRunsIsolatedQueueWorkers(t *testing.T) {
 	}
 }
 
-func TestWorkerTaskTypeCapLeavesRoomForOtherTasks(t *testing.T) {
+func TestWorkerBudgetGatedTasksStayPendingUntilTokensFreeUp(t *testing.T) {
 	t.Parallel()
 
 	stub := newQueueBrokerStub(map[string][]broker.Delivery{
 		"default": {
 			testDeliveryWithQueue("shared-1", "default", "shared.task"),
 			testDeliveryWithQueue("shared-2", "default", "shared.task"),
-			testDeliveryWithQueue("other-1", "default", "other.task"),
 		},
 	})
 
-	var currentShared int32
-	var maxShared int32
-	started := make(chan string, 3)
+	budgets := &budgetManagerStub{
+		capacity: map[string]int{"downstream": 1},
+		held:     make(map[string]string),
+	}
+	started := make(chan string, 2)
 	releaseShared := make(chan struct{})
 	handler := HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
 		started <- msg.ID
-		if msg.Name != "shared.task" {
-			return nil
-		}
-
-		active := atomic.AddInt32(&currentShared, 1)
-		for {
-			observed := atomic.LoadInt32(&maxShared)
-			if active <= observed || atomic.CompareAndSwapInt32(&maxShared, observed, active) {
-				break
-			}
-		}
-		defer atomic.AddInt32(&currentShared, -1)
 
 		select {
 		case <-releaseShared:
@@ -116,8 +104,14 @@ func TestWorkerTaskTypeCapLeavesRoomForOtherTasks(t *testing.T) {
 
 	worker := newQueueWorkerForTest(stub, "default", handler)
 	worker.Concurrency = 2
-	worker.Prefetch = 3
-	worker.GlobalTaskLimiter = NewTaskTypeLimiter(map[string]int{"shared.task": 1})
+	worker.Prefetch = 2
+	worker.BudgetManager = budgets
+	worker.TaskBudgets = map[string]TaskBudget{
+		"shared.task": {
+			Budget: "downstream",
+			Tokens: 1,
+		},
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,17 +121,20 @@ func TestWorkerTaskTypeCapLeavesRoomForOtherTasks(t *testing.T) {
 		errCh <- worker.Run(ctx)
 	}()
 
-	first := waitForStartedTask(t, started)
-	second := waitForStartedTask(t, started)
-	startedIDs := map[string]bool{first: true, second: true}
-	if !startedIDs["shared-1"] || !startedIDs["other-1"] {
-		t.Fatalf("first two started tasks = %q, %q, want one shared task and one other task", first, second)
+	if first := waitForStartedTask(t, started); first != "shared-1" {
+		t.Fatalf("first started task = %q, want %q", first, "shared-1")
 	}
-	if got := atomic.LoadInt32(&maxShared); got != 1 {
-		t.Fatalf("max shared concurrency = %d, want 1", got)
+	select {
+	case second := <-started:
+		t.Fatalf("second task started before budget was released: %q", second)
+	case <-time.After(150 * time.Millisecond):
 	}
 
 	close(releaseShared)
+
+	if second := waitForStartedTask(t, started); second != "shared-2" {
+		t.Fatalf("second started task = %q, want %q", second, "shared-2")
+	}
 	cancel()
 
 	select {
@@ -150,12 +147,172 @@ func TestWorkerTaskTypeCapLeavesRoomForOtherTasks(t *testing.T) {
 	}
 }
 
+func TestWorkerDropsPendingDeliveryWhenLeaseRenewalFails(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("shared-1", "default", "shared.task"),
+			testDeliveryWithQueue("shared-2", "default", "shared.task"),
+		},
+	})
+	stub.extendLeaseFunc = func(delivery broker.Delivery) error {
+		if delivery.Execution.DeliveryID == "shared-2-delivery" {
+			return broker.ErrDeliveryExpired
+		}
+		return nil
+	}
+
+	started := make(chan string, 2)
+	releaseShared := make(chan struct{})
+	handler := HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		select {
+		case <-releaseShared:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	})
+
+	worker := newQueueWorkerForTest(stub, "default", handler)
+	worker.Concurrency = 2
+	worker.Prefetch = 2
+	worker.LeaseTTL = 20 * time.Millisecond
+	worker.GlobalTaskLimiter = NewTaskTypeLimiter(map[string]int{"shared.task": 1})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(ctx)
+	}()
+
+	if first := waitForStartedTask(t, started); first != "shared-1" {
+		t.Fatalf("first started task = %q, want %q", first, "shared-1")
+	}
+
+	time.Sleep(80 * time.Millisecond)
+	close(releaseShared)
+
+	select {
+	case second := <-started:
+		t.Fatalf("second task started after pending lease was lost: %q", second)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop before timeout")
+	}
+}
+
+func TestWorkerCancelsRunningTaskWhenLeaseRenewalFails(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("running-1", "default", "running.task"),
+		},
+	})
+	stub.extendLeaseFunc = func(delivery broker.Delivery) error {
+		if delivery.Execution.DeliveryID == "running-1-delivery" {
+			return broker.ErrDeliveryExpired
+		}
+		return nil
+	}
+
+	canceled := make(chan struct{}, 1)
+	handler := HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		<-ctx.Done()
+		canceled <- struct{}{}
+		return ctx.Err()
+	})
+
+	worker := newQueueWorkerForTest(stub, "default", handler)
+	worker.LeaseTTL = 20 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(ctx)
+	}()
+
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("handler was not canceled after lease loss")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop before timeout")
+	}
+
+	if len(stub.acked) != 0 {
+		t.Fatalf("Ack calls = %d, want 0", len(stub.acked))
+	}
+	if len(stub.nacked) != 0 {
+		t.Fatalf("Nack calls = %d, want 0", len(stub.nacked))
+	}
+	if len(stub.publish) != 0 {
+		t.Fatalf("Publish calls = %d, want 0", len(stub.publish))
+	}
+}
+
+type budgetManagerStub struct {
+	mu       sync.Mutex
+	capacity map[string]int
+	held     map[string]string
+}
+
+func (b *budgetManagerStub) AcquireLease(_ context.Context, budget, deliveryID string, tokens int, _ time.Duration) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if tokens != 1 {
+		return false, nil
+	}
+	if _, ok := b.held[deliveryID]; ok {
+		return true, nil
+	}
+	if len(b.held) >= b.capacity[budget] {
+		return false, nil
+	}
+	b.held[deliveryID] = budget
+	return true, nil
+}
+
+func (b *budgetManagerStub) RenewLease(context.Context, string, string, time.Duration) error {
+	return nil
+}
+
+func (b *budgetManagerStub) ReleaseLease(_ context.Context, _ string, deliveryID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.held, deliveryID)
+	return nil
+}
+
 type queueBrokerStub struct {
-	mu      sync.Mutex
-	queues  map[string][]broker.Delivery
-	acked   []broker.Delivery
-	nacked  []broker.Delivery
-	publish []broker.TaskMessage
+	mu              sync.Mutex
+	queues          map[string][]broker.Delivery
+	acked           []broker.Delivery
+	nacked          []broker.Delivery
+	publish         []broker.TaskMessage
+	extendLeaseFunc func(broker.Delivery) error
 }
 
 func newQueueBrokerStub(queues map[string][]broker.Delivery) *queueBrokerStub {
@@ -200,7 +357,10 @@ func (b *queueBrokerStub) Nack(_ context.Context, delivery broker.Delivery, _ bo
 	return nil
 }
 
-func (b *queueBrokerStub) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
+func (b *queueBrokerStub) ExtendLease(_ context.Context, delivery broker.Delivery, _ time.Duration) error {
+	if b.extendLeaseFunc != nil {
+		return b.extendLeaseFunc(delivery)
+	}
 	return nil
 }
 
