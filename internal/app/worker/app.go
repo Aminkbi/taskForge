@@ -31,8 +31,10 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	})
 
 	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
+	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
 	sharedBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
-		FairnessPolicies: fairnessPolicies,
+		FairnessPolicies:  fairnessPolicies,
+		AdmissionPolicies: admissionPolicies,
 	})
 	dispatcher := dlq.NewService(client, sharedBroker, logger.With("component", "dlq"))
 
@@ -42,7 +44,8 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	recoveryChecks := make(map[string]*healthcheck.Reporter, len(cfg.WorkerPools))
 	for _, pool := range cfg.WorkerPools {
 		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
-			FairnessPolicies: fairnessPolicies,
+			FairnessPolicies:  fairnessPolicies,
+			AdmissionPolicies: admissionPolicies,
 		})
 		queues = append(queues, pool.Queue)
 		recoveryHealth := healthcheck.NewReporter("not_ready", "worker starting")
@@ -69,6 +72,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterQueueMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterFairnessMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterDeadLetterMetricsCollector(sharedBroker, queues)
+	_ = metrics.RegisterAdmissionStatusCollector(sharedBroker, queues)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := sharedBroker.Ping(ctx); err != nil {
@@ -114,6 +118,25 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		server: server,
 		worker: &runtimepkg.Manager{Workers: workers},
 	}
+}
+
+func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
+	policies := make(map[string]brokerredis.AdmissionPolicy)
+	for queue, policy := range config.AdmissionPoliciesByQueue(pools) {
+		policies[queue] = brokerredis.AdmissionPolicy{
+			Mode:                     brokerredis.AdmissionMode(policy.Mode),
+			MaxPending:               policy.MaxPending,
+			MaxPendingPerFairnessKey: policy.MaxPendingPerFairnessKey,
+			MaxOldestReadyAge:        policy.MaxOldestReadyAge,
+			MaxRetryBacklog:          policy.MaxRetryBacklog,
+			MaxDeadLetterSize:        policy.MaxDeadLetterSize,
+			DeferInterval:            policy.DeferInterval,
+		}
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
 }
 
 func (a *App) Run(ctx context.Context) error {

@@ -45,6 +45,24 @@ func (stubFairnessMetricsProvider) FairnessMetricsSnapshot(context.Context, stri
 	}, nil
 }
 
+type stubAdmissionStatusProvider struct{}
+
+func (stubAdmissionStatusProvider) AdmissionStatusSnapshot(context.Context, string, time.Time) (AdmissionStatusSnapshot, error) {
+	return AdmissionStatusSnapshot{
+		Queue:              "critical",
+		Mode:               "defer",
+		State:              "degraded",
+		Reason:             "queue_pending_cap",
+		QueuePending:       7,
+		FairnessKeyPending: 3,
+		OldestReadyAge:     4,
+		RetryBacklog:       2,
+		DeadLetterSize:     1,
+		DeferInterval:      5 * time.Second,
+		UpdatedAt:          time.Now().UTC(),
+	}, nil
+}
+
 func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	t.Parallel()
 
@@ -53,6 +71,8 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	metrics.IncDeadLetterResult("critical", "reports.generate", "permanent")
 	metrics.IncFairnessReservation("critical", "protected")
 	metrics.IncFairnessQuotaDeferral("critical", "protected", "hard_quota")
+	metrics.IncAdmissionDecision("critical", "retry", "deferred", "queue_pending_cap")
+	metrics.ObserveReserveLatency("critical", 0.25)
 	if err := metrics.RegisterQueueMetricsCollector(stubQueueMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterQueueMetricsCollector() error = %v", err)
 	}
@@ -64,6 +84,9 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	}
 	if err := metrics.RegisterSchedulerLagCollector(stubSchedulerLagMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterSchedulerLagCollector() error = %v", err)
+	}
+	if err := metrics.RegisterAdmissionStatusCollector(stubAdmissionStatusProvider{}, []string{"critical"}); err != nil {
+		t.Fatalf("RegisterAdmissionStatusCollector() error = %v", err)
 	}
 
 	families, err := metrics.Registry.Gather()
@@ -82,6 +105,10 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	assertLabelNames(t, families, "taskforge_dead_letter_queue_size", []string{"queue"})
 	assertLabelNames(t, families, "taskforge_scheduler_queue_lag_seconds", []string{"queue"})
 	assertLabelNames(t, families, "taskforge_queue_depth", []string{"queue"})
+	assertLabelNames(t, families, "taskforge_broker_reserve_latency_seconds", []string{"queue"})
+	assertLabelNames(t, families, "taskforge_admission_decisions_total", []string{"decision", "queue", "reason", "source"})
+	assertLabelNames(t, families, "taskforge_admission_state", []string{"queue", "state"})
+	assertLabelNames(t, families, "taskforge_admission_signal", []string{"queue", "signal"})
 
 	for _, family := range families {
 		for _, metric := range family.GetMetric() {

@@ -164,7 +164,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 			task.Headers[HeaderScheduleMisfirePolicy] = string(schedule.MisfirePolicy)
 			task.Headers[HeaderScheduleMissedRuns] = fmt.Sprintf("%d", missedRuns)
 
-			if err := s.publisher.Publish(ctx, task); err != nil {
+			if _, err := s.publisher.Publish(ctx, task, broker.PublishOptions{Source: broker.PublishSourceRecurring}); err != nil {
 				return dispatched, fmt.Errorf("publish recurring task for %s: %w", schedule.ID, err)
 			}
 

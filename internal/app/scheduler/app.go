@@ -30,8 +30,10 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	})
 
 	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
+	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
 	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
-		FairnessPolicies: fairnessPolicies,
+		FairnessPolicies:  fairnessPolicies,
+		AdmissionPolicies: admissionPolicies,
 	})
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -56,6 +58,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterQueueMetricsCollector(b, queues)
 	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
 	_ = metrics.RegisterSchedulerLagCollector(b, queues)
+	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := b.Ping(ctx); err != nil {
@@ -113,6 +116,25 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		server:    server,
 		scheduler: schedulerRuntime,
 	}
+}
+
+func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
+	policies := make(map[string]brokerredis.AdmissionPolicy)
+	for queue, policy := range config.AdmissionPoliciesByQueue(pools) {
+		policies[queue] = brokerredis.AdmissionPolicy{
+			Mode:                     brokerredis.AdmissionMode(policy.Mode),
+			MaxPending:               policy.MaxPending,
+			MaxPendingPerFairnessKey: policy.MaxPendingPerFairnessKey,
+			MaxOldestReadyAge:        policy.MaxOldestReadyAge,
+			MaxRetryBacklog:          policy.MaxRetryBacklog,
+			MaxDeadLetterSize:        policy.MaxDeadLetterSize,
+			DeferInterval:            policy.DeferInterval,
+		}
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
 }
 
 func (a *App) Run(ctx context.Context) error {

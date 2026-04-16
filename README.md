@@ -203,7 +203,9 @@ TASKFORGE_SERVICE_NAME=taskforge
 `TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
 
 Workers are configured as isolated queue pools through `TASKFORGE_WORKER_POOLS_JSON`.
-Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, and queue-local task caps.
+Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, queue-local task caps, optional fairness rules, and queue-local admission control.
+
+Admission control is evaluated at publish time from Redis-visible queue state. Each queue can disable it, defer new work into the delayed set, or reject new work when configured thresholds are exceeded. Overload does not fail `/readyz`; operators should inspect admission metrics or the API admin endpoint instead.
 
 Example:
 
@@ -215,6 +217,21 @@ TASKFORGE_WORKER_POOLS_JSON=[
     "concurrency":2,
     "prefetch":2,
     "lease_ttl":"20s",
+    "fairness":{
+      "default":{"hard_quota":8},
+      "rules":[
+        {"name":"vip","keys":["tenant-vip"],"hard_quota":2,"reserved_concurrency":1}
+      ]
+    },
+    "admission":{
+      "mode":"defer",
+      "max_pending":2000,
+      "max_pending_per_fairness_key":250,
+      "max_oldest_ready_age":"15s",
+      "max_retry_backlog":500,
+      "max_dead_letter_size":1000,
+      "defer_interval":"5s"
+    },
     "task_limits":[
       {"task_name":"reports.generate","max_concurrency":1}
     ]
@@ -287,12 +304,18 @@ Worker metrics now include queue-aware counters and gauges, including:
 - `taskforge_queue_depth`
 - `taskforge_queue_reserved`
 - `taskforge_queue_consumers`
+- `taskforge_admission_decisions_total`
+- `taskforge_admission_state`
+- `taskforge_admission_signal`
 - per-queue success, failure, retry, reclaim, and active-task metrics
 
 The API process also exposes:
 
 - `/`
 - `/v1/admin/ping`
+- `/v1/admin/admission`
+
+`/v1/admin/admission` reports each queue's configured mode, current admission state, dominant rejection or defer reason, the latest signal snapshot, and `defer_interval`.
 
 ## Testing
 

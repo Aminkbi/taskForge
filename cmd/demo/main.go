@@ -253,14 +253,15 @@ func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, q
 		return err
 	}
 	eta := time.Now().UTC().Add(settings.DelayedAfter)
-	return brokerInstance.Publish(ctx, broker.TaskMessage{
+	_, err = brokerInstance.Publish(ctx, broker.TaskMessage{
 		ID:        uuid.NewString(),
 		Name:      demo.TaskAppendFile,
 		Queue:     queue,
 		Payload:   payload,
 		ETA:       &eta,
 		CreatedAt: time.Now().UTC(),
-	})
+	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	return err
 }
 
 func publishStartupTasks(ctx context.Context, brokerInstance broker.Broker, settings demoSettings, pools []config.WorkerPoolConfig) error {
@@ -272,13 +273,13 @@ func publishStartupTasks(ctx context.Context, brokerInstance broker.Broker, sett
 		if err != nil {
 			return err
 		}
-		if err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
 			ID:        uuid.NewString(),
 			Name:      demo.TaskAppendFile,
 			Queue:     pool.Queue,
 			Payload:   payload,
 			CreatedAt: time.Now().UTC(),
-		}); err != nil {
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			return err
 		}
 	}

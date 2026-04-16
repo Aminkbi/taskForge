@@ -98,6 +98,15 @@ func TestLoadOverrides(t *testing.T) {
 				"rules":[
 					{"name":"protected","keys":["tenant-vip"],"weight":2,"reserved_concurrency":1,"soft_quota":1,"hard_quota":1}
 				]
+			},
+			"admission":{
+				"mode":"defer",
+				"max_pending":10,
+				"max_pending_per_fairness_key":4,
+				"max_oldest_ready_age":"30s",
+				"max_retry_backlog":3,
+				"max_dead_letter_size":2,
+				"defer_interval":"5s"
 			}
 		}
 	]`)
@@ -139,6 +148,12 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if pool.FairnessPolicy == nil {
 		t.Fatalf("expected worker pool fairness policy")
+	}
+	if pool.Admission.Mode != AdmissionModeDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
+		t.Fatalf("unexpected worker pool admission policy: %+v", pool.Admission)
+	}
+	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.MaxDeadLetterSize != 2 || pool.Admission.DeferInterval != 5*time.Second {
+		t.Fatalf("unexpected admission timing values: %+v", pool.Admission)
 	}
 	protected := pool.FairnessPolicy.Resolve("tenant-vip")
 	if protected.Bucket != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 {
@@ -245,6 +260,40 @@ func TestLoadRejectsInvalidFairnessPolicy(t *testing.T) {
 			"fairness":{
 				"default_rule":{"soft_quota":2,"hard_quota":1}
 			}
+		}
+	]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsAdmissionWithoutDeferInterval(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{
+			"name":"default",
+			"queue":"default",
+			"concurrency":1,
+			"lease_ttl":"30s",
+			"admission":{"mode":"reject","max_pending":1}
+		}
+	]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsFairnessAdmissionWithoutFairnessPolicy(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
+		{
+			"name":"default",
+			"queue":"default",
+			"concurrency":1,
+			"lease_ttl":"30s",
+			"admission":{"mode":"defer","max_pending_per_fairness_key":1,"defer_interval":"1s"}
 		}
 	]`)
 

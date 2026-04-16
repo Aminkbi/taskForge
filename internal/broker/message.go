@@ -2,6 +2,14 @@ package broker
 
 import "time"
 
+const (
+	HeaderAdmissionDecision      = "taskforge_admission_decision"
+	HeaderAdmissionReason        = "taskforge_admission_reason"
+	HeaderAdmissionSource        = "taskforge_admission_source"
+	HeaderAdmissionDeferredUntil = "taskforge_admission_deferred_until"
+	HeaderAdmissionEvaluatedAt   = "taskforge_admission_evaluated_at"
+)
+
 // TaskMessage carries the logical task payload. The ID identifies the logical
 // task, not a single broker delivery attempt, so handlers must be idempotent.
 type TaskMessage struct {

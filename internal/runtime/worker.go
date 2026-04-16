@@ -307,8 +307,33 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery) erro
 			observability.MarkSpanError(span, transitionErr)
 			return fmt.Errorf("worker mark delivery retry_scheduled: %w", transitionErr)
 		}
-		if publishErr := w.Broker.Publish(execCtx, next); publishErr != nil {
+		if _, publishErr := w.Broker.Publish(execCtx, next, broker.PublishOptions{Source: broker.PublishSourceRetry}); publishErr != nil {
 			observability.MarkSpanError(span, publishErr)
+			var admissionErr *broker.AdmissionError
+			if errors.As(publishErr, &admissionErr) {
+				overloadedEnvelope := dlq.NewEnvelope(failedDelivery, dlq.FailureClassOverloaded, publishErr.Error(), w.Clock.Now())
+				deadLetterDelivery, transitionErr := transitionDelivery(failedDelivery, tasks.StateDeadLettered)
+				if transitionErr != nil {
+					observability.MarkSpanError(span, transitionErr)
+					return fmt.Errorf("worker mark delivery dead_lettered after retry rejection: %w", transitionErr)
+				}
+				if w.DeadLetter != nil {
+					if dlqErr := w.DeadLetter.PublishDeadLetter(execCtx, overloadedEnvelope); dlqErr != nil {
+						observability.MarkSpanError(span, dlqErr)
+						if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
+							observability.MarkSpanError(span, nackErr)
+							return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
+						}
+						return fmt.Errorf("publish dead-letter task: %w", dlqErr)
+					}
+					w.Metrics.IncDeadLetterResult(queue, msg.Name, string(dlq.FailureClassOverloaded))
+				}
+				if ackErr := w.Broker.Ack(execCtx, deadLetterDelivery); ackErr != nil {
+					observability.MarkSpanError(span, ackErr)
+					return ackErr
+				}
+				return nil
+			}
 			if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
 				observability.MarkSpanError(span, nackErr)
 				return errors.Join(fmt.Errorf("publish retry task: %w", publishErr), fmt.Errorf("nack original task: %w", nackErr))

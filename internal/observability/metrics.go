@@ -42,6 +42,24 @@ type SchedulerLagMetricsProvider interface {
 	SchedulerLag(ctx context.Context, now time.Time, queue string) (float64, error)
 }
 
+type AdmissionStatusSnapshot struct {
+	Queue              string
+	Mode               string
+	State              string
+	Reason             string
+	QueuePending       float64
+	FairnessKeyPending float64
+	OldestReadyAge     float64
+	RetryBacklog       float64
+	DeadLetterSize     float64
+	DeferInterval      time.Duration
+	UpdatedAt          time.Time
+}
+
+type AdmissionStatusProvider interface {
+	AdmissionStatusSnapshot(ctx context.Context, queue string, now time.Time) (AdmissionStatusSnapshot, error)
+}
+
 type Metrics struct {
 	Registry               *prometheus.Registry
 	TasksPublishedTotal    *prometheus.CounterVec
@@ -55,9 +73,11 @@ type Metrics struct {
 	TaskRetrySchedules     *prometheus.CounterVec
 	TaskDeadLetterResults  *prometheus.CounterVec
 	TaskExecutionDuration  *prometheus.HistogramVec
+	BrokerReserveLatency   *prometheus.HistogramVec
 	WorkerActiveTasks      *prometheus.GaugeVec
 	FairnessReservations   *prometheus.CounterVec
 	FairnessQuotaDeferrals *prometheus.CounterVec
+	AdmissionDecisions     *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -114,6 +134,11 @@ func NewMetrics() *Metrics {
 			Help:    "Task execution duration in seconds.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"queue", "task_name", "status"}),
+		BrokerReserveLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "taskforge_broker_reserve_latency_seconds",
+			Help:    "Broker reserve latency in seconds.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"queue"}),
 		WorkerActiveTasks: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "taskforge_worker_active_tasks",
 			Help: "Current number of active worker tasks.",
@@ -126,6 +151,10 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_fairness_quota_deferrals_total",
 			Help: "Total number of fairness quota deferrals by queue, fairness bucket, and reason.",
 		}, []string{"queue", "fairness_bucket", "reason"}),
+		AdmissionDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_admission_decisions_total",
+			Help: "Total number of publish admission decisions by queue, source, decision, and reason.",
+		}, []string{"queue", "source", "decision", "reason"}),
 	}
 
 	registry.MustRegister(
@@ -140,9 +169,11 @@ func NewMetrics() *Metrics {
 		m.TaskRetrySchedules,
 		m.TaskDeadLetterResults,
 		m.TaskExecutionDuration,
+		m.BrokerReserveLatency,
 		m.WorkerActiveTasks,
 		m.FairnessReservations,
 		m.FairnessQuotaDeferrals,
+		m.AdmissionDecisions,
 	)
 
 	return m
@@ -231,6 +262,13 @@ func (m *Metrics) ObserveExecution(queue, taskName, status string, duration floa
 	m.TaskExecutionDuration.WithLabelValues(queue, taskName, status).Observe(duration)
 }
 
+func (m *Metrics) ObserveReserveLatency(queue string, duration float64) {
+	if m == nil {
+		return
+	}
+	m.BrokerReserveLatency.WithLabelValues(queue).Observe(duration)
+}
+
 func (m *Metrics) IncActiveTask(queue, taskName string) {
 	if m == nil {
 		return
@@ -257,6 +295,13 @@ func (m *Metrics) IncFairnessQuotaDeferral(queue, bucket, reason string) {
 		return
 	}
 	m.FairnessQuotaDeferrals.WithLabelValues(queue, sanitizeFairnessBucket(bucket), sanitizeResultClass(reason)).Inc()
+}
+
+func (m *Metrics) IncAdmissionDecision(queue, source, decision, reason string) {
+	if m == nil {
+		return
+	}
+	m.AdmissionDecisions.WithLabelValues(queue, sanitizeAdmissionSource(source), sanitizeAdmissionDecision(decision), sanitizeAdmissionReason(reason)).Inc()
 }
 
 func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
@@ -353,6 +398,29 @@ func (m *Metrics) RegisterSchedulerLagCollector(provider SchedulerLagMetricsProv
 			"taskforge_scheduler_queue_lag_seconds",
 			"Current scheduler lag in seconds for the oldest delayed task per queue.",
 			[]string{"queue"},
+			nil,
+		),
+	})
+}
+
+func (m *Metrics) RegisterAdmissionStatusCollector(provider AdmissionStatusProvider, queues []string) error {
+	if m == nil || provider == nil || len(queues) == 0 {
+		return nil
+	}
+
+	return m.Registry.Register(&admissionStatusCollector{
+		provider: provider,
+		queues:   normalizeQueues(queues),
+		state: prometheus.NewDesc(
+			"taskforge_admission_state",
+			"Current admission state for a queue.",
+			[]string{"queue", "state"},
+			nil,
+		),
+		signal: prometheus.NewDesc(
+			"taskforge_admission_signal",
+			"Current admission signal values for a queue.",
+			[]string{"queue", "signal"},
 			nil,
 		),
 	})
@@ -457,6 +525,13 @@ type schedulerLagCollector struct {
 	lag      *prometheus.Desc
 }
 
+type admissionStatusCollector struct {
+	provider AdmissionStatusProvider
+	queues   []string
+	state    *prometheus.Desc
+	signal   *prometheus.Desc
+}
+
 func (c *schedulerLagCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.lag
 }
@@ -471,6 +546,36 @@ func (c *schedulerLagCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(c.lag, prometheus.GaugeValue, lag, queue)
+	}
+}
+
+func (c *admissionStatusCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.state
+	ch <- c.signal
+}
+
+func (c *admissionStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	now := time.Now().UTC()
+	for _, queue := range c.queues {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		snapshot, err := c.provider.AdmissionStatusSnapshot(ctx, queue, now)
+		cancel()
+		if err != nil {
+			continue
+		}
+
+		for _, state := range []string{"normal", "degraded", "rejecting"} {
+			value := 0.0
+			if snapshot.State == state {
+				value = 1
+			}
+			ch <- prometheus.MustNewConstMetric(c.state, prometheus.GaugeValue, value, queue, state)
+		}
+		ch <- prometheus.MustNewConstMetric(c.signal, prometheus.GaugeValue, snapshot.QueuePending, queue, "queue_pending")
+		ch <- prometheus.MustNewConstMetric(c.signal, prometheus.GaugeValue, snapshot.FairnessKeyPending, queue, "fairness_key_pending")
+		ch <- prometheus.MustNewConstMetric(c.signal, prometheus.GaugeValue, snapshot.OldestReadyAge, queue, "oldest_ready_age_seconds")
+		ch <- prometheus.MustNewConstMetric(c.signal, prometheus.GaugeValue, snapshot.RetryBacklog, queue, "retry_backlog")
+		ch <- prometheus.MustNewConstMetric(c.signal, prometheus.GaugeValue, snapshot.DeadLetterSize, queue, "dead_letter_size")
 	}
 }
 
@@ -496,4 +601,28 @@ func sanitizeFairnessBucket(bucket string) string {
 		return "default"
 	}
 	return bucket
+}
+
+func sanitizeAdmissionSource(source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return "unknown"
+	}
+	return source
+}
+
+func sanitizeAdmissionDecision(decision string) string {
+	decision = strings.TrimSpace(decision)
+	if decision == "" {
+		return "unknown"
+	}
+	return decision
+}
+
+func sanitizeAdmissionReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "none"
+	}
+	return reason
 }

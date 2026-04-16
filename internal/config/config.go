@@ -55,6 +55,25 @@ type WorkerPoolConfig struct {
 	RetryPolicy    tasks.RetryPolicy
 	TaskTypeLimits map[string]int
 	FairnessPolicy *fairness.Policy
+	Admission      AdmissionPolicy
+}
+
+type AdmissionMode string
+
+const (
+	AdmissionModeDisabled AdmissionMode = "disabled"
+	AdmissionModeDefer    AdmissionMode = "defer"
+	AdmissionModeReject   AdmissionMode = "reject"
+)
+
+type AdmissionPolicy struct {
+	Mode                     AdmissionMode
+	MaxPending               int64
+	MaxPendingPerFairnessKey int64
+	MaxOldestReadyAge        time.Duration
+	MaxRetryBacklog          int64
+	MaxDeadLetterSize        int64
+	DeferInterval            time.Duration
 }
 
 type rawRetryPolicy struct {
@@ -81,6 +100,7 @@ type rawWorkerPool struct {
 	Retry       rawRetryPolicy `json:"retry"`
 	TaskLimits  []rawTaskLimit `json:"task_limits"`
 	Fairness    *rawFairness   `json:"fairness"`
+	Admission   *rawAdmission  `json:"admission"`
 }
 
 type rawFairness struct {
@@ -96,6 +116,16 @@ type rawFairnessRule struct {
 	SoftQuota           int      `json:"soft_quota"`
 	HardQuota           int      `json:"hard_quota"`
 	Burst               int      `json:"burst"`
+}
+
+type rawAdmission struct {
+	Mode                     string `json:"mode"`
+	MaxPending               int64  `json:"max_pending"`
+	MaxPendingPerFairnessKey int64  `json:"max_pending_per_fairness_key"`
+	MaxOldestReadyAge        string `json:"max_oldest_ready_age"`
+	MaxRetryBacklog          int64  `json:"max_retry_backlog"`
+	MaxDeadLetterSize        int64  `json:"max_dead_letter_size"`
+	DeferInterval            string `json:"defer_interval"`
 }
 
 func Load(defaultServiceName string) (Config, error) {
@@ -161,6 +191,20 @@ func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*fairness.Poli
 			continue
 		}
 		policies[normalizeQueue(pool.Queue)] = pool.FairnessPolicy
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
+}
+
+func AdmissionPoliciesByQueue(pools []WorkerPoolConfig) map[string]AdmissionPolicy {
+	policies := make(map[string]AdmissionPolicy)
+	for _, pool := range pools {
+		if pool.Admission.Mode == AdmissionModeDisabled {
+			continue
+		}
+		policies[normalizeQueue(pool.Queue)] = pool.Admission
 	}
 	if len(policies) == 0 {
 		return nil
@@ -289,6 +333,10 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 		if err != nil {
 			return nil, err
 		}
+		admissionPolicy, err := parseAdmissionPolicy(key, name, raw.Admission, fairnessPolicy != nil)
+		if err != nil {
+			return nil, err
+		}
 
 		pools = append(pools, WorkerPoolConfig{
 			Name:           name,
@@ -299,6 +347,7 @@ func getWorkerPools(key string) ([]WorkerPoolConfig, error) {
 			RetryPolicy:    retryPolicy,
 			TaskTypeLimits: taskLimits,
 			FairnessPolicy: fairnessPolicy,
+			Admission:      admissionPolicy,
 		})
 	}
 
@@ -436,6 +485,60 @@ func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefau
 	}
 
 	return rule, nil
+}
+
+func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness bool) (AdmissionPolicy, error) {
+	policy := AdmissionPolicy{Mode: AdmissionModeDisabled}
+	if raw == nil {
+		return policy, nil
+	}
+
+	mode := AdmissionMode(strings.TrimSpace(raw.Mode))
+	switch mode {
+	case "", AdmissionModeDisabled:
+		policy.Mode = AdmissionModeDisabled
+	case AdmissionModeDefer, AdmissionModeReject:
+		policy.Mode = mode
+	default:
+		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.mode must be one of disabled, defer, reject", key, poolName)
+	}
+
+	if raw.MaxPending < 0 || raw.MaxPendingPerFairnessKey < 0 || raw.MaxRetryBacklog < 0 || raw.MaxDeadLetterSize < 0 {
+		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission thresholds must be >= 0", key, poolName)
+	}
+
+	policy.MaxPending = raw.MaxPending
+	policy.MaxPendingPerFairnessKey = raw.MaxPendingPerFairnessKey
+	policy.MaxRetryBacklog = raw.MaxRetryBacklog
+	policy.MaxDeadLetterSize = raw.MaxDeadLetterSize
+
+	if raw.MaxOldestReadyAge != "" {
+		parsed, err := time.ParseDuration(strings.TrimSpace(raw.MaxOldestReadyAge))
+		if err != nil {
+			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age: %w", key, poolName, err)
+		}
+		if parsed < 0 {
+			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age must be >= 0", key, poolName)
+		}
+		policy.MaxOldestReadyAge = parsed
+	}
+
+	if raw.DeferInterval != "" {
+		parsed, err := time.ParseDuration(strings.TrimSpace(raw.DeferInterval))
+		if err != nil {
+			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval: %w", key, poolName, err)
+		}
+		policy.DeferInterval = parsed
+	}
+
+	if policy.Mode != AdmissionModeDisabled && policy.DeferInterval <= 0 {
+		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval must be > 0 when admission is enabled", key, poolName)
+	}
+	if policy.MaxPendingPerFairnessKey > 0 && !hasFairness {
+		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_pending_per_fairness_key requires fairness", key, poolName)
+	}
+
+	return policy, nil
 }
 
 func normalizeQueue(queue string) string {

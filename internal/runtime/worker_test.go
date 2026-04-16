@@ -108,6 +108,37 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	}
 }
 
+func TestWorkerProcessTaskDeadLettersRetryRejectedByAdmission(t *testing.T) {
+	t.Parallel()
+
+	b := &stubBroker{
+		rejectRetry: true,
+	}
+	deadLetters := &stubDeadLetter{}
+	w := newTestWorker(b, deadLetters, HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return Retryable(errors.New("boom"))
+	}))
+	w.Clock = fixedClock{now: time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)}
+	w.RetryPolicy = tasks.DefaultRetryPolicy(3)
+
+	delivery := testDelivery()
+	if err := w.processTask(context.Background(), delivery); err != nil {
+		t.Fatalf("processTask() error = %v", err)
+	}
+	if len(deadLetters.envelopes) != 1 {
+		t.Fatalf("dead-letter calls = %d, want 1", len(deadLetters.envelopes))
+	}
+	if got := deadLetters.envelopes[0].FailureClass; got != dlq.FailureClassOverloaded {
+		t.Fatalf("dead-letter failure class = %q, want %q", got, dlq.FailureClassOverloaded)
+	}
+	if len(b.acked) != 1 {
+		t.Fatalf("Ack calls = %d, want 1", len(b.acked))
+	}
+	if got := b.acked[0].Execution.State; got != string(tasks.StateDeadLettered) {
+		t.Fatalf("Ack state = %q, want %q", got, tasks.StateDeadLettered)
+	}
+}
+
 func TestWorkerProcessTaskPreservesTraceContext(t *testing.T) {
 	provider := sdktrace.NewTracerProvider()
 	defer func() {
@@ -145,14 +176,22 @@ func TestWorkerProcessTaskPreservesTraceContext(t *testing.T) {
 }
 
 type stubBroker struct {
-	acked     []broker.Delivery
-	nacked    []broker.Delivery
-	published []broker.TaskMessage
+	acked       []broker.Delivery
+	nacked      []broker.Delivery
+	published   []broker.TaskMessage
+	rejectRetry bool
 }
 
-func (b *stubBroker) Publish(_ context.Context, msg broker.TaskMessage) error {
+func (b *stubBroker) Publish(_ context.Context, msg broker.TaskMessage, opts broker.PublishOptions) (broker.PublishResult, error) {
+	if b.rejectRetry && opts.Source == broker.PublishSourceRetry {
+		return broker.PublishResult{
+			Decision: broker.AdmissionDecisionRejected,
+			Queue:    msg.Queue,
+			Reason:   "queue_pending_cap",
+		}, &broker.AdmissionError{Queue: msg.Queue, Reason: "queue_pending_cap"}
+	}
 	b.published = append(b.published, msg)
-	return nil
+	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 
 func (b *stubBroker) Reserve(context.Context, string, string) (broker.Delivery, error) {

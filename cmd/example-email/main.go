@@ -119,11 +119,11 @@ func main() {
 		Payload:        payload,
 		CreatedAt:      time.Now().UTC(),
 	}
-	if err := exampleBroker.Publish(runCtx, message); err != nil {
+	if _, err := exampleBroker.Publish(runCtx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		logger.Error("publish email task", "error", err)
 		os.Exit(1)
 	}
-	if err := exampleBroker.Publish(runCtx, message); err != nil {
+	if _, err := exampleBroker.Publish(runCtx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		logger.Error("publish duplicate email task", "error", err)
 		os.Exit(1)
 	}

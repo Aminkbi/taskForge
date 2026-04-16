@@ -346,9 +346,9 @@ type stubRecurringPublisher struct {
 	messages []broker.TaskMessage
 }
 
-func (s *stubRecurringPublisher) Publish(_ context.Context, msg broker.TaskMessage) error {
+func (s *stubRecurringPublisher) Publish(_ context.Context, msg broker.TaskMessage, _ broker.PublishOptions) (broker.PublishResult, error) {
 	s.messages = append(s.messages, msg)
-	return nil
+	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 
 func (s *stubRecurringPublisher) Reserve(context.Context, string, string) (broker.Delivery, error) {

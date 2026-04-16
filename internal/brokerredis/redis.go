@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,15 +32,18 @@ const (
 )
 
 type RedisBroker struct {
-	client           *redis.Client
-	logger           *slog.Logger
-	metrics          *observability.Metrics
-	leaseTTL         time.Duration
-	reserveTTL       time.Duration
-	prefix           string
-	hostname         string
-	instanceID       string
-	fairnessPolicies map[string]*fairness.Policy
+	client            *redis.Client
+	logger            *slog.Logger
+	metrics           *observability.Metrics
+	leaseTTL          time.Duration
+	reserveTTL        time.Duration
+	prefix            string
+	hostname          string
+	instanceID        string
+	fairnessPolicies  map[string]*fairness.Policy
+	admissionPolicies map[string]AdmissionPolicy
+	admissionStateMu  sync.RWMutex
+	admissionStates   map[string]observability.AdmissionStatusSnapshot
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
@@ -47,8 +51,9 @@ func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metr
 }
 
 type Options struct {
-	ReserveTimeout   time.Duration
-	FairnessPolicies map[string]*fairness.Policy
+	ReserveTimeout    time.Duration
+	FairnessPolicies  map[string]*fairness.Policy
+	AdmissionPolicies map[string]AdmissionPolicy
 }
 
 func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics, options Options) *RedisBroker {
@@ -62,15 +67,17 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 	}
 
 	return &RedisBroker{
-		client:           client,
-		logger:           logger,
-		metrics:          metrics,
-		leaseTTL:         leaseTTL,
-		reserveTTL:       reserveTimeout,
-		prefix:           defaultPrefix,
-		hostname:         hostname,
-		instanceID:       fmt.Sprintf("%d", os.Getpid()),
-		fairnessPolicies: cloneFairnessPolicies(options.FairnessPolicies),
+		client:            client,
+		logger:            logger,
+		metrics:           metrics,
+		leaseTTL:          leaseTTL,
+		reserveTTL:        reserveTimeout,
+		prefix:            defaultPrefix,
+		hostname:          hostname,
+		instanceID:        fmt.Sprintf("%d", os.Getpid()),
+		fairnessPolicies:  cloneFairnessPolicies(options.FairnessPolicies),
+		admissionPolicies: cloneAdmissionPolicies(options.AdmissionPolicies),
+		admissionStates:   make(map[string]observability.AdmissionStatusSnapshot),
 	}
 }
 
@@ -78,13 +85,14 @@ func (b *RedisBroker) Ping(ctx context.Context) error {
 	return b.client.Ping(ctx).Err()
 }
 
-func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error {
+func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage, opts broker.PublishOptions) (broker.PublishResult, error) {
 	if msg.ID == "" {
-		return fmt.Errorf("publish task: missing id")
+		return broker.PublishResult{}, fmt.Errorf("publish task: missing id")
 	}
 
 	now := time.Now().UTC()
 	msg = normalizePublishedMessage(msg, now)
+	opts = opts.Normalize()
 	ctx, span := observability.StartQueueSpan(
 		ctx,
 		"taskforge.brokerredis",
@@ -95,48 +103,20 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage) error
 	defer span.End()
 	msg.Headers = observability.InjectTraceContext(ctx, msg.Headers)
 
-	payload, err := json.Marshal(msg)
+	result, err := b.publishMessage(ctx, msg, opts, now)
 	if err != nil {
 		observability.MarkSpanError(span, err)
-		return fmt.Errorf("publish task: marshal message: %w", err)
+		return broker.PublishResult{}, err
 	}
-
-	if msg.ETA != nil && msg.ETA.After(now) {
-		entryPayload, err := json.Marshal(delayedEntry{
-			EntryID:      uuid.NewString(),
-			ScheduledFor: msg.ETA.UTC(),
-			Message:      msg,
-		})
-		if err != nil {
-			observability.MarkSpanError(span, err)
-			return fmt.Errorf("publish task: marshal delayed entry: %w", err)
-		}
-		if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
-			Score:  float64(msg.ETA.UnixMilli()),
-			Member: entryPayload,
-		}).Err(); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
-		}
-		b.metrics.IncPublished(tasks.EffectiveQueue(msg))
-		return nil
-	}
-
-	queue := tasks.EffectiveQueue(msg)
-	if b.fairnessPolicy(queue) != nil {
-		if err := b.publishFairReady(ctx, msg, payload); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
-		}
-	} else if err := b.publishReady(ctx, queue, payload); err != nil {
-		observability.MarkSpanError(span, err)
-		return err
-	}
-	b.metrics.IncPublished(queue)
-	return nil
+	return result, nil
 }
 
 func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {
+	started := time.Now()
+	defer func(queue string) {
+		b.metrics.ObserveReserveLatency(normalizeQueue(queue), time.Since(started).Seconds())
+	}(queue)
+
 	queue = normalizeQueue(queue)
 	if b.fairnessPolicy(queue) != nil {
 		return b.reserveFair(ctx, queue, consumerID)
@@ -257,7 +237,7 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 	if requeue {
 		requeued := delivery.Message
 		requeued.ETA = nil
-		if err := b.Publish(ctx, requeued); err != nil {
+		if _, err := b.Publish(ctx, requeued, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			observability.MarkSpanError(span, err)
 			return err
 		}
@@ -357,31 +337,55 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 		msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
 		msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
 		msg.ETA = nil
-		payload, err := json.Marshal(msg)
+		queue := tasks.EffectiveQueue(msg)
+		eval, err := b.evaluateAdmission(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceDueRelease}, now)
 		if err != nil {
-			return moved, fmt.Errorf("move due tasks: marshal ready message: %w", err)
+			return moved, fmt.Errorf("move due tasks: evaluate admission: %w", err)
 		}
+		b.observeAdmissionDecision(queue, broker.PublishSourceDueRelease, eval)
 
 		pipe := b.client.TxPipeline()
 		pipe.ZRem(ctx, b.delayedKey(), raw)
-		queue := tasks.EffectiveQueue(msg)
-		if b.fairnessPolicy(queue) != nil {
-			fairnessKey := fairness.NormalizeKey(msg.FairnessKey)
-			pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
-			pipe.XAdd(ctx, &redis.XAddArgs{
-				Stream: b.fairnessStreamKey(queue, fairnessKey),
-				Values: map[string]interface{}{
-					streamPayloadField: string(payload),
-				},
+		if eval.decision == broker.AdmissionDecisionDeferred {
+			if eval.deferUntil == nil {
+				return moved, fmt.Errorf("move due tasks: missing deferred release time")
+			}
+			msg = b.annotateDeferredMessage(msg, broker.PublishSourceDueRelease, eval.reason, *eval.deferUntil, now)
+			entryPayload, err := json.Marshal(delayedEntry{
+				EntryID:      uuid.NewString(),
+				ScheduledFor: msg.ETA.UTC(),
+				Message:      msg,
 			})
-			pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
+			if err != nil {
+				return moved, fmt.Errorf("move due tasks: marshal deferred entry: %w", err)
+			}
+			pipe.ZAdd(ctx, b.delayedKey(), redis.Z{
+				Score:  float64(msg.ETA.UnixMilli()),
+				Member: entryPayload,
+			})
 		} else {
-			pipe.XAdd(ctx, &redis.XAddArgs{
-				Stream: b.streamKey(queue),
-				Values: map[string]interface{}{
-					streamPayloadField: string(payload),
-				},
-			})
+			payload, err := json.Marshal(msg)
+			if err != nil {
+				return moved, fmt.Errorf("move due tasks: marshal ready message: %w", err)
+			}
+			if b.fairnessPolicy(queue) != nil {
+				fairnessKey := fairness.NormalizeKey(msg.FairnessKey)
+				pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
+				pipe.XAdd(ctx, &redis.XAddArgs{
+					Stream: b.fairnessStreamKey(queue, fairnessKey),
+					Values: map[string]interface{}{
+						streamPayloadField: string(payload),
+					},
+				})
+				pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
+			} else {
+				pipe.XAdd(ctx, &redis.XAddArgs{
+					Stream: b.streamKey(queue),
+					Values: map[string]interface{}{
+						streamPayloadField: string(payload),
+					},
+				})
+			}
 		}
 
 		if _, err := pipe.Exec(ctx); err != nil {
@@ -488,6 +492,73 @@ func (b *RedisBroker) publishReady(ctx context.Context, queue string, payload []
 		},
 	}).Result(); err != nil {
 		return fmt.Errorf("publish task: add stream entry: %w", err)
+	}
+	return nil
+}
+
+func (b *RedisBroker) publishMessage(ctx context.Context, msg broker.TaskMessage, opts broker.PublishOptions, now time.Time) (broker.PublishResult, error) {
+	queue := tasks.EffectiveQueue(msg)
+	eval, err := b.evaluateAdmission(ctx, msg, opts, now)
+	if err != nil {
+		return broker.PublishResult{}, err
+	}
+	b.observeAdmissionDecision(queue, opts.Source, eval)
+
+	result := broker.PublishResult{
+		Decision: eval.decision,
+		Reason:   eval.reason,
+		Queue:    queue,
+	}
+
+	switch eval.decision {
+	case broker.AdmissionDecisionRejected:
+		return result, &broker.AdmissionError{Queue: queue, Reason: eval.reason}
+	case broker.AdmissionDecisionDeferred:
+		if eval.deferUntil == nil {
+			return broker.PublishResult{}, fmt.Errorf("publish task: deferred admission missing defer deadline")
+		}
+		msg = b.annotateDeferredMessage(msg, opts.Source, eval.reason, *eval.deferUntil, now)
+		result.DeferredUntil = eval.deferUntil
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return broker.PublishResult{}, fmt.Errorf("publish task: marshal message: %w", err)
+	}
+
+	if msg.ETA != nil && msg.ETA.After(now) {
+		if err := b.publishDelayed(ctx, msg); err != nil {
+			return broker.PublishResult{}, err
+		}
+		b.metrics.IncPublished(queue)
+		return result, nil
+	}
+
+	if b.fairnessPolicy(queue) != nil {
+		if err := b.publishFairReady(ctx, msg, payload); err != nil {
+			return broker.PublishResult{}, err
+		}
+	} else if err := b.publishReady(ctx, queue, payload); err != nil {
+		return broker.PublishResult{}, err
+	}
+	b.metrics.IncPublished(queue)
+	return result, nil
+}
+
+func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage) error {
+	entryPayload, err := json.Marshal(delayedEntry{
+		EntryID:      uuid.NewString(),
+		ScheduledFor: msg.ETA.UTC(),
+		Message:      msg,
+	})
+	if err != nil {
+		return fmt.Errorf("publish task: marshal delayed entry: %w", err)
+	}
+	if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
+		Score:  float64(msg.ETA.UnixMilli()),
+		Member: entryPayload,
+	}).Err(); err != nil {
+		return err
 	}
 	return nil
 }

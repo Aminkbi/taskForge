@@ -166,11 +166,11 @@ func newQueueBrokerStub(queues map[string][]broker.Delivery) *queueBrokerStub {
 	return &queueBrokerStub{queues: copied}
 }
 
-func (b *queueBrokerStub) Publish(_ context.Context, msg broker.TaskMessage) error {
+func (b *queueBrokerStub) Publish(_ context.Context, msg broker.TaskMessage, _ broker.PublishOptions) (broker.PublishResult, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.publish = append(b.publish, msg)
-	return nil
+	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 
 func (b *queueBrokerStub) Reserve(_ context.Context, queue, _ string) (broker.Delivery, error) {

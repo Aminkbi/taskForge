@@ -132,7 +132,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := exampleBroker.Publish(runCtx, broker.TaskMessage{
+	if _, err := exampleBroker.Publish(runCtx, broker.TaskMessage{
 		ID:        "tenant-42",
 		Name:      externalapi.TaskSyncExternalResource,
 		Queue:     "external",
@@ -144,7 +144,7 @@ func main() {
 			tasks.HeaderRetryMaxBackoff:     "50ms",
 			tasks.HeaderRetryMultiplier:     "1",
 		},
-	}); err != nil {
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		logger.Error("publish external api task", "error", err)
 		os.Exit(1)
 	}

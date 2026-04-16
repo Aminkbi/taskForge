@@ -30,6 +30,7 @@ const (
 	FailureClassLeaseLost          FailureClass = "lease_lost"
 	FailureClassTimeout            FailureClass = "timeout"
 	FailureClassDecodeValidation   FailureClass = "decode_or_validation"
+	FailureClassOverloaded         FailureClass = "overloaded"
 )
 
 type Envelope struct {
@@ -140,7 +141,7 @@ func (s *Service) PublishDeadLetter(ctx context.Context, envelope Envelope) erro
 		msg.Headers["dead_letter_trace_id"] = envelope.TraceID
 	}
 
-	if err := s.Broker.Publish(ctx, msg); err != nil {
+	if _, err := s.Broker.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceDeadLetter}); err != nil {
 		observability.MarkSpanError(span, err)
 		return err
 	}
@@ -191,7 +192,7 @@ func (s *Service) Replay(ctx context.Context, queue, entryID string) error {
 	replayed.Headers["dead_letter_replayed_from"] = entry.ID
 	replayed.Headers["dead_letter_replayed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 
-	if err := s.Broker.Publish(ctx, replayed); err != nil {
+	if _, err := s.Broker.Publish(ctx, replayed, broker.PublishOptions{Source: broker.PublishSourceDLQReplay}); err != nil {
 		observability.MarkSpanError(span, err)
 		return fmt.Errorf("replay dead-letter entry: publish original task: %w", err)
 	}

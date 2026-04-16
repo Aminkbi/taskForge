@@ -114,13 +114,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := exampleBroker.Publish(runCtx, broker.TaskMessage{
+	if _, err := exampleBroker.Publish(runCtx, broker.TaskMessage{
 		ID:        "asset-42",
 		Name:      media.TaskProcessMedia,
 		Queue:     "media",
 		Payload:   payload,
 		CreatedAt: time.Now().UTC(),
-	}); err != nil {
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		logger.Error("publish media task", "error", err)
 		os.Exit(1)
 	}

@@ -42,7 +42,7 @@ func BenchmarkPublishThroughput(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := env.broker.Publish(env.ctx, benchmarkMessage("publish", i)); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("publish", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -51,7 +51,7 @@ func BenchmarkPublishThroughput(b *testing.B) {
 func BenchmarkReserveAckThroughput(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
 	for i := 0; i < b.N; i++ {
-		if err := env.broker.Publish(env.ctx, benchmarkMessage("reserve", i)); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reserve", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -96,7 +96,7 @@ func BenchmarkEndToEndLatency(b *testing.B) {
 		msg := benchmarkMessage("e2e", i)
 		msg.ID = taskID
 		start := time.Now()
-		if err := env.broker.Publish(env.ctx, msg); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 
@@ -123,7 +123,7 @@ func BenchmarkReclaimLatencyAfterWorkerDeath(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := env.broker.Publish(env.ctx, benchmarkMessage("reclaim", i)); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reclaim", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 		if _, err := env.broker.Reserve(env.ctx, "default", "bench-dead-worker"); err != nil {
@@ -171,7 +171,7 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 		eta := time.Now().UTC().Add(25 * time.Millisecond)
 		msg := benchmarkMessage("scheduler", i)
 		msg.ETA = &eta
-		if err := env.broker.Publish(env.ctx, msg); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() delayed error = %v", err)
 		}
 
@@ -281,7 +281,7 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 			tasks.HeaderRetryMaxBackoff:     "5ms",
 			tasks.HeaderRetryMultiplier:     "1",
 		}
-		if err := env.broker.Publish(env.ctx, msg); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
