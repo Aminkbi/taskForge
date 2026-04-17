@@ -40,7 +40,7 @@ func startLeaseExtender(ctx context.Context, logger *slog.Logger, b broker.Broke
 	)
 }
 
-func startBudgetExtender(ctx context.Context, logger *slog.Logger, manager BudgetManager, delivery broker.Delivery, budget TaskBudget, ttl time.Duration) *leaseHandle {
+func startBudgetExtender(ctx context.Context, logger *slog.Logger, manager BudgetManager, delivery broker.Delivery, leaseKey string, budget TaskBudget, ttl time.Duration) *leaseHandle {
 	if ttl <= 0 || manager == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func startBudgetExtender(ctx context.Context, logger *slog.Logger, manager Budge
 		ttl/2,
 		"budget lease renewal failed",
 		func(renewCtx context.Context) error {
-			return manager.RenewLease(renewCtx, budget.Budget, delivery.Execution.DeliveryID, ttl)
+			return manager.RenewLease(renewCtx, budget.Budget, leaseKey, ttl)
 		},
 	)
 }

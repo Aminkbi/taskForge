@@ -576,6 +576,62 @@ func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 	}
 }
 
+func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+
+	oldCreatedAt := time.Now().UTC().Add(-time.Hour)
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+		ID:        "admission-old-pending",
+		Name:      "integration.admission",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"old"}`),
+		CreatedAt: oldCreatedAt,
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() old error = %v", err)
+	}
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+		ID:        "admission-fresh-ready",
+		Name:      "integration.admission",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"fresh"}`),
+		CreatedAt: time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() fresh error = %v", err)
+	}
+
+	if _, err := setupBroker.Reserve(ctx, "default", "consumer-a"); err != nil {
+		t.Fatalf("Reserve() old pending error = %v", err)
+	}
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+			"default": {
+				Mode:              brokerredis.AdmissionModeReject,
+				MaxOldestReadyAge: 100 * time.Millisecond,
+			},
+		},
+	})
+
+	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		ID:        "admission-follow-up",
+		Name:      "integration.admission",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"follow-up"}`),
+		CreatedAt: time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	if err != nil {
+		t.Fatalf("Publish() follow-up error = %v", err)
+	}
+	if result.Decision != broker.AdmissionDecisionAccepted {
+		t.Fatalf("follow-up result = %+v, want accepted", result)
+	}
+}
+
 func TestRedisBrokerAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -642,6 +698,102 @@ func TestRedisBrokerAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
 	}
 	if delayedCount != 1 {
 		t.Fatalf("delayed count = %d, want 1", delayedCount)
+	}
+}
+
+func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+	})
+	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+		ID:          "fairness-old-pending",
+		Name:        "integration.shared",
+		Queue:       "default",
+		FairnessKey: "tenant-a",
+		Payload:     []byte(`{"tenant":"tenant-a"}`),
+		CreatedAt:   time.Now().UTC().Add(-time.Hour),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() old fairness error = %v", err)
+	}
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+		ID:          "fairness-fresh-ready",
+		Name:        "integration.shared",
+		Queue:       "default",
+		FairnessKey: "tenant-a",
+		Payload:     []byte(`{"tenant":"tenant-a"}`),
+		CreatedAt:   time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() fresh fairness error = %v", err)
+	}
+
+	if _, err := setupBroker.Reserve(ctx, "default", "fairness-consumer"); err != nil {
+		t.Fatalf("Reserve() fairness pending error = %v", err)
+	}
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+			"default": {
+				Mode:              brokerredis.AdmissionModeReject,
+				MaxOldestReadyAge: 100 * time.Millisecond,
+			},
+		},
+	})
+
+	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		ID:          "fairness-follow-up",
+		Name:        "integration.shared",
+		Queue:       "default",
+		FairnessKey: "tenant-a",
+		Payload:     []byte(`{"tenant":"tenant-a"}`),
+		CreatedAt:   time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	if err != nil {
+		t.Fatalf("Publish() fairness follow-up error = %v", err)
+	}
+	if result.Decision != broker.AdmissionDecisionAccepted {
+		t.Fatalf("fairness follow-up result = %+v, want accepted", result)
+	}
+}
+
+func TestRedisBrokerFairnessWakeSignalStaysBounded(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+	})
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	for i := 0; i < 10; i++ {
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:          "fairness-signal-" + strconv.Itoa(i),
+			Name:        "integration.shared",
+			Queue:       "default",
+			FairnessKey: "tenant-a",
+			Payload:     []byte(`{"tenant":"tenant-a"}`),
+			CreatedAt:   time.Now().UTC(),
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() fairness signal %d error = %v", i, err)
+		}
+	}
+
+	length, err := client.LLen(ctx, "taskforge:fairness:default:ready").Result()
+	if err != nil {
+		t.Fatalf("LLen() error = %v", err)
+	}
+	if length != 1 {
+		t.Fatalf("fairness notify length = %d, want 1", length)
 	}
 }
 
@@ -809,6 +961,60 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 	}
 	if reclaimedDelivery.Execution.DeliveryCount < 2 {
 		t.Fatalf("reclaimed delivery count = %d, want >= 2", reclaimedDelivery.Execution.DeliveryCount)
+	}
+}
+
+func TestRedisBrokerReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+	})
+
+	for i := 0; i < 20; i++ {
+		longTTL := time.Hour
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:                "stable-" + strconv.Itoa(i),
+			Name:              "integration.reclaim",
+			Queue:             "default",
+			Payload:           []byte(`{"kind":"stable"}`),
+			VisibilityTimeout: longTTL,
+			CreatedAt:         time.Now().UTC(),
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() stable %d error = %v", i, err)
+		}
+	}
+	for i := 0; i < 5; i++ {
+		shortTTL := 50 * time.Millisecond
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:                "expired-" + strconv.Itoa(i),
+			Name:              "integration.reclaim",
+			Queue:             "default",
+			Payload:           []byte(`{"kind":"expired"}`),
+			VisibilityTimeout: shortTTL,
+			CreatedAt:         time.Now().UTC(),
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() expired %d error = %v", i, err)
+		}
+	}
+
+	for i := 0; i < 25; i++ {
+		if _, err := brokerInstance.Reserve(ctx, "default", "consumer-a"); err != nil {
+			t.Fatalf("Reserve() pending %d error = %v", i, err)
+		}
+	}
+
+	time.Sleep(120 * time.Millisecond)
+
+	reclaimed, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed error = %v", err)
+	}
+	if !strings.HasPrefix(reclaimed.Message.ID, "expired-") {
+		t.Fatalf("reclaimed task id = %q, want expired-*", reclaimed.Message.ID)
+	}
+	if reclaimed.Execution.DeliveryCount < 2 {
+		t.Fatalf("reclaimed delivery count = %d, want >= 2", reclaimed.Execution.DeliveryCount)
 	}
 }
 

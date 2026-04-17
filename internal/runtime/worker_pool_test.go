@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -273,6 +274,129 @@ func TestWorkerCancelsRunningTaskWhenLeaseRenewalFails(t *testing.T) {
 	}
 }
 
+func TestWorkerFatalErrorDrainsRunningTaskBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("drain-1", "default", "drain.task"),
+		},
+	})
+	stub.reserveFunc = func(queue string) (broker.Delivery, error) {
+		stub.mu.Lock()
+		defer stub.mu.Unlock()
+		deliveries := stub.queues[queue]
+		if len(deliveries) > 0 {
+			next := deliveries[0]
+			stub.queues[queue] = deliveries[1:]
+			return next, nil
+		}
+		return broker.Delivery{}, errors.New("reserve boom")
+	}
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	worker := newQueueWorkerForTest(stub, "default", HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		started <- struct{}{}
+		<-release
+		return nil
+	}))
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(context.Background())
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start before timeout")
+	}
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("worker returned before running task drained: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case err := <-errCh:
+		if err == nil || err.Error() != "worker reserve task: reserve boom" {
+			t.Fatalf("worker.Run() error = %v, want reserve boom", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not return after running task drained")
+	}
+}
+
+func TestManagerFatalErrorStopsSiblingWorkersBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	failingBroker := newQueueBrokerStub(map[string][]broker.Delivery{
+		"critical": {
+			testDeliveryWithQueue("critical-1", "critical", "critical.task"),
+		},
+	})
+	failingBroker.reserveFunc = func(queue string) (broker.Delivery, error) {
+		failingBroker.mu.Lock()
+		defer failingBroker.mu.Unlock()
+		deliveries := failingBroker.queues[queue]
+		if len(deliveries) > 0 {
+			next := deliveries[0]
+			failingBroker.queues[queue] = deliveries[1:]
+			return next, nil
+		}
+		return broker.Delivery{}, errors.New("reserve boom")
+	}
+
+	siblingBroker := newQueueBrokerStub(map[string][]broker.Delivery{
+		"bulk": {
+			testDeliveryWithQueue("bulk-1", "bulk", "bulk.task"),
+		},
+	})
+
+	releaseCritical := make(chan struct{})
+	releaseBulk := make(chan struct{})
+	manager := &Manager{
+		Workers: []*Worker{
+			newQueueWorkerForTest(failingBroker, "critical", HandlerFunc(func(context.Context, broker.TaskMessage) error {
+				<-releaseCritical
+				return nil
+			})),
+			newQueueWorkerForTest(siblingBroker, "bulk", HandlerFunc(func(context.Context, broker.TaskMessage) error {
+				<-releaseBulk
+				return nil
+			})),
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(context.Background())
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case err := <-errCh:
+		t.Fatalf("manager returned before sibling workers drained: %v", err)
+	default:
+	}
+
+	close(releaseCritical)
+	close(releaseBulk)
+
+	select {
+	case err := <-errCh:
+		if err == nil || err.Error() != "worker reserve task: reserve boom" {
+			t.Fatalf("manager.Run() error = %v, want reserve boom", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager did not return after sibling workers drained")
+	}
+}
+
 type budgetManagerStub struct {
 	mu       sync.Mutex
 	capacity map[string]int
@@ -312,6 +436,7 @@ type queueBrokerStub struct {
 	acked           []broker.Delivery
 	nacked          []broker.Delivery
 	publish         []broker.TaskMessage
+	reserveFunc     func(queue string) (broker.Delivery, error)
 	extendLeaseFunc func(broker.Delivery) error
 }
 
@@ -331,6 +456,10 @@ func (b *queueBrokerStub) Publish(_ context.Context, msg broker.TaskMessage, _ b
 }
 
 func (b *queueBrokerStub) Reserve(_ context.Context, queue, _ string) (broker.Delivery, error) {
+	if b.reserveFunc != nil {
+		return b.reserveFunc(queue)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

@@ -222,19 +222,7 @@ func (b *RedisBroker) oldestQueueReadyAge(ctx context.Context, queue string, now
 		return maxAge
 	}
 
-	messages, err := b.client.XRangeN(ctx, b.streamKey(queue), "-", "+", 1).Result()
-	if err != nil || len(messages) == 0 {
-		return 0
-	}
-	msg, err := decodeTaskMessage(messages[0])
-	if err != nil || msg.CreatedAt.IsZero() {
-		return 0
-	}
-	age := now.UTC().Sub(msg.CreatedAt.UTC())
-	if age < 0 {
-		return 0
-	}
-	return age
+	return b.oldestReadyAge(ctx, b.streamKey(queue), b.groupName(queue), now)
 }
 
 func (b *RedisBroker) retryBacklog(ctx context.Context, queue string) (int64, error) {

@@ -76,6 +76,10 @@ type dispatchCandidate struct {
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	return w.run(ctx, nil)
+}
+
+func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 	if w.Concurrency < 1 {
 		return fmt.Errorf("worker concurrency must be >= 1")
 	}
@@ -117,15 +121,28 @@ func (w *Worker) Run(ctx context.Context) error {
 	})
 	w.Metrics.SetWorkerEffectiveConcurrency(w.PoolName, w.Queue, float64(w.Concurrency))
 
+	controlCtx, cancelControl := context.WithCancel(ctx)
+	defer cancelControl()
+	if stop != nil {
+		go func() {
+			select {
+			case <-stop:
+				cancelControl()
+			case <-controlCtx.Done():
+			}
+		}()
+	}
+
 	reserveWake := make(chan struct{}, 1)
 	dispatchWake := make(chan struct{}, 1)
 	errCh := make(chan error, 1)
 	var loops sync.WaitGroup
+	var executions sync.WaitGroup
 
 	loops.Add(1)
 	go func() {
 		defer loops.Done()
-		if err := w.reserveLoop(ctx, state, reserveWake, dispatchWake); err != nil {
+		if err := w.reserveLoop(controlCtx, state, reserveWake, dispatchWake); err != nil {
 			select {
 			case errCh <- err:
 			default:
@@ -136,7 +153,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	loops.Add(1)
 	go func() {
 		defer loops.Done()
-		if err := w.dispatchLoop(ctx, state, reserveWake, dispatchWake, errCh); err != nil {
+		if err := w.dispatchLoop(ctx, controlCtx, state, reserveWake, dispatchWake, errCh, &executions); err != nil {
 			select {
 			case errCh <- err:
 			default:
@@ -148,7 +165,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		loops.Add(1)
 		go func() {
 			defer loops.Done()
-			if err := w.adaptiveLoop(ctx, state, reserveWake, dispatchWake); err != nil {
+			if err := w.adaptiveLoop(controlCtx, state, reserveWake, dispatchWake); err != nil {
 				select {
 				case errCh <- err:
 				default:
@@ -160,6 +177,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		loops.Wait()
+		executions.Wait()
 		close(done)
 	}()
 
@@ -167,7 +185,14 @@ func (w *Worker) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		<-done
 		return nil
+	case <-done:
+		return nil
 	case err := <-errCh:
+		cancelControl()
+		w.stopPendingReservations(state)
+		notify(reserveWake)
+		notify(dispatchWake)
+		<-done
 		return err
 	}
 }
@@ -228,15 +253,15 @@ func (w *Worker) reserveLoop(ctx context.Context, state *workerState, reserveWak
 	}
 }
 
-func (w *Worker) dispatchLoop(ctx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error) error {
+func (w *Worker) dispatchLoop(execCtx, controlCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error, executions *sync.WaitGroup) error {
 	for {
-		candidate, ok, err := w.nextDispatchable(ctx, state, reserveWake, dispatchWake)
+		candidate, ok, err := w.nextDispatchable(controlCtx, state, reserveWake, dispatchWake)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			select {
-			case <-ctx.Done():
+			case <-controlCtx.Done():
 				return nil
 			case <-dispatchWake:
 			case <-time.After(25 * time.Millisecond):
@@ -244,7 +269,11 @@ func (w *Worker) dispatchLoop(ctx context.Context, state *workerState, reserveWa
 			continue
 		}
 
-		go w.executeCandidate(ctx, state, reserveWake, dispatchWake, errCh, candidate)
+		executions.Add(1)
+		go func() {
+			defer executions.Done()
+			w.executeCandidate(execCtx, state, reserveWake, dispatchWake, errCh, candidate)
+		}()
 	}
 }
 
@@ -492,8 +521,9 @@ func (w *Worker) executeCandidate(ctx context.Context, state *workerState, reser
 	}
 
 	var budgetLease *leaseHandle
+	budgetLeaseKey := w.budgetLeaseKey(delivery)
 	if candidate.budgetLease != nil {
-		budgetLease = startBudgetExtender(execCtx, w.Logger, w.BudgetManager, delivery, *candidate.budgetLease, ttl)
+		budgetLease = startBudgetExtender(execCtx, w.Logger, w.BudgetManager, delivery, budgetLeaseKey, *candidate.budgetLease, ttl)
 		if budgetLease != nil {
 			go w.watchBudgetLeaseLoss(execCtx, cancelExec, budgetLease, *candidate.budgetLease)
 		}
@@ -793,7 +823,7 @@ func (w *Worker) tryAcquireBudget(ctx context.Context, delivery broker.Delivery)
 		return nil, true, nil
 	}
 
-	acquired, err := w.BudgetManager.AcquireLease(ctx, budget.Budget, delivery.Execution.DeliveryID, budget.Tokens, w.deliveryLeaseTTL(delivery))
+	acquired, err := w.BudgetManager.AcquireLease(ctx, budget.Budget, w.budgetLeaseKey(delivery), budget.Tokens, w.deliveryLeaseTTL(delivery))
 	if err != nil {
 		return nil, false, err
 	}
@@ -811,7 +841,7 @@ func (w *Worker) releaseBudget(ctx context.Context, budget *TaskBudget, delivery
 	}
 	releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := w.BudgetManager.ReleaseLease(releaseCtx, budget.Budget, delivery.Execution.DeliveryID); err != nil {
+	if err := w.BudgetManager.ReleaseLease(releaseCtx, budget.Budget, w.budgetLeaseKey(delivery)); err != nil {
 		w.Logger.Error(
 			"dependency budget release failed",
 			"pool", w.PoolName,
@@ -821,6 +851,10 @@ func (w *Worker) releaseBudget(ctx context.Context, budget *TaskBudget, delivery
 			"error", err,
 		)
 	}
+}
+
+func (w *Worker) budgetLeaseKey(delivery broker.Delivery) string {
+	return fmt.Sprintf("%s:%s:%s", tasks.EffectiveQueue(delivery.Message), delivery.Message.FairnessKey, delivery.Execution.DeliveryID)
 }
 
 func (w *Worker) watchLeaseLoss(ctx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, entry *pendingDelivery) {
@@ -884,6 +918,20 @@ func (w *Worker) dropPendingIfLeaseLost(state *workerState, reserveWake, dispatc
 	notify(reserveWake)
 	notify(dispatchWake)
 	return true
+}
+
+func (w *Worker) stopPendingReservations(state *workerState) {
+	state.mu.Lock()
+	pending := append([]*pendingDelivery(nil), state.pending...)
+	state.pending = nil
+	state.mu.Unlock()
+
+	for _, entry := range pending {
+		if entry == nil || entry.brokerLease == nil {
+			continue
+		}
+		entry.brokerLease.Stop()
+	}
 }
 
 func (w *Worker) abandonIfLeaseLost(delivery broker.Delivery, brokerLease *leaseHandle, phase string) bool {
