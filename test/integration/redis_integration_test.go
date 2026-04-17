@@ -579,18 +579,12 @@ func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
-			"default": {
-				Mode:              brokerredis.AdmissionModeReject,
-				MaxOldestReadyAge: 100 * time.Millisecond,
-			},
-		},
 	})
 
 	oldCreatedAt := time.Now().UTC().Add(-time.Hour)
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
 		ID:        "admission-old-pending",
 		Name:      "integration.admission",
 		Queue:     "default",
@@ -599,7 +593,7 @@ func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T
 	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() old error = %v", err)
 	}
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
 		ID:        "admission-fresh-ready",
 		Name:      "integration.admission",
 		Queue:     "default",
@@ -609,9 +603,19 @@ func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T
 		t.Fatalf("Publish() fresh error = %v", err)
 	}
 
-	if _, err := brokerInstance.Reserve(ctx, "default", "consumer-a"); err != nil {
+	if _, err := setupBroker.Reserve(ctx, "default", "consumer-a"); err != nil {
 		t.Fatalf("Reserve() old pending error = %v", err)
 	}
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+			"default": {
+				Mode:              brokerredis.AdmissionModeReject,
+				MaxOldestReadyAge: 100 * time.Millisecond,
+			},
+		},
+	})
 
 	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
 		ID:        "admission-follow-up",
@@ -703,18 +707,12 @@ func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *t
 	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
 		{Name: "tenant-a", Keys: []string{"tenant-a"}},
 	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
 		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
-			"default": {
-				Mode:              brokerredis.AdmissionModeReject,
-				MaxOldestReadyAge: 100 * time.Millisecond,
-			},
-		},
 	})
 
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
 		ID:          "fairness-old-pending",
 		Name:        "integration.shared",
 		Queue:       "default",
@@ -724,7 +722,7 @@ func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *t
 	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() old fairness error = %v", err)
 	}
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
 		ID:          "fairness-fresh-ready",
 		Name:        "integration.shared",
 		Queue:       "default",
@@ -735,9 +733,20 @@ func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *t
 		t.Fatalf("Publish() fresh fairness error = %v", err)
 	}
 
-	if _, err := brokerInstance.Reserve(ctx, "default", "fairness-consumer"); err != nil {
+	if _, err := setupBroker.Reserve(ctx, "default", "fairness-consumer"); err != nil {
 		t.Fatalf("Reserve() fairness pending error = %v", err)
 	}
+
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+			"default": {
+				Mode:              brokerredis.AdmissionModeReject,
+				MaxOldestReadyAge: 100 * time.Millisecond,
+			},
+		},
+	})
 
 	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
 		ID:          "fairness-follow-up",

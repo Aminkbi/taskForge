@@ -521,8 +521,9 @@ func (w *Worker) executeCandidate(ctx context.Context, state *workerState, reser
 	}
 
 	var budgetLease *leaseHandle
+	budgetLeaseKey := w.budgetLeaseKey(delivery)
 	if candidate.budgetLease != nil {
-		budgetLease = startBudgetExtender(execCtx, w.Logger, w.BudgetManager, delivery, *candidate.budgetLease, ttl)
+		budgetLease = startBudgetExtender(execCtx, w.Logger, w.BudgetManager, delivery, budgetLeaseKey, *candidate.budgetLease, ttl)
 		if budgetLease != nil {
 			go w.watchBudgetLeaseLoss(execCtx, cancelExec, budgetLease, *candidate.budgetLease)
 		}
@@ -822,7 +823,7 @@ func (w *Worker) tryAcquireBudget(ctx context.Context, delivery broker.Delivery)
 		return nil, true, nil
 	}
 
-	acquired, err := w.BudgetManager.AcquireLease(ctx, budget.Budget, delivery.Execution.DeliveryID, budget.Tokens, w.deliveryLeaseTTL(delivery))
+	acquired, err := w.BudgetManager.AcquireLease(ctx, budget.Budget, w.budgetLeaseKey(delivery), budget.Tokens, w.deliveryLeaseTTL(delivery))
 	if err != nil {
 		return nil, false, err
 	}
@@ -840,7 +841,7 @@ func (w *Worker) releaseBudget(ctx context.Context, budget *TaskBudget, delivery
 	}
 	releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := w.BudgetManager.ReleaseLease(releaseCtx, budget.Budget, delivery.Execution.DeliveryID); err != nil {
+	if err := w.BudgetManager.ReleaseLease(releaseCtx, budget.Budget, w.budgetLeaseKey(delivery)); err != nil {
 		w.Logger.Error(
 			"dependency budget release failed",
 			"pool", w.PoolName,
@@ -850,6 +851,10 @@ func (w *Worker) releaseBudget(ctx context.Context, budget *TaskBudget, delivery
 			"error", err,
 		)
 	}
+}
+
+func (w *Worker) budgetLeaseKey(delivery broker.Delivery) string {
+	return fmt.Sprintf("%s:%s:%s", tasks.EffectiveQueue(delivery.Message), delivery.Message.FairnessKey, delivery.Execution.DeliveryID)
 }
 
 func (w *Worker) watchLeaseLoss(ctx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, entry *pendingDelivery) {
