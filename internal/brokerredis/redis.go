@@ -29,7 +29,7 @@ const (
 	defaultReserveTimeout    = time.Second
 	defaultPublishReceiptTTL = 7 * 24 * time.Hour
 	streamPayloadField       = "message"
-	reclaimScanCount         = 20
+	oldestReadyScanCount     = 64
 )
 
 var (
@@ -48,6 +48,7 @@ end
 redis.call("SADD", KEYS[1], ARGV[1])
 redis.call("XADD", KEYS[2], "*", ARGV[2], ARGV[3])
 redis.call("LPUSH", KEYS[3], ARGV[4])
+redis.call("LTRIM", KEYS[3], 0, 0)
 redis.call("PSETEX", KEYS[4], ARGV[5], "1")
 return 1
 `)
@@ -417,74 +418,84 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 }
 
 func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamKey, groupName, consumerName string) (broker.Delivery, bool, error) {
-	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: streamKey,
-		Group:  groupName,
-		Start:  "-",
-		End:    "+",
-		Count:  reclaimScanCount,
-	}).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return broker.Delivery{}, false, nil
-		}
-		return broker.Delivery{}, false, fmt.Errorf("reclaim task: inspect pending deliveries: %w", err)
-	}
-
-	for _, pending := range pendingEntries {
-		entry, msg, err := b.pendingTask(ctx, streamKey, pending.ID)
-		if err != nil {
-			if errors.Is(err, broker.ErrUnknownDelivery) {
-				continue
-			}
-			return broker.Delivery{}, false, fmt.Errorf("reclaim task: %w", err)
-		}
-
-		ttl := b.effectiveLeaseTTL(msg)
-		if ttl <= 0 || pending.Idle < ttl {
-			continue
-		}
-
-		claimed, err := b.client.XClaim(ctx, &redis.XClaimArgs{
-			Stream:   streamKey,
-			Group:    groupName,
-			Consumer: consumerName,
-			MinIdle:  ttl,
-			Messages: []string{pending.ID},
+	cursor := "-"
+	for {
+		pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: streamKey,
+			Group:  groupName,
+			Start:  cursor,
+			End:    "+",
+			Count:  1,
 		}).Result()
 		if err != nil {
-			return broker.Delivery{}, false, fmt.Errorf("reclaim task: claim expired delivery: %w", err)
+			if errors.Is(err, redis.Nil) || isMissingGroup(err) || isMissingStream(err) {
+				return broker.Delivery{}, false, nil
+			}
+			return broker.Delivery{}, false, fmt.Errorf("reclaim task: inspect pending deliveries: %w", err)
 		}
-		if len(claimed) == 0 {
-			continue
+		if cursor != "-" && len(pendingEntries) > 0 && pendingEntries[0].ID == cursor {
+			pendingEntries = pendingEntries[1:]
+		}
+		if len(pendingEntries) == 0 {
+			return broker.Delivery{}, false, nil
 		}
 
-		now := time.Now().UTC()
-		delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, pending.RetryCount+1))
-		b.metrics.IncReclaimed(queue)
-		reclaimCtx := observability.ExtractTraceContext(ctx, msg.Headers)
-		_, span := observability.StartQueueSpan(
-			reclaimCtx,
-			"taskforge.brokerredis",
-			"taskforge.reclaim",
-			msg,
-			append(
-				deliverySpanAttributes(delivery),
-				attribute.String("taskforge.previous_owner", pending.Consumer),
-			)...,
-		)
-		span.End()
+		for _, pending := range pendingEntries {
+			entry, msg, err := b.pendingTask(ctx, streamKey, pending.ID)
+			if err != nil {
+				if errors.Is(err, broker.ErrUnknownDelivery) {
+					cursor = pending.ID
+					continue
+				}
+				return broker.Delivery{}, false, fmt.Errorf("reclaim task: %w", err)
+			}
 
-		logging.WithDelivery(b.logger, delivery).Info(
-			"reclaimed expired delivery",
-			"previous_owner", pending.Consumer,
-			"idle", pending.Idle,
-		)
+			ttl := b.effectiveLeaseTTL(msg)
+			if ttl <= 0 || pending.Idle < ttl {
+				cursor = pending.ID
+				continue
+			}
 
-		return delivery, true, nil
+			claimed, err := b.client.XClaim(ctx, &redis.XClaimArgs{
+				Stream:   streamKey,
+				Group:    groupName,
+				Consumer: consumerName,
+				MinIdle:  ttl,
+				Messages: []string{pending.ID},
+			}).Result()
+			if err != nil {
+				return broker.Delivery{}, false, fmt.Errorf("reclaim task: claim expired delivery: %w", err)
+			}
+			if len(claimed) == 0 {
+				cursor = pending.ID
+				continue
+			}
+
+			now := time.Now().UTC()
+			delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, pending.RetryCount+1))
+			b.metrics.IncReclaimed(queue)
+			reclaimCtx := observability.ExtractTraceContext(ctx, msg.Headers)
+			_, span := observability.StartQueueSpan(
+				reclaimCtx,
+				"taskforge.brokerredis",
+				"taskforge.reclaim",
+				msg,
+				append(
+					deliverySpanAttributes(delivery),
+					attribute.String("taskforge.previous_owner", pending.Consumer),
+				)...,
+			)
+			span.End()
+
+			logging.WithDelivery(b.logger, delivery).Info(
+				"reclaimed expired delivery",
+				"previous_owner", pending.Consumer,
+				"idle", pending.Idle,
+			)
+
+			return delivery, true, nil
+		}
 	}
-
-	return broker.Delivery{}, false, nil
 }
 
 func (b *RedisBroker) pendingTask(ctx context.Context, streamKey, deliveryID string) (redis.XMessage, broker.TaskMessage, error) {
@@ -823,6 +834,173 @@ func isMissingStream(err error) bool {
 		return false
 	}
 	return errors.Is(err, redis.Nil) || strings.Contains(err.Error(), "no such key")
+}
+
+func (b *RedisBroker) oldestReadyAge(ctx context.Context, streamKey, groupName string, now time.Time) time.Duration {
+	firstReady, ok, err := b.oldestReadyMessage(ctx, streamKey, groupName)
+	if err != nil || !ok {
+		return 0
+	}
+
+	msg, err := decodeTaskMessage(firstReady)
+	if err != nil || msg.CreatedAt.IsZero() {
+		return 0
+	}
+	age := now.UTC().Sub(msg.CreatedAt.UTC())
+	if age < 0 {
+		return 0
+	}
+	return age
+}
+
+func (b *RedisBroker) oldestReadyMessage(ctx context.Context, streamKey, groupName string) (redis.XMessage, bool, error) {
+	if groupName == "" {
+		return b.firstStreamMessage(ctx, streamKey)
+	}
+
+	pending, err := b.client.XPending(ctx, streamKey, groupName).Result()
+	switch {
+	case err == nil && pending.Count == 0:
+		return b.firstStreamMessage(ctx, streamKey)
+	case err == nil:
+	case isMissingGroup(err):
+		return b.firstStreamMessage(ctx, streamKey)
+	case isMissingStream(err):
+		return redis.XMessage{}, false, nil
+	default:
+		return redis.XMessage{}, false, fmt.Errorf("oldest ready message: inspect pending: %w", err)
+	}
+
+	streamCursor := "-"
+	pendingCursor := "-"
+	var streamBatch []redis.XMessage
+	var pendingBatch []redis.XPendingExt
+	streamIndex := 0
+	pendingIndex := 0
+
+	for {
+		if streamIndex >= len(streamBatch) {
+			streamBatch, err = b.loadStreamBatch(ctx, streamKey, streamCursor)
+			if err != nil {
+				return redis.XMessage{}, false, err
+			}
+			streamIndex = 0
+			if len(streamBatch) == 0 {
+				return redis.XMessage{}, false, nil
+			}
+			streamCursor = streamBatch[len(streamBatch)-1].ID
+		}
+
+		if pendingIndex >= len(pendingBatch) {
+			pendingBatch, err = b.loadPendingBatch(ctx, streamKey, groupName, pendingCursor)
+			if err != nil {
+				return redis.XMessage{}, false, err
+			}
+			pendingIndex = 0
+			if len(pendingBatch) > 0 {
+				pendingCursor = pendingBatch[len(pendingBatch)-1].ID
+			}
+		}
+
+		streamEntry := streamBatch[streamIndex]
+		if pendingIndex >= len(pendingBatch) {
+			return streamEntry, true, nil
+		}
+
+		switch compareStreamIDs(streamEntry.ID, pendingBatch[pendingIndex].ID) {
+		case -1:
+			return streamEntry, true, nil
+		case 0:
+			streamIndex++
+			pendingIndex++
+		default:
+			pendingIndex++
+		}
+	}
+}
+
+func (b *RedisBroker) firstStreamMessage(ctx context.Context, streamKey string) (redis.XMessage, bool, error) {
+	messages, err := b.client.XRangeN(ctx, streamKey, "-", "+", 1).Result()
+	if err != nil {
+		if isMissingStream(err) {
+			return redis.XMessage{}, false, nil
+		}
+		return redis.XMessage{}, false, fmt.Errorf("oldest ready message: load first stream entry: %w", err)
+	}
+	if len(messages) == 0 {
+		return redis.XMessage{}, false, nil
+	}
+	return messages[0], true, nil
+}
+
+func (b *RedisBroker) loadStreamBatch(ctx context.Context, streamKey, cursor string) ([]redis.XMessage, error) {
+	messages, err := b.client.XRangeN(ctx, streamKey, cursor, "+", oldestReadyScanCount).Result()
+	if err != nil {
+		if isMissingStream(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("oldest ready message: load stream batch: %w", err)
+	}
+	if cursor != "-" && len(messages) > 0 && messages[0].ID == cursor {
+		messages = messages[1:]
+	}
+	return messages, nil
+}
+
+func (b *RedisBroker) loadPendingBatch(ctx context.Context, streamKey, groupName, cursor string) ([]redis.XPendingExt, error) {
+	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: streamKey,
+		Group:  groupName,
+		Start:  cursor,
+		End:    "+",
+		Count:  oldestReadyScanCount,
+	}).Result()
+	if err != nil {
+		if isMissingGroup(err) || isMissingStream(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("oldest ready message: load pending batch: %w", err)
+	}
+	if cursor != "-" && len(pendingEntries) > 0 && pendingEntries[0].ID == cursor {
+		pendingEntries = pendingEntries[1:]
+	}
+	return pendingEntries, nil
+}
+
+func compareStreamIDs(left, right string) int {
+	leftMillis, leftSeq, leftOK := parseStreamID(left)
+	rightMillis, rightSeq, rightOK := parseStreamID(right)
+	if !leftOK || !rightOK {
+		return compareStrings(left, right)
+	}
+	switch {
+	case leftMillis < rightMillis:
+		return -1
+	case leftMillis > rightMillis:
+		return 1
+	case leftSeq < rightSeq:
+		return -1
+	case leftSeq > rightSeq:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func parseStreamID(value string) (int64, int64, bool) {
+	parts := strings.SplitN(value, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	millis, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	seq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return millis, seq, true
 }
 
 func (b *RedisBroker) effectiveLeaseTTL(msg broker.TaskMessage) time.Duration {

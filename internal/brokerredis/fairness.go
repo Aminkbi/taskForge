@@ -93,6 +93,7 @@ func (b *RedisBroker) publishFairReady(ctx context.Context, msg broker.TaskMessa
 			},
 		})
 		pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
+		pipe.LTrim(ctx, b.fairnessNotifyKey(queue), 0, 0)
 		if _, err := pipe.Exec(ctx); err != nil {
 			return false, fmt.Errorf("publish task: fairness queue entry: %w", err)
 		}
@@ -360,7 +361,7 @@ func (b *RedisBroker) loadFairnessKeySnapshot(ctx context.Context, queue, fairne
 		_ = b.client.SRem(ctx, b.fairnessKeysSetKey(queue), fairnessKey).Err()
 		return fairnessKeySnapshot{}, false, nil
 	}
-	length = int64(streamInfo.Length)
+	length = streamInfo.Length
 
 	pendingCount := int64(0)
 	pending, err := b.client.XPending(ctx, streamKey, groupName).Result()
@@ -384,26 +385,12 @@ func (b *RedisBroker) loadFairnessKeySnapshot(ctx context.Context, queue, fairne
 		Key:            fairnessKey,
 		Ready:          ready,
 		Reserved:       pendingCount,
-		OldestReadyAge: b.oldestFairnessReadyAge(ctx, streamKey, now),
+		OldestReadyAge: b.oldestFairnessReadyAge(ctx, streamKey, groupName, now),
 	}, true, nil
 }
 
-func (b *RedisBroker) oldestFairnessReadyAge(ctx context.Context, streamKey string, now time.Time) float64 {
-	messages, err := b.client.XRangeN(ctx, streamKey, "-", "+", 1).Result()
-	if err != nil || len(messages) == 0 {
-		return 0
-	}
-	msg, err := decodeTaskMessage(messages[0])
-	if err != nil {
-		return 0
-	}
-	if msg.CreatedAt.IsZero() {
-		return 0
-	}
-	age := now.UTC().Sub(msg.CreatedAt.UTC())
-	if age < 0 {
-		return 0
-	}
+func (b *RedisBroker) oldestFairnessReadyAge(ctx context.Context, streamKey, groupName string, now time.Time) float64 {
+	age := b.oldestReadyAge(ctx, streamKey, groupName, now)
 	return age.Seconds()
 }
 

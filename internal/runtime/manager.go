@@ -16,13 +16,15 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 
 	errCh := make(chan error, len(m.Workers))
+	stopWorkers := make(chan struct{})
+	var stopOnce sync.Once
 	var wg sync.WaitGroup
 	for _, worker := range m.Workers {
 		worker := worker
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := worker.Run(ctx); err != nil {
+			if err := worker.run(ctx, stopWorkers); err != nil {
 				errCh <- err
 			}
 		}()
@@ -39,6 +41,10 @@ func (m *Manager) Run(ctx context.Context) error {
 		<-done
 		return nil
 	case err := <-errCh:
+		stopOnce.Do(func() {
+			close(stopWorkers)
+		})
+		<-done
 		return err
 	}
 }
