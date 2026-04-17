@@ -420,10 +420,14 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamKey, groupName, consumerName string) (broker.Delivery, bool, error) {
 	cursor := "-"
 	for {
+		start := cursor
+		if cursor != "-" {
+			start = nextStreamID(cursor)
+		}
 		pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 			Stream: streamKey,
 			Group:  groupName,
-			Start:  cursor,
+			Start:  start,
 			End:    "+",
 			Count:  1,
 		}).Result()
@@ -432,9 +436,6 @@ func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamK
 				return broker.Delivery{}, false, nil
 			}
 			return broker.Delivery{}, false, fmt.Errorf("reclaim task: inspect pending deliveries: %w", err)
-		}
-		if cursor != "-" && len(pendingEntries) > 0 && pendingEntries[0].ID == cursor {
-			pendingEntries = pendingEntries[1:]
 		}
 		if len(pendingEntries) == 0 {
 			return broker.Delivery{}, false, nil
@@ -948,10 +949,14 @@ func (b *RedisBroker) loadStreamBatch(ctx context.Context, streamKey, cursor str
 }
 
 func (b *RedisBroker) loadPendingBatch(ctx context.Context, streamKey, groupName, cursor string) ([]redis.XPendingExt, error) {
+	start := cursor
+	if cursor != "-" {
+		start = nextStreamID(cursor)
+	}
 	pendingEntries, err := b.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: streamKey,
 		Group:  groupName,
-		Start:  cursor,
+		Start:  start,
 		End:    "+",
 		Count:  oldestReadyScanCount,
 	}).Result()
@@ -960,9 +965,6 @@ func (b *RedisBroker) loadPendingBatch(ctx context.Context, streamKey, groupName
 			return nil, nil
 		}
 		return nil, fmt.Errorf("oldest ready message: load pending batch: %w", err)
-	}
-	if cursor != "-" && len(pendingEntries) > 0 && pendingEntries[0].ID == cursor {
-		pendingEntries = pendingEntries[1:]
 	}
 	return pendingEntries, nil
 }
@@ -1001,6 +1003,14 @@ func parseStreamID(value string) (int64, int64, bool) {
 		return 0, 0, false
 	}
 	return millis, seq, true
+}
+
+func nextStreamID(value string) string {
+	millis, seq, ok := parseStreamID(value)
+	if !ok {
+		return value
+	}
+	return fmt.Sprintf("%d-%d", millis, seq+1)
 }
 
 func (b *RedisBroker) effectiveLeaseTTL(msg broker.TaskMessage) time.Duration {
