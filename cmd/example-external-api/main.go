@@ -110,6 +110,7 @@ func main() {
 		elector,
 		clock.RealClock{},
 		logger.With("component", "scheduler-runtime"),
+		nil,
 		20*time.Millisecond,
 		50*time.Millisecond,
 	)

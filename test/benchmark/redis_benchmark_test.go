@@ -37,6 +37,24 @@ type benchEnv struct {
 	logger *slog.Logger
 }
 
+func benchLeadershipFence(owner string, epoch int64) schedulerpkg.LeadershipFence {
+	return schedulerpkg.LeadershipFence{
+		Owner: owner,
+		Epoch: epoch,
+		Token: fmt.Sprintf("%s|%d", owner, epoch),
+	}
+}
+
+func setBenchLeadership(tb testing.TB, client *redis.Client, fence schedulerpkg.LeadershipFence, ttl time.Duration) {
+	tb.Helper()
+	if err := client.Set(context.Background(), "taskforge:scheduler:leader", fence.Token, ttl).Err(); err != nil {
+		tb.Fatalf("Set() scheduler leadership error = %v", err)
+	}
+	if err := client.Set(context.Background(), "taskforge:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+		tb.Fatalf("Set() scheduler leadership epoch error = %v", err)
+	}
+}
+
 func BenchmarkPublishThroughput(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
 
@@ -154,6 +172,7 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 		schedulerpkg.NewRedisLeaderElector(env.client, clock.RealClock{}, env.logger, "bench-scheduler", 100*time.Millisecond, 25*time.Millisecond),
 		clock.RealClock{},
 		env.logger,
+		nil,
 		5*time.Millisecond,
 		25*time.Millisecond,
 	)
@@ -221,15 +240,17 @@ func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
 					schedules,
 					env.logger,
 				)
+				fence := benchLeadershipFence("bench-recurring", 1)
+				setBenchLeadership(b, env.client, fence, time.Minute)
 
-				if dispatched, err := recurring.SyncDue(env.ctx, warmupNow); err != nil {
+				if dispatched, err := recurring.SyncDue(env.ctx, fence, warmupNow); err != nil {
 					b.Fatalf("warmup recurring SyncDue() error = %v", err)
 				} else if dispatched != 0 {
 					b.Fatalf("warmup recurring SyncDue() dispatched = %d, want 0", dispatched)
 				}
 
 				b.StartTimer()
-				dispatched, err := recurring.SyncDue(env.ctx, dispatchNow)
+				dispatched, err := recurring.SyncDue(env.ctx, fence, dispatchNow)
 				b.StopTimer()
 				if err != nil {
 					b.Fatalf("recurring SyncDue() error = %v", err)
@@ -256,6 +277,7 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 		schedulerpkg.NewRedisLeaderElector(env.client, clock.RealClock{}, env.logger, "bench-retry-storm", 100*time.Millisecond, 25*time.Millisecond),
 		clock.RealClock{},
 		env.logger,
+		nil,
 		5*time.Millisecond,
 		25*time.Millisecond,
 	)

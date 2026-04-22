@@ -75,6 +75,7 @@ Symptoms:
 Check first:
 
 - scheduler `/readyz` leadership status
+- scheduler `/v1/admin/leadership` local and Redis epoch view
 - Redis latency
 - scheduler logs around leadership and delayed release
 

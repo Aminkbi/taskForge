@@ -53,23 +53,23 @@ type ScheduleState struct {
 }
 
 type ScheduleStateStore interface {
-	ReconcileConfigured(ctx context.Context, schedules []ScheduleDefinition, now time.Time) error
+	ReconcileConfigured(ctx context.Context, fence LeadershipFence, schedules []ScheduleDefinition, now time.Time) error
 	DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error)
 	LoadStates(ctx context.Context, scheduleIDs []string) (map[string]ScheduleState, error)
-	SaveIndexed(ctx context.Context, scheduleID string, state ScheduleState) error
-	AdvanceIfUnchanged(ctx context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error)
-	RemoveSchedule(ctx context.Context, scheduleID string) error
-	RemoveFromDueIndex(ctx context.Context, scheduleID string) error
+	SaveIndexed(ctx context.Context, fence LeadershipFence, scheduleID string, state ScheduleState) error
+	AdvanceIfUnchanged(ctx context.Context, fence LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error)
+	RemoveSchedule(ctx context.Context, fence LeadershipFence, scheduleID string) error
+	RemoveFromDueIndex(ctx context.Context, fence LeadershipFence, scheduleID string) error
 }
 
 type RecurringService struct {
-	publisher    broker.Broker
-	store        ScheduleStateStore
-	schedules    []ScheduleDefinition
-	scheduleByID map[string]ScheduleDefinition
-	logger       *slog.Logger
-	idFunc       func() string
-	reconciled   bool
+	publisher           broker.Broker
+	store               ScheduleStateStore
+	schedules           []ScheduleDefinition
+	scheduleByID        map[string]ScheduleDefinition
+	logger              *slog.Logger
+	idFunc              func() string
+	lastReconciledEpoch int64
 }
 
 const recurringDueBatchLimit int64 = 100
@@ -97,12 +97,12 @@ func NewRecurringService(
 	}
 }
 
-func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, error) {
-	if !s.reconciled {
-		if err := s.store.ReconcileConfigured(ctx, s.schedules, now); err != nil {
+func (s *RecurringService) SyncDue(ctx context.Context, fence LeadershipFence, now time.Time) (int, error) {
+	if s.lastReconciledEpoch != fence.Epoch {
+		if err := s.store.ReconcileConfigured(ctx, fence, s.schedules, now); err != nil {
 			return 0, fmt.Errorf("reconcile recurring schedules: %w", err)
 		}
-		s.reconciled = true
+		s.lastReconciledEpoch = fence.Epoch
 	}
 
 	dispatched := 0
@@ -123,14 +123,14 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 		for _, scheduleID := range dueIDs {
 			schedule, configured := s.scheduleByID[scheduleID]
 			if !configured {
-				if err := s.store.RemoveSchedule(ctx, scheduleID); err != nil {
+				if err := s.store.RemoveSchedule(ctx, fence, scheduleID); err != nil {
 					return dispatched, fmt.Errorf("cleanup unknown recurring schedule %s: %w", scheduleID, err)
 				}
 				continue
 			}
 
 			if !schedule.Enabled {
-				if err := s.store.RemoveFromDueIndex(ctx, scheduleID); err != nil {
+				if err := s.store.RemoveFromDueIndex(ctx, fence, scheduleID); err != nil {
 					return dispatched, fmt.Errorf("remove disabled recurring schedule %s from due index: %w", scheduleID, err)
 				}
 				continue
@@ -140,7 +140,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 			state, exists := states[scheduleID]
 			if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
 				state = initialScheduleState(schedule, now, definitionHash)
-				if err := s.store.SaveIndexed(ctx, scheduleID, state); err != nil {
+				if err := s.store.SaveIndexed(ctx, fence, scheduleID, state); err != nil {
 					return dispatched, fmt.Errorf("save initial schedule %s state: %w", scheduleID, err)
 				}
 			}
@@ -178,7 +178,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, now time.Time) (int, err
 			nextState.LastDispatchedAt = now.UTC()
 			nextState.DefinitionHash = definitionHash
 			nextState.MisfirePolicy = schedule.MisfirePolicy
-			advanced, err := s.store.AdvanceIfUnchanged(ctx, schedule.ID, expectedState, nextState)
+			advanced, err := s.store.AdvanceIfUnchanged(ctx, fence, schedule.ID, expectedState, nextState)
 			if err != nil {
 				return dispatched, fmt.Errorf("save dispatched schedule %s state: %w", schedule.ID, err)
 			}

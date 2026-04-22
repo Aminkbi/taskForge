@@ -91,7 +91,7 @@ That brings up:
 
 - Redis on `localhost:6379`
 - worker admin endpoints on `localhost:8081`
-- scheduler admin endpoints on `localhost:8082`
+- scheduler admin endpoints on `localhost:8082`, including `/v1/admin/leadership`
 - API/admin endpoints on `localhost:8083`
 - Prometheus on `localhost:9090`
 
@@ -286,7 +286,7 @@ Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`
 
 - interval schedules only
 - `coalesce` misfire policy only
-- scheduler leadership enforced through a Redis lock
+- scheduler leadership enforced through a Redis lock plus fenced leadership epochs for control-plane writes
 - durable recurring state plus a Redis due-time index keyed by `next_run_at`
 
 Example:
@@ -314,6 +314,7 @@ Phase 06 adds queue isolation as an explicit runtime model:
 - Shared-queue horizontal scaling: run multiple worker processes with the same pool definition and queue name when you want throughput on one queue.
 - Isolated critical queues: place critical work in its own queue and give it a dedicated worker pool so bulk backlogs do not consume that pool's leases or executor slots.
 - Scheduler scaling: the scheduler remains leader-elected through Redis, so multiple scheduler instances are acceptable but only one should actively dispatch recurring work at a time.
+- Scheduler control-plane safety: each successful leader acquisition advances a monotonic epoch, and delayed release plus recurring state mutation must present the current fenced token before Redis accepts the write.
 - Recurring scheduler scaling: steady-state recurring dispatch work is proportional to schedules due in the current window, not the total configured schedule count. Inactive or far-future schedules stay in Redis durable state and the recurring due-time sorted set without forcing a full scan each tick.
 - Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
 - Recurring Redis considerations: the main cost of large recurring fleets is Redis memory plus sorted-set maintenance for `next_run_at`, rather than scheduler CPU spent scanning every configured schedule.
@@ -344,7 +345,16 @@ Worker metrics now include queue-aware counters and gauges, including:
 - `taskforge_dependency_budget_in_use`
 - `taskforge_dependency_budget_blocked_total`
 - `taskforge_dependency_budget_lease_renew_failures_total`
+- `taskforge_scheduler_leader`
+- `taskforge_scheduler_leadership_epoch`
+- `taskforge_scheduler_leadership_last_renewed_at_seconds`
+- `taskforge_scheduler_stale_write_rejections_total`
+- `taskforge_scheduler_control_plane_failures_total`
 - per-queue success, failure, retry, reclaim, and active-task metrics
+
+The scheduler process also exposes:
+
+- `/v1/admin/leadership`
 
 The API process also exposes:
 
@@ -359,6 +369,8 @@ The API process also exposes:
 `/v1/admin/adaptive` reports each worker pool's effective concurrency, configured bounds, latest adjustment reason, sampled adaptive signals, and cluster-wide dependency budget usage.
 
 `/v1/admin/workers` reports each worker instance's lifecycle state, current pending and running ownership, drain timestamps, shutdown outcome, abandoned-delivery count, and drain-time lease losses.
+
+`/v1/admin/leadership` reports the scheduler's local leadership state, current fenced epoch, the live Redis leadership record, and grouped stale-write rejection plus control-plane failure counters.
 
 ## Testing
 

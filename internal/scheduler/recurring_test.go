@@ -98,7 +98,7 @@ func TestRecurringServiceDispatchesCoalescedRun(t *testing.T) {
 	service := NewRecurringService(publisher, store, []ScheduleDefinition{schedule}, nil)
 	service.idFunc = func() string { return "recurring-task-1" }
 
-	dispatched, err := service.SyncDue(context.Background(), now)
+	dispatched, err := service.SyncDue(context.Background(), testLeadershipFence(), now)
 	if err != nil {
 		t.Fatalf("SyncDue() error = %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRecurringServiceUsesDueIndexInsteadOfFullScheduleScan(t *testing.T) {
 	service := NewRecurringService(publisher, store, []ScheduleDefinition{dueSchedule, futureSchedule}, nil)
 	service.idFunc = func() string { return "recurring-task-1" }
 
-	dispatched, err := service.SyncDue(context.Background(), now)
+	dispatched, err := service.SyncDue(context.Background(), testLeadershipFence(), now)
 	if err != nil {
 		t.Fatalf("SyncDue() error = %v", err)
 	}
@@ -212,7 +212,7 @@ func TestRecurringServiceSkipsDispatchCountWhenAdvanceLosesRace(t *testing.T) {
 	service := NewRecurringService(publisher, store, []ScheduleDefinition{schedule}, nil)
 	service.idFunc = func() string { return "recurring-task-1" }
 
-	dispatched, err := service.SyncDue(context.Background(), now)
+	dispatched, err := service.SyncDue(context.Background(), testLeadershipFence(), now)
 	if err != nil {
 		t.Fatalf("SyncDue() error = %v", err)
 	}
@@ -267,7 +267,7 @@ func TestRecurringServiceReconcileIndexesEnabledSchedulesAndCleansUpRemovedOnes(
 		},
 	}, nil)
 
-	dispatched, err := service.SyncDue(context.Background(), now)
+	dispatched, err := service.SyncDue(context.Background(), testLeadershipFence(), now)
 	if err != nil {
 		t.Fatalf("SyncDue() error = %v", err)
 	}
@@ -309,7 +309,7 @@ func newStubScheduleStateStore() *stubScheduleStateStore {
 	}
 }
 
-func (s *stubScheduleStateStore) ReconcileConfigured(_ context.Context, schedules []ScheduleDefinition, now time.Time) error {
+func (s *stubScheduleStateStore) ReconcileConfigured(_ context.Context, _ LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
 	configured := make(map[string]ScheduleDefinition, len(schedules))
 	for _, schedule := range schedules {
 		configured[schedule.ID] = schedule
@@ -371,14 +371,14 @@ func (s *stubScheduleStateStore) LoadStates(_ context.Context, scheduleIDs []str
 	return states, nil
 }
 
-func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, scheduleID string, state ScheduleState) error {
+func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, _ LeadershipFence, scheduleID string, state ScheduleState) error {
 	s.states[scheduleID] = state
 	s.dueIndex[scheduleID] = state.NextRunAt
 	s.persistedIDs[scheduleID] = struct{}{}
 	return nil
 }
 
-func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, _ LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
 	s.advanceCalls = append(s.advanceCalls, scheduleID)
 	if allowed, ok := s.advanceOK[scheduleID]; ok && !allowed {
 		return false, nil
@@ -398,16 +398,24 @@ func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, scheduleI
 	return true, nil
 }
 
-func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, scheduleID string) error {
+func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, _ LeadershipFence, scheduleID string) error {
 	delete(s.states, scheduleID)
 	delete(s.dueIndex, scheduleID)
 	delete(s.persistedIDs, scheduleID)
 	return nil
 }
 
-func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, scheduleID string) error {
+func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, _ LeadershipFence, scheduleID string) error {
 	delete(s.dueIndex, scheduleID)
 	return nil
+}
+
+func testLeadershipFence() LeadershipFence {
+	return LeadershipFence{
+		Owner: "test-scheduler",
+		Epoch: 1,
+		Token: "test-scheduler|1",
+	}
 }
 
 type stubRecurringPublisher struct {

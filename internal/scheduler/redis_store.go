@@ -22,7 +22,7 @@ func NewRedisScheduleStateStore(client *redis.Client) *RedisScheduleStateStore {
 	}
 }
 
-func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, schedules []ScheduleDefinition, now time.Time) error {
+func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, fence LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
 	persistedIDs, err := s.client.SMembers(ctx, s.scheduleIDsKey()).Result()
 	if err != nil {
 		return fmt.Errorf("load recurring schedule ids: %w", err)
@@ -40,33 +40,6 @@ func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, sched
 		return fmt.Errorf("load configured recurring schedule states: %w", err)
 	}
 
-	pipe := s.client.TxPipeline()
-	for _, schedule := range schedules {
-		state, exists := states[schedule.ID]
-		definitionHash := hashScheduleDefinition(schedule)
-		if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
-			state = initialScheduleState(schedule, now, definitionHash)
-		}
-		state.DefinitionHash = definitionHash
-		state.MisfirePolicy = schedule.MisfirePolicy
-
-		payload, err := json.Marshal(state)
-		if err != nil {
-			return fmt.Errorf("marshal recurring schedule state %s: %w", schedule.ID, err)
-		}
-
-		pipe.Set(ctx, s.stateKey(schedule.ID), payload, 0)
-		pipe.SAdd(ctx, s.scheduleIDsKey(), schedule.ID)
-		if schedule.Enabled {
-			pipe.ZAdd(ctx, s.dueIndexKey(), redis.Z{
-				Score:  float64(state.NextRunAt.UTC().UnixMilli()),
-				Member: schedule.ID,
-			})
-			continue
-		}
-		pipe.ZRem(ctx, s.dueIndexKey(), schedule.ID)
-	}
-
 	removedIDs := make([]string, 0, len(persistedIDs))
 	removedStateKeys := make([]string, 0, len(persistedIDs))
 	for _, scheduleID := range persistedIDs {
@@ -76,22 +49,52 @@ func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, sched
 		removedIDs = append(removedIDs, scheduleID)
 		removedStateKeys = append(removedStateKeys, s.stateKey(scheduleID))
 	}
-	if len(removedStateKeys) > 0 {
-		pipe.Del(ctx, removedStateKeys...)
-	}
-	if len(removedIDs) > 0 {
-		members := make([]interface{}, 0, len(removedIDs))
-		for _, scheduleID := range removedIDs {
-			members = append(members, scheduleID)
-		}
-		pipe.ZRem(ctx, s.dueIndexKey(), members...)
-		pipe.SRem(ctx, s.scheduleIDsKey(), members...)
-	}
 
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("reconcile recurring schedule state: %w", err)
-	}
-	return nil
+	return s.execWithFence(ctx, fence, "reconcile_configured", func(tx *redis.Tx) error {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			for _, schedule := range schedules {
+				state, exists := states[schedule.ID]
+				definitionHash := hashScheduleDefinition(schedule)
+				if !exists || state.DefinitionHash != definitionHash || state.NextRunAt.IsZero() {
+					state = initialScheduleState(schedule, now, definitionHash)
+				}
+				state.DefinitionHash = definitionHash
+				state.MisfirePolicy = schedule.MisfirePolicy
+
+				payload, err := json.Marshal(state)
+				if err != nil {
+					return fmt.Errorf("marshal recurring schedule state %s: %w", schedule.ID, err)
+				}
+
+				pipe.Set(ctx, s.stateKey(schedule.ID), payload, 0)
+				pipe.SAdd(ctx, s.scheduleIDsKey(), schedule.ID)
+				if schedule.Enabled {
+					pipe.ZAdd(ctx, s.dueIndexKey(), redis.Z{
+						Score:  float64(state.NextRunAt.UTC().UnixMilli()),
+						Member: schedule.ID,
+					})
+					continue
+				}
+				pipe.ZRem(ctx, s.dueIndexKey(), schedule.ID)
+			}
+			if len(removedStateKeys) > 0 {
+				pipe.Del(ctx, removedStateKeys...)
+			}
+			if len(removedIDs) > 0 {
+				members := make([]interface{}, 0, len(removedIDs))
+				for _, scheduleID := range removedIDs {
+					members = append(members, scheduleID)
+				}
+				pipe.ZRem(ctx, s.dueIndexKey(), members...)
+				pipe.SRem(ctx, s.scheduleIDsKey(), members...)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("reconcile recurring schedule state: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *RedisScheduleStateStore) DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error) {
@@ -143,27 +146,30 @@ func (s *RedisScheduleStateStore) LoadStates(ctx context.Context, scheduleIDs []
 	return states, nil
 }
 
-func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, scheduleID string, state ScheduleState) error {
+func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, fence LeadershipFence, scheduleID string, state ScheduleState) error {
 	payload, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal schedule state: %w", err)
 	}
 
-	pipe := s.client.TxPipeline()
-	pipe.Set(ctx, s.stateKey(scheduleID), payload, 0)
-	pipe.SAdd(ctx, s.scheduleIDsKey(), scheduleID)
-	pipe.ZAdd(ctx, s.dueIndexKey(), redis.Z{
-		Score:  float64(state.NextRunAt.UTC().UnixMilli()),
-		Member: scheduleID,
+	return s.execWithFence(ctx, fence, "save_indexed", func(tx *redis.Tx) error {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.Set(ctx, s.stateKey(scheduleID), payload, 0)
+			pipe.SAdd(ctx, s.scheduleIDsKey(), scheduleID)
+			pipe.ZAdd(ctx, s.dueIndexKey(), redis.Z{
+				Score:  float64(state.NextRunAt.UTC().UnixMilli()),
+				Member: scheduleID,
+			})
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("save schedule state: %w", err)
+		}
+		return nil
 	})
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("save schedule state: %w", err)
-	}
-	return nil
 }
 
-func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, fence LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
 	stateKey := s.stateKey(scheduleID)
 	dueIndexKey := s.dueIndexKey()
 	expectedNextRunAt := expected.NextRunAt.UTC()
@@ -172,6 +178,9 @@ func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, schedu
 	for {
 		advanced := false
 		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+			if err := s.validateFence(ctx, tx, fence, "advance_if_unchanged"); err != nil {
+				return err
+			}
 			payload, err := tx.Get(ctx, stateKey).Result()
 			if err != nil {
 				if err == redis.Nil {
@@ -206,7 +215,7 @@ func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, schedu
 				advanced = true
 			}
 			return err
-		}, stateKey)
+		}, s.leadershipKey(), stateKey)
 		if err == nil {
 			return advanced, nil
 		}
@@ -217,23 +226,32 @@ func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, schedu
 	}
 }
 
-func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, scheduleID string) error {
-	pipe := s.client.TxPipeline()
-	pipe.Del(ctx, s.stateKey(scheduleID))
-	pipe.ZRem(ctx, s.dueIndexKey(), scheduleID)
-	pipe.SRem(ctx, s.scheduleIDsKey(), scheduleID)
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("remove recurring schedule: %w", err)
-	}
-	return nil
+func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, fence LeadershipFence, scheduleID string) error {
+	return s.execWithFence(ctx, fence, "remove_schedule", func(tx *redis.Tx) error {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.Del(ctx, s.stateKey(scheduleID))
+			pipe.ZRem(ctx, s.dueIndexKey(), scheduleID)
+			pipe.SRem(ctx, s.scheduleIDsKey(), scheduleID)
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("remove recurring schedule: %w", err)
+		}
+		return nil
+	})
 }
 
-func (s *RedisScheduleStateStore) RemoveFromDueIndex(ctx context.Context, scheduleID string) error {
-	if err := s.client.ZRem(ctx, s.dueIndexKey(), scheduleID).Err(); err != nil {
-		return fmt.Errorf("remove recurring schedule from due index: %w", err)
-	}
-	return nil
+func (s *RedisScheduleStateStore) RemoveFromDueIndex(ctx context.Context, fence LeadershipFence, scheduleID string) error {
+	return s.execWithFence(ctx, fence, "remove_due_index", func(tx *redis.Tx) error {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.ZRem(ctx, s.dueIndexKey(), scheduleID)
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("remove recurring schedule from due index: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *RedisScheduleStateStore) stateKey(scheduleID string) string {
@@ -246,4 +264,43 @@ func (s *RedisScheduleStateStore) dueIndexKey() string {
 
 func (s *RedisScheduleStateStore) scheduleIDsKey() string {
 	return fmt.Sprintf("%s:scheduler:recurring:ids", s.prefix)
+}
+
+func (s *RedisScheduleStateStore) leadershipKey() string {
+	return fmt.Sprintf("%s:scheduler:leader", s.prefix)
+}
+
+func (s *RedisScheduleStateStore) execWithFence(ctx context.Context, fence LeadershipFence, operation string, fn func(tx *redis.Tx) error) error {
+	for {
+		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+			if err := s.validateFence(ctx, tx, fence, operation); err != nil {
+				return err
+			}
+			return fn(tx)
+		}, s.leadershipKey())
+		if err == nil {
+			return nil
+		}
+		if err == redis.TxFailedErr {
+			continue
+		}
+		return err
+	}
+}
+
+func (s *RedisScheduleStateStore) validateFence(ctx context.Context, tx *redis.Tx, fence LeadershipFence, operation string) error {
+	if !fence.Valid() {
+		return NewStaleLeadershipError(operation)
+	}
+	value, err := tx.Get(ctx, s.leadershipKey()).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return NewStaleLeadershipError(operation)
+		}
+		return fmt.Errorf("load scheduler leadership: %w", err)
+	}
+	if value != fence.Token {
+		return NewStaleLeadershipError(operation)
+	}
+	return nil
 }

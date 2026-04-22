@@ -111,6 +111,17 @@ type WorkerLifecycleProvider interface {
 	WorkerLifecycleSnapshots(ctx context.Context) ([]WorkerLifecycleSnapshot, error)
 }
 
+type SchedulerLeadershipSnapshot struct {
+	Leader        bool
+	Owner         string
+	Epoch         float64
+	LastRenewedAt time.Time
+}
+
+type SchedulerLeadershipProvider interface {
+	SchedulerLeadershipSnapshot(ctx context.Context) (SchedulerLeadershipSnapshot, error)
+}
+
 type Metrics struct {
 	Registry                           *prometheus.Registry
 	TasksPublishedTotal                *prometheus.CounterVec
@@ -136,6 +147,8 @@ type Metrics struct {
 	WorkerShutdownOutcomesTotal        *prometheus.CounterVec
 	WorkerAbandonedDeliveriesTotal     *prometheus.CounterVec
 	WorkerDrainLeaseLossesTotal        *prometheus.CounterVec
+	SchedulerStaleWriteRejectionsTotal *prometheus.CounterVec
+	SchedulerControlPlaneFailuresTotal *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -241,6 +254,14 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_worker_drain_lease_losses_total",
 			Help: "Total number of worker lease losses observed while draining by pool and queue.",
 		}, []string{"pool", "queue"}),
+		SchedulerStaleWriteRejectionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_scheduler_stale_write_rejections_total",
+			Help: "Total number of scheduler control-plane writes rejected because leadership was stale.",
+		}, []string{"operation"}),
+		SchedulerControlPlaneFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_scheduler_control_plane_failures_total",
+			Help: "Total number of scheduler control-plane failures by operation and reason.",
+		}, []string{"operation", "reason"}),
 	}
 
 	registry.MustRegister(
@@ -267,6 +288,8 @@ func NewMetrics() *Metrics {
 		m.WorkerShutdownOutcomesTotal,
 		m.WorkerAbandonedDeliveriesTotal,
 		m.WorkerDrainLeaseLossesTotal,
+		m.SchedulerStaleWriteRejectionsTotal,
+		m.SchedulerControlPlaneFailuresTotal,
 	)
 
 	return m
@@ -316,6 +339,20 @@ func (m *Metrics) IncRetried(queue string) {
 		return
 	}
 	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
+}
+
+func (m *Metrics) IncSchedulerStaleWriteRejection(operation string) {
+	if m == nil {
+		return
+	}
+	m.SchedulerStaleWriteRejectionsTotal.WithLabelValues(operation).Inc()
+}
+
+func (m *Metrics) IncSchedulerControlPlaneFailure(operation, reason string) {
+	if m == nil {
+		return
+	}
+	m.SchedulerControlPlaneFailuresTotal.WithLabelValues(operation, reason).Inc()
 }
 
 func (m *Metrics) IncRetryScheduled(queue, taskName, resultClass string) {
@@ -606,6 +643,34 @@ func (m *Metrics) RegisterWorkerLifecycleCollector(provider WorkerLifecycleProvi
 	})
 }
 
+func (m *Metrics) RegisterSchedulerLeadershipCollector(provider SchedulerLeadershipProvider) error {
+	if m == nil || provider == nil {
+		return nil
+	}
+
+	return m.Registry.Register(&schedulerLeadershipCollector{
+		provider: provider,
+		leader: prometheus.NewDesc(
+			"taskforge_scheduler_leader",
+			"Whether this scheduler instance currently considers itself the leader.",
+			[]string{"owner"},
+			nil,
+		),
+		epoch: prometheus.NewDesc(
+			"taskforge_scheduler_leadership_epoch",
+			"Current leadership epoch observed by this scheduler instance.",
+			[]string{"owner"},
+			nil,
+		),
+		lastRenewedAt: prometheus.NewDesc(
+			"taskforge_scheduler_leadership_last_renewed_at_seconds",
+			"Unix timestamp of the last successful leadership renewal for this scheduler instance.",
+			[]string{"owner"},
+			nil,
+		),
+	})
+}
+
 func normalizeQueues(queues []string) []string {
 	cleanQueues := slices.Clone(queues)
 	slices.Sort(cleanQueues)
@@ -681,6 +746,41 @@ type deadLetterMetricsCollector struct {
 	provider DeadLetterMetricsProvider
 	queues   []string
 	size     *prometheus.Desc
+}
+
+type schedulerLeadershipCollector struct {
+	provider      SchedulerLeadershipProvider
+	leader        *prometheus.Desc
+	epoch         *prometheus.Desc
+	lastRenewedAt *prometheus.Desc
+}
+
+func (c *schedulerLeadershipCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.leader
+	ch <- c.epoch
+	ch <- c.lastRenewedAt
+}
+
+func (c *schedulerLeadershipCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	snapshot, err := c.provider.SchedulerLeadershipSnapshot(ctx)
+	cancel()
+	if err != nil {
+		return
+	}
+
+	leaderValue := 0.0
+	if snapshot.Leader {
+		leaderValue = 1
+	}
+	owner := snapshot.Owner
+	ch <- prometheus.MustNewConstMetric(c.leader, prometheus.GaugeValue, leaderValue, owner)
+	ch <- prometheus.MustNewConstMetric(c.epoch, prometheus.GaugeValue, snapshot.Epoch, owner)
+	lastRenewedAt := 0.0
+	if !snapshot.LastRenewedAt.IsZero() {
+		lastRenewedAt = float64(snapshot.LastRenewedAt.UTC().Unix())
+	}
+	ch <- prometheus.MustNewConstMetric(c.lastRenewedAt, prometheus.GaugeValue, lastRenewedAt, owner)
 }
 
 func (c *deadLetterMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
