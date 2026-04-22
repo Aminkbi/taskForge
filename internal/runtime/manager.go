@@ -53,7 +53,6 @@ func (m *Manager) Run(ctx context.Context) error {
 			forceOnce.Do(func() {
 				close(forceWorkers)
 			})
-			cancel()
 			<-done
 			return nil
 		}
@@ -64,7 +63,6 @@ func (m *Manager) Run(ctx context.Context) error {
 			forceOnce.Do(func() {
 				close(forceWorkers)
 			})
-			cancel()
 			<-done
 		}
 		return nil
@@ -72,7 +70,6 @@ func (m *Manager) Run(ctx context.Context) error {
 		forceOnce.Do(func() {
 			close(forceWorkers)
 		})
-		cancel()
 		<-done
 		return err
 	}
