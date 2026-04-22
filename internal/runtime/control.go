@@ -22,6 +22,10 @@ type AdaptiveStateWriter interface {
 	StoreAdaptiveStatus(ctx context.Context, snapshot observability.AdaptivePoolSnapshot) error
 }
 
+type WorkerLifecycleWriter interface {
+	StoreWorkerLifecycleSnapshot(ctx context.Context, snapshot observability.WorkerLifecycleSnapshot) error
+}
+
 type QueueMetricsProvider interface {
 	QueueMetricsSnapshot(ctx context.Context, queue string) (observability.QueueMetricsSnapshot, error)
 }

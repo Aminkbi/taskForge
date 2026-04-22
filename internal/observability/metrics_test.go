@@ -71,6 +71,20 @@ func (stubDependencyBudgetProvider) DependencyBudgetUsageSnapshots(context.Conte
 	}, nil
 }
 
+type stubWorkerLifecycleProvider struct{}
+
+func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]WorkerLifecycleSnapshot, error) {
+	return []WorkerLifecycleSnapshot{
+		{
+			WorkerID:            "worker-a",
+			Pool:                "critical",
+			Queue:               "critical",
+			State:               "draining",
+			LastShutdownOutcome: "forced_timeout",
+		},
+	}, nil
+}
+
 func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	t.Parallel()
 
@@ -85,6 +99,9 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	metrics.IncWorkerConcurrencyAdjustment("critical", "latency", "scale_down")
 	metrics.IncDependencyBudgetBlocked("downstream")
 	metrics.IncDependencyBudgetLeaseRenewFailure("downstream")
+	metrics.IncWorkerShutdownOutcome("critical", "critical", "drained")
+	metrics.AddWorkerAbandonedDeliveries("critical", "critical", "shutdown_timeout", 2)
+	metrics.IncWorkerDrainLeaseLoss("critical", "critical")
 	if err := metrics.RegisterQueueMetricsCollector(stubQueueMetricsProvider{}, []string{"critical"}); err != nil {
 		t.Fatalf("RegisterQueueMetricsCollector() error = %v", err)
 	}
@@ -102,6 +119,9 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	}
 	if err := metrics.RegisterDependencyBudgetCollector(stubDependencyBudgetProvider{}); err != nil {
 		t.Fatalf("RegisterDependencyBudgetCollector() error = %v", err)
+	}
+	if err := metrics.RegisterWorkerLifecycleCollector(stubWorkerLifecycleProvider{}); err != nil {
+		t.Fatalf("RegisterWorkerLifecycleCollector() error = %v", err)
 	}
 
 	families, err := metrics.Registry.Gather()
@@ -126,6 +146,10 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	assertLabelNames(t, families, "taskforge_admission_signal", []string{"queue", "signal"})
 	assertLabelNames(t, families, "taskforge_worker_effective_concurrency", []string{"pool", "queue"})
 	assertLabelNames(t, families, "taskforge_worker_concurrency_adjustments_total", []string{"action", "pool", "reason"})
+	assertLabelNames(t, families, "taskforge_worker_lifecycle_state", []string{"pool", "queue", "state", "worker_id"})
+	assertLabelNames(t, families, "taskforge_worker_shutdown_outcomes_total", []string{"outcome", "pool", "queue"})
+	assertLabelNames(t, families, "taskforge_worker_abandoned_deliveries_total", []string{"pool", "queue", "reason"})
+	assertLabelNames(t, families, "taskforge_worker_drain_lease_losses_total", []string{"pool", "queue"})
 	assertLabelNames(t, families, "taskforge_dependency_budget_capacity", []string{"budget"})
 	assertLabelNames(t, families, "taskforge_dependency_budget_in_use", []string{"budget"})
 	assertLabelNames(t, families, "taskforge_dependency_budget_blocked_total", []string{"budget"})

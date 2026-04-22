@@ -62,6 +62,27 @@ func (stubBudgetUsageProvider) DependencyBudgetUsageSnapshots(context.Context) (
 	}, nil
 }
 
+type stubWorkerLifecycleProvider struct{}
+
+func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]observability.WorkerLifecycleSnapshot, error) {
+	return []observability.WorkerLifecycleSnapshot{
+		{
+			WorkerID:            "worker-a",
+			Pool:                "critical",
+			Queue:               "critical",
+			State:               "draining",
+			Pending:             1,
+			Running:             2,
+			DrainStartedAt:      time.Date(2026, 4, 21, 10, 0, 0, 0, time.UTC),
+			DrainDeadline:       time.Date(2026, 4, 21, 10, 0, 10, 0, time.UTC),
+			LastShutdownOutcome: "forced_timeout",
+			AbandonedDeliveries: 3,
+			DrainLeaseLosses:    1,
+			UpdatedAt:           time.Date(2026, 4, 21, 10, 0, 2, 0, time.UTC),
+		},
+	}, nil
+}
+
 func TestAdmissionHandlerReturnsQueueSnapshots(t *testing.T) {
 	t.Parallel()
 
@@ -150,5 +171,39 @@ func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
 	if app == nil {
 		t.Fatal("New() returned nil")
+	}
+}
+
+func TestWorkerLifecycleHandlerReturnsWorkerSnapshots(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/admin/workers", nil)
+
+	workerLifecycleHandler(stubWorkerLifecycleProvider{}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		Workers []struct {
+			WorkerID            string  `json:"worker_id"`
+			State               string  `json:"state"`
+			AbandonedDeliveries float64 `json:"abandoned_deliveries"`
+			DrainLeaseLosses    float64 `json:"drain_lease_losses"`
+		} `json:"workers"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.Workers) != 1 {
+		t.Fatalf("worker count = %d, want 1", len(payload.Workers))
+	}
+	if payload.Workers[0].WorkerID != "worker-a" || payload.Workers[0].State != "draining" {
+		t.Fatalf("worker payload = %+v, want worker-a draining", payload.Workers[0])
+	}
+	if payload.Workers[0].AbandonedDeliveries != 3 || payload.Workers[0].DrainLeaseLosses != 1 {
+		t.Fatalf("worker payload = %+v, want abandoned=3 lease_losses=1", payload.Workers[0])
 	}
 }

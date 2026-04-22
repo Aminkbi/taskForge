@@ -119,7 +119,10 @@ func main() {
 
 	workerErrCh := make(chan error, 1)
 	go func() {
-		workerErrCh <- (&runtimepkg.Manager{Workers: []*runtimepkg.Worker{worker}}).Run(runCtx)
+		workerErrCh <- (&runtimepkg.Manager{
+			Workers:         []*runtimepkg.Worker{worker},
+			ShutdownTimeout: cfg.ShutdownTimeout,
+		}).Run(runCtx)
 	}()
 	schedulerErrCh := make(chan error, 1)
 	go func() {

@@ -76,6 +76,209 @@ func TestManagerRunsIsolatedQueueWorkers(t *testing.T) {
 	}
 }
 
+func TestManagerDrainStopsReservingNewDeliveriesImmediately(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("task-1", "default", "default.task"),
+			testDeliveryWithQueue("task-2", "default", "default.task"),
+		},
+	})
+
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	worker := newQueueWorkerForTest(stub, "default", HandlerFunc(func(_ context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		<-release
+		return nil
+	}))
+
+	manager := &Manager{
+		Workers:         []*Worker{worker},
+		ShutdownTimeout: 250 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(ctx)
+	}()
+
+	if first := waitForStartedTask(t, started); first != "task-1" {
+		t.Fatalf("first started task = %q, want %q", first, "task-1")
+	}
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	snapshot, ok := worker.LifecycleSnapshot()
+	if !ok {
+		t.Fatal("LifecycleSnapshot() unavailable")
+	}
+	if snapshot.State != "draining" {
+		t.Fatalf("worker lifecycle state = %q, want draining", snapshot.State)
+	}
+
+	select {
+	case second := <-started:
+		t.Fatalf("worker started a new delivery during drain: %q", second)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("manager.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager did not stop before timeout")
+	}
+}
+
+func TestManagerForcedShutdownReturnsAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("task-1", "default", "default.task"),
+		},
+	})
+
+	started := make(chan struct{}, 1)
+	block := make(chan struct{})
+	worker := newQueueWorkerForTest(stub, "default", HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		started <- struct{}{}
+		<-block
+		return nil
+	}))
+
+	manager := &Manager{
+		Workers:         []*Worker{worker},
+		ShutdownTimeout: 50 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(ctx)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start before timeout")
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("manager.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager did not stop after shutdown timeout")
+	}
+
+	snapshot, ok := worker.LifecycleSnapshot()
+	if !ok {
+		t.Fatal("LifecycleSnapshot() unavailable")
+	}
+	if snapshot.State != "stopped" {
+		t.Fatalf("worker lifecycle state = %q, want stopped", snapshot.State)
+	}
+	if snapshot.LastShutdownOutcome != "forced_timeout" {
+		t.Fatalf("shutdown outcome = %q, want forced_timeout", snapshot.LastShutdownOutcome)
+	}
+	if snapshot.AbandonedDeliveries != 1 {
+		t.Fatalf("abandoned deliveries = %v, want 1", snapshot.AbandonedDeliveries)
+	}
+}
+
+func TestManagerForcedShutdownDoesNotDispatchPendingBufferedWork(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("task-1", "default", "shared.task"),
+			testDeliveryWithQueue("task-2", "default", "shared.task"),
+		},
+	})
+
+	started := make(chan string, 4)
+	block := make(chan struct{})
+	worker := newQueueWorkerForTest(stub, "default", HandlerFunc(func(_ context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		if msg.ID == "task-1" {
+			<-block
+		}
+		return nil
+	}))
+	worker.Concurrency = 2
+	worker.Prefetch = 2
+	worker.GlobalTaskLimiter = NewTaskTypeLimiter(map[string]int{"shared.task": 1})
+
+	manager := &Manager{
+		Workers:         []*Worker{worker},
+		ShutdownTimeout: 50 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(ctx)
+	}()
+
+	if first := waitForStartedTask(t, started); first != "task-1" {
+		t.Fatalf("first started task = %q, want %q", first, "task-1")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, ok := worker.LifecycleSnapshot()
+		if ok && snapshot.Pending == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	snapshot, ok := worker.LifecycleSnapshot()
+	if !ok {
+		t.Fatal("LifecycleSnapshot() unavailable")
+	}
+	if snapshot.Pending != 1 {
+		t.Fatalf("pending deliveries before shutdown = %v, want 1", snapshot.Pending)
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("manager.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager did not stop after shutdown timeout")
+	}
+
+	select {
+	case taskID := <-started:
+		t.Fatalf("unexpected task started after forced shutdown: %q", taskID)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(block)
+}
+
 func TestWorkerBudgetGatedTasksStayPendingUntilTokensFreeUp(t *testing.T) {
 	t.Parallel()
 

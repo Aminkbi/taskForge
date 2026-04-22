@@ -74,13 +74,19 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			QueueMetrics:      poolBroker,
 			Adaptive:          runtimeAdaptiveConfig(pool.Adaptive),
 			AdaptiveStore:     sharedBroker.AdaptiveStateStore(),
+			LifecycleWriter:   sharedBroker.WorkerLifecycleStore(),
 		})
+	}
+	manager := &runtimepkg.Manager{
+		Workers:         workers,
+		ShutdownTimeout: cfg.ShutdownTimeout,
 	}
 	_ = metrics.RegisterQueueMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterFairnessMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterDeadLetterMetricsCollector(sharedBroker, queues)
 	_ = metrics.RegisterAdmissionStatusCollector(sharedBroker, queues)
 	_ = metrics.RegisterDependencyBudgetCollector(sharedBroker)
+	_ = metrics.RegisterWorkerLifecycleCollector(manager)
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := sharedBroker.Ping(ctx); err != nil {
@@ -120,11 +126,35 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 				Detail: "worker reserve and reclaim loops healthy",
 			}
 		},
+		"worker_lifecycle": func(context.Context) httpserver.CheckResult {
+			unavailable := make([]string, 0)
+			for _, worker := range workers {
+				snapshot, ok := worker.LifecycleSnapshot()
+				if !ok {
+					continue
+				}
+				if snapshot.State == "accepting" {
+					continue
+				}
+				unavailable = append(unavailable, snapshot.Pool+"="+snapshot.State)
+			}
+			if len(unavailable) > 0 {
+				return httpserver.CheckResult{
+					Status: "not_ready",
+					Detail: strings.Join(unavailable, ","),
+				}
+			}
+			return httpserver.CheckResult{
+				Ready:  true,
+				Status: "ready",
+				Detail: "workers accepting new deliveries",
+			}
+		},
 	}, nil)
 
 	return &App{
 		server: server,
-		worker: &runtimepkg.Manager{Workers: workers},
+		worker: manager,
 	}
 }
 
@@ -192,17 +222,23 @@ func (a *App) Run(ctx context.Context) error {
 	a.server.SetReady(true)
 
 	errCh := make(chan error, 2)
+	serverCtx, cancelServer := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelServer()
 	go func() {
-		errCh <- a.server.Run(ctx)
+		errCh <- a.server.Run(serverCtx)
 	}()
 	go func() {
 		errCh <- a.worker.Run(ctx)
 	}()
 
 	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil {
-			return err
+		err := <-errCh
+		if err == nil {
+			cancelServer()
+			continue
 		}
+		cancelServer()
+		return err
 	}
 	return nil
 }
