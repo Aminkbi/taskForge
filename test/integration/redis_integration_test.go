@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -832,7 +833,9 @@ func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 	}
 
 	time.Sleep(25 * time.Millisecond)
-	moved, err := brokerInstance.MoveDue(ctx, time.Now().UTC(), 10)
+	fence := integrationLeadershipFence("direct-move-due", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+	moved, err := brokerInstance.MoveDue(ctx, fence, time.Now().UTC(), 10)
 	if err != nil {
 		t.Fatalf("MoveDue() error = %v", err)
 	}
@@ -1239,7 +1242,7 @@ func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
 }
 
 func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
 	base := time.Now().UTC()
 	messages := []broker.TaskMessage{
@@ -1279,7 +1282,9 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	}
 
 	releasedAt := base.Add(time.Second)
-	moved, err := brokerInstance.MoveDue(ctx, releasedAt, 10)
+	fence := integrationLeadershipFence("direct-move-due", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+	moved, err := brokerInstance.MoveDue(ctx, fence, releasedAt, 10)
 	if err != nil {
 		t.Fatalf("MoveDue() error = %v", err)
 	}
@@ -1388,12 +1393,14 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 	}
 
 	releasedAt := time.Now().UTC()
+	fence := integrationLeadershipFence("direct-move-due", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
 	start := make(chan struct{})
 	results := make(chan int, 2)
 	errs := make(chan error, 2)
 	move := func(b *brokerredis.RedisBroker) {
 		<-start
-		moved, err := b.MoveDue(ctx, releasedAt, 10)
+		moved, err := b.MoveDue(ctx, fence, releasedAt, 10)
 		if err != nil {
 			errs <- err
 			return
@@ -1612,7 +1619,9 @@ func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) 
 		StartAt:       &startAt,
 	}
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
-	if err := store.ReconcileConfigured(ctx, []schedulerpkg.ScheduleDefinition{schedule}, now); err != nil {
+	fence := integrationLeadershipFence("recurring-store", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+	if err := store.ReconcileConfigured(ctx, fence, []schedulerpkg.ScheduleDefinition{schedule}, now); err != nil {
 		t.Fatalf("ReconcileConfigured() error = %v", err)
 	}
 
@@ -1624,13 +1633,15 @@ func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) 
 	})
 	serviceA := schedulerpkg.NewRecurringService(brokerA, store, []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
 	serviceB := schedulerpkg.NewRecurringService(brokerB, schedulerpkg.NewRedisScheduleStateStore(client), []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
+	serviceFence := integrationLeadershipFence("recurring-service", 1)
+	setIntegrationLeadership(t, ctx, client, serviceFence, time.Minute)
 
 	start := make(chan struct{})
 	results := make(chan int, 2)
 	errs := make(chan error, 2)
 	syncDue := func(service *schedulerpkg.RecurringService) {
 		<-start
-		dispatched, err := service.SyncDue(ctx, now)
+		dispatched, err := service.SyncDue(ctx, serviceFence, now)
 		if err != nil {
 			errs <- err
 			return
@@ -2189,6 +2200,7 @@ func newIntegrationScheduler(t *testing.T, client *redis.Client, owner string, s
 		elector,
 		clock.RealClock{},
 		slog.Default(),
+		nil,
 		25*time.Millisecond,
 		25*time.Millisecond,
 	)
@@ -2313,6 +2325,24 @@ func loadRecurringScheduleState(t *testing.T, ctx context.Context, client *redis
 		t.Fatalf("unmarshal recurring schedule state: %v", err)
 	}
 	return state
+}
+
+func integrationLeadershipFence(owner string, epoch int64) schedulerpkg.LeadershipFence {
+	return schedulerpkg.LeadershipFence{
+		Owner: owner,
+		Epoch: epoch,
+		Token: fmt.Sprintf("%s|%d", owner, epoch),
+	}
+}
+
+func setIntegrationLeadership(t *testing.T, ctx context.Context, client *redis.Client, fence schedulerpkg.LeadershipFence, ttl time.Duration) {
+	t.Helper()
+	if err := client.Set(ctx, "taskforge:scheduler:leader", fence.Token, ttl).Err(); err != nil {
+		t.Fatalf("Set() scheduler leadership error = %v", err)
+	}
+	if err := client.Set(ctx, "taskforge:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+		t.Fatalf("Set() scheduler leadership epoch error = %v", err)
+	}
 }
 
 func mustParseRFC3339Time(t *testing.T, value string) time.Time {

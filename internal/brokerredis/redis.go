@@ -60,6 +60,45 @@ redis.call("ZADD", KEYS[1], ARGV[1], ARGV[2])
 redis.call("PSETEX", KEYS[2], ARGV[3], "1")
 return 1
 `)
+	fencedReleaseReadyScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return {-1, 0}
+end
+local existed = redis.call("EXISTS", KEYS[4])
+if existed == 0 then
+  redis.call("XADD", KEYS[3], "*", ARGV[3], ARGV[4])
+  redis.call("PSETEX", KEYS[4], ARGV[5], "1")
+end
+local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+return {existed, removed}
+`)
+	fencedReleaseFairReadyScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return {-1, 0}
+end
+local existed = redis.call("EXISTS", KEYS[6])
+if existed == 0 then
+  redis.call("SADD", KEYS[3], ARGV[3])
+  redis.call("XADD", KEYS[4], "*", ARGV[4], ARGV[5])
+  redis.call("LPUSH", KEYS[5], ARGV[6])
+  redis.call("LTRIM", KEYS[5], 0, 0)
+  redis.call("PSETEX", KEYS[6], ARGV[7], "1")
+end
+local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+return {existed, removed}
+`)
+	fencedReleaseDelayedScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return {-1, 0}
+end
+local existed = redis.call("EXISTS", KEYS[3])
+if existed == 0 then
+  redis.call("ZADD", KEYS[2], ARGV[3], ARGV[4])
+  redis.call("PSETEX", KEYS[3], ARGV[5], "1")
+end
+local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+return {existed, removed}
+`)
 )
 
 type RedisBroker struct {
@@ -380,7 +419,7 @@ func (b *RedisBroker) ExtendLease(ctx context.Context, delivery broker.Delivery,
 	return nil
 }
 
-func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (int, error) {
+func (b *RedisBroker) MoveDue(ctx context.Context, fence schedulerpkg.LeadershipFence, now time.Time, limit int64) (int, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -411,23 +450,166 @@ func (b *RedisBroker) MoveDue(ctx context.Context, now time.Time, limit int64) (
 		msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
 		msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
 		msg.ETA = nil
-		if _, err := b.publishMessage(ctx, msg, broker.PublishOptions{
-			Source:           broker.PublishSourceDueRelease,
-			DeduplicationKey: fmt.Sprintf("delayed:%s", entry.EntryID),
-		}, now); err != nil {
+		if err := b.releaseDueEntry(ctx, fence, raw, entry, msg, now); err != nil {
 			return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
 		}
-
-		removed, err := b.client.ZRem(ctx, b.delayedKey(), raw).Result()
-		if err != nil {
-			return moved, fmt.Errorf("move due tasks: remove delayed entry: %w", err)
-		}
-		if removed == 1 {
-			moved++
-		}
+		moved++
 	}
 
 	return moved, nil
+}
+
+func (b *RedisBroker) releaseDueEntry(
+	ctx context.Context,
+	fence schedulerpkg.LeadershipFence,
+	raw string,
+	entry delayedEntry,
+	msg broker.TaskMessage,
+	now time.Time,
+) error {
+	opts := broker.PublishOptions{
+		Source:           broker.PublishSourceDueRelease,
+		DeduplicationKey: fmt.Sprintf("delayed:%s", entry.EntryID),
+	}
+	eval, err := b.evaluateAdmission(ctx, msg, opts, now)
+	if err != nil {
+		return err
+	}
+	queue := tasks.EffectiveQueue(msg)
+	b.observeAdmissionDecision(queue, opts.Source, eval)
+	if eval.decision == broker.AdmissionDecisionDeferred {
+		if eval.deferUntil == nil {
+			return fmt.Errorf("publish task: deferred admission missing defer deadline")
+		}
+		msg = b.annotateDeferredMessage(msg, opts.Source, eval.reason, *eval.deferUntil, now)
+		return b.releaseDueIntoDelayed(ctx, fence, raw, msg, opts.DeduplicationKey)
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("publish task: marshal message: %w", err)
+	}
+	if b.fairnessPolicy(queue) != nil {
+		return b.releaseDueIntoFairReady(ctx, fence, raw, queue, msg.FairnessKey, payload, opts.DeduplicationKey, now)
+	}
+	return b.releaseDueIntoReady(ctx, fence, raw, queue, payload, opts.DeduplicationKey)
+}
+
+func (b *RedisBroker) releaseDueIntoReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, queue string, payload []byte, deduplicationKey string) error {
+	values, err := fencedReleaseReadyScript.Run(
+		ctx,
+		b.client,
+		[]string{
+			b.schedulerLeadershipKey(),
+			b.delayedKey(),
+			b.streamKey(queue),
+			b.publishReceiptKey(deduplicationKey),
+		},
+		fence.Token,
+		raw,
+		streamPayloadField,
+		string(payload),
+		b.publishReceiptTTL().Milliseconds(),
+	).Result()
+	if err != nil {
+		return err
+	}
+	published, _, err := parseReleaseScriptResult(values, "move_due")
+	if err != nil {
+		return err
+	}
+	if published {
+		b.metrics.IncPublished(queue)
+	}
+	return nil
+}
+
+func (b *RedisBroker) releaseDueIntoFairReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, queue, fairnessKey string, payload []byte, deduplicationKey string, now time.Time) error {
+	values, err := fencedReleaseFairReadyScript.Run(
+		ctx,
+		b.client,
+		[]string{
+			b.schedulerLeadershipKey(),
+			b.delayedKey(),
+			b.fairnessKeysSetKey(queue),
+			b.fairnessStreamKey(queue, fairness.NormalizeKey(fairnessKey)),
+			b.fairnessNotifyKey(queue),
+			b.publishReceiptKey(deduplicationKey),
+		},
+		fence.Token,
+		raw,
+		fairness.NormalizeKey(fairnessKey),
+		streamPayloadField,
+		string(payload),
+		now.UTC().Format(time.RFC3339Nano),
+		b.publishReceiptTTL().Milliseconds(),
+	).Result()
+	if err != nil {
+		return err
+	}
+	published, _, err := parseReleaseScriptResult(values, "move_due")
+	if err != nil {
+		return err
+	}
+	if published {
+		b.metrics.IncPublished(queue)
+	}
+	return nil
+}
+
+func (b *RedisBroker) releaseDueIntoDelayed(ctx context.Context, fence schedulerpkg.LeadershipFence, raw string, msg broker.TaskMessage, deduplicationKey string) error {
+	entryPayload, err := json.Marshal(delayedEntry{
+		EntryID:      uuid.NewString(),
+		ScheduledFor: msg.ETA.UTC(),
+		Message:      msg,
+	})
+	if err != nil {
+		return fmt.Errorf("publish task: marshal delayed entry: %w", err)
+	}
+	values, err := fencedReleaseDelayedScript.Run(
+		ctx,
+		b.client,
+		[]string{
+			b.schedulerLeadershipKey(),
+			b.delayedKey(),
+			b.publishReceiptKey(deduplicationKey),
+		},
+		fence.Token,
+		raw,
+		msg.ETA.UTC().UnixMilli(),
+		string(entryPayload),
+		b.publishReceiptTTL().Milliseconds(),
+	).Result()
+	if err != nil {
+		return err
+	}
+	published, _, err := parseReleaseScriptResult(values, "move_due")
+	if err != nil {
+		return err
+	}
+	if published {
+		b.metrics.IncPublished(tasks.EffectiveQueue(msg))
+	}
+	return nil
+}
+
+func parseReleaseScriptResult(values interface{}, operation string) (bool, bool, error) {
+	result, ok := values.([]interface{})
+	if !ok || len(result) != 2 {
+		return false, false, fmt.Errorf("unexpected release script response %T", values)
+	}
+	existed, err := redisScriptInt(result[0])
+	if err != nil {
+		return false, false, err
+	}
+	if existed == -1 {
+		return false, false, schedulerpkg.NewStaleLeadershipError(operation)
+	}
+	removed, err := redisScriptInt(result[1])
+	if err != nil {
+		return false, false, err
+	}
+	return existed == 0, removed == 1, nil
 }
 
 func (b *RedisBroker) reclaimExpiredDelivery(ctx context.Context, queue, streamKey, groupName, consumerName string) (broker.Delivery, bool, error) {
@@ -1053,6 +1235,10 @@ func (b *RedisBroker) delayedKey() string {
 	return fmt.Sprintf("%s:delayed", b.prefix)
 }
 
+func (b *RedisBroker) schedulerLeadershipKey() string {
+	return fmt.Sprintf("%s:scheduler:leader", b.prefix)
+}
+
 func (b *RedisBroker) publishReceiptKey(deduplicationKey string) string {
 	return fmt.Sprintf("%s:publish:receipt:%x", b.prefix, sha256Sum(deduplicationKey))
 }
@@ -1142,6 +1328,19 @@ func deliveryCount(msg broker.TaskMessage, fallback int64) int {
 		return 1
 	}
 	return count
+}
+
+func redisScriptInt(value interface{}) (int64, error) {
+	switch typed := value.(type) {
+	case int64:
+		return typed, nil
+	case string:
+		return strconv.ParseInt(typed, 10, 64)
+	case []byte:
+		return strconv.ParseInt(string(typed), 10, 64)
+	default:
+		return 0, fmt.Errorf("unexpected redis script integer type %T", value)
+	}
 }
 
 func newDelivery(msg broker.TaskMessage, queue, consumerID, deliveryID string, now time.Time, ttl time.Duration, count int) broker.Delivery {

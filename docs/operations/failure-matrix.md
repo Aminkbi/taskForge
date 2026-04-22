@@ -32,10 +32,10 @@ This matrix documents how TaskForge behaves under common failure modes. The guar
 
 ## Scheduler leader loss
 
-- Guarantee: leadership is Redis-backed and another scheduler can acquire after TTL expiry.
+- Guarantee: leadership is Redis-backed and another scheduler can acquire after TTL expiry; stale leaders lose fenced write authority after failover.
 - Duplicate risk: delayed release may pause briefly; recurring dispatch should resume under the new leader, but work scheduled around leader loss can bunch up.
-- Look at first: scheduler `/readyz`, `scheduler_leadership` readiness detail, `taskforge_scheduler_queue_lag_seconds`, leadership logs.
-- Operator action: confirm one healthy standby becomes leader, then monitor scheduler lag until it returns to normal.
+- Look at first: scheduler `/readyz`, `/v1/admin/leadership`, `taskforge_scheduler_queue_lag_seconds`, leadership logs, stale-write rejection counters.
+- Operator action: confirm one healthy standby becomes leader, confirm stale-write rejections are not climbing unexpectedly, then monitor scheduler lag until it returns to normal.
 
 ## Dead-letter replay failure
 

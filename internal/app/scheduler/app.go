@@ -2,9 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -65,6 +68,18 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterSchedulerLagCollector(b, queues)
 	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
 	_ = metrics.RegisterDependencyBudgetCollector(b)
+	_ = metrics.RegisterSchedulerLeadershipCollector(schedulerLeadershipMetricsProvider{elector: elector})
+	schedulerRuntime := schedulerpkg.New(
+		b,
+		recurring,
+		elector,
+		clock.RealClock{},
+		logger.With("component", "scheduler-runtime"),
+		metrics,
+		cfg.PollInterval,
+		cfg.SchedulerRenewInterval,
+	)
+	schedulerRuntime.LoopHealth = loopHealth
 	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := b.Ping(ctx); err != nil {
@@ -83,17 +98,19 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			snapshot := elector.Snapshot()
 			if snapshot.Leader {
 				return httpserver.CheckResult{
-					Ready:  true,
-					Status: "ready",
-					Detail: "leader",
-					Leader: true,
+					Ready:     true,
+					Status:    "ready",
+					Detail:    fmt.Sprintf("leader epoch=%d", snapshot.Epoch),
+					Leader:    true,
+					UpdatedAt: snapshot.LastRenewedAt,
 				}
 			}
 			return httpserver.CheckResult{
-				Ready:  true,
-				Status: "ready",
-				Detail: "standby",
-				Leader: false,
+				Ready:     true,
+				Status:    "ready",
+				Detail:    fmt.Sprintf("standby last_loss=%s", snapshot.LastLossReason),
+				Leader:    false,
+				UpdatedAt: snapshot.LastLostAt,
 			}
 		},
 		"recovery_loop": func(context.Context) httpserver.CheckResult {
@@ -105,23 +122,80 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 				UpdatedAt: snapshot.UpdatedAt,
 			}
 		},
-	}, nil)
-
-	schedulerRuntime := schedulerpkg.New(
-		b,
-		recurring,
-		elector,
-		clock.RealClock{},
-		logger.With("component", "scheduler-runtime"),
-		cfg.PollInterval,
-		cfg.SchedulerRenewInterval,
-	)
-	schedulerRuntime.LoopHealth = loopHealth
+	}, func(mux *http.ServeMux) {
+		mux.HandleFunc("/v1/admin/leadership", func(w http.ResponseWriter, r *http.Request) {
+			record, err := elector.Observe(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			safety := schedulerRuntime.SafetySnapshot()
+			response := struct {
+				Local struct {
+					Leader         bool   `json:"leader"`
+					Owner          string `json:"owner"`
+					Epoch          int64  `json:"epoch"`
+					AcquiredAt     string `json:"acquired_at,omitempty"`
+					LastRenewedAt  string `json:"last_renewed_at,omitempty"`
+					LastLostAt     string `json:"last_lost_at,omitempty"`
+					LastLossReason string `json:"last_loss_reason,omitempty"`
+				} `json:"local"`
+				Redis struct {
+					Present      bool   `json:"present"`
+					Owner        string `json:"owner,omitempty"`
+					Epoch        int64  `json:"epoch,omitempty"`
+					TTLRemaining string `json:"ttl_remaining,omitempty"`
+					ObservedAt   string `json:"observed_at,omitempty"`
+				} `json:"redis"`
+				Safety schedulerpkg.SafetySnapshot `json:"safety"`
+			}{Safety: safety}
+			snapshot := elector.Snapshot()
+			response.Local.Leader = snapshot.Leader
+			response.Local.Owner = snapshot.Owner
+			response.Local.Epoch = snapshot.Epoch
+			response.Local.LastLossReason = snapshot.LastLossReason
+			if !snapshot.AcquiredAt.IsZero() {
+				response.Local.AcquiredAt = snapshot.AcquiredAt.UTC().Format(time.RFC3339Nano)
+			}
+			if !snapshot.LastRenewedAt.IsZero() {
+				response.Local.LastRenewedAt = snapshot.LastRenewedAt.UTC().Format(time.RFC3339Nano)
+			}
+			if !snapshot.LastLostAt.IsZero() {
+				response.Local.LastLostAt = snapshot.LastLostAt.UTC().Format(time.RFC3339Nano)
+			}
+			response.Redis.Present = record.Present
+			response.Redis.Owner = record.Owner
+			response.Redis.Epoch = record.Epoch
+			if record.TTLRemaining > 0 {
+				response.Redis.TTLRemaining = record.TTLRemaining.String()
+			}
+			if !record.ObservedAt.IsZero() {
+				response.Redis.ObservedAt = record.ObservedAt.UTC().Format(time.RFC3339Nano)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(response)
+		})
+	})
 
 	return &App{
 		server:    server,
 		scheduler: schedulerRuntime,
 	}
+}
+
+type schedulerLeadershipMetricsProvider struct {
+	elector *schedulerpkg.RedisLeaderElector
+}
+
+func (p schedulerLeadershipMetricsProvider) SchedulerLeadershipSnapshot(context.Context) (observability.SchedulerLeadershipSnapshot, error) {
+	snapshot := p.elector.Snapshot()
+	return observability.SchedulerLeadershipSnapshot{
+		Leader:        snapshot.Leader,
+		Owner:         snapshot.Owner,
+		Epoch:         float64(snapshot.Epoch),
+		LastRenewedAt: snapshot.LastRenewedAt,
+	}, nil
 }
 
 func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
