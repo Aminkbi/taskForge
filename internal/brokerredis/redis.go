@@ -77,6 +77,7 @@ type RedisBroker struct {
 	admissionStates   map[string]observability.AdmissionStatusSnapshot
 	budgetStore       *BudgetStore
 	adaptiveStore     *AdaptiveStateStore
+	workerStore       *WorkerLifecycleStore
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
@@ -114,6 +115,7 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 		admissionStates:   make(map[string]observability.AdmissionStatusSnapshot),
 		budgetStore:       NewBudgetStore(client, metrics, defaultPrefix, options.DependencyBudgets),
 		adaptiveStore:     NewAdaptiveStateStore(client, defaultPrefix),
+		workerStore:       NewWorkerLifecycleStore(client, defaultPrefix),
 	}
 }
 
@@ -123,6 +125,10 @@ func (b *RedisBroker) BudgetManager() *BudgetStore {
 
 func (b *RedisBroker) AdaptiveStateStore() *AdaptiveStateStore {
 	return b.adaptiveStore
+}
+
+func (b *RedisBroker) WorkerLifecycleStore() *WorkerLifecycleStore {
+	return b.workerStore
 }
 
 func (b *RedisBroker) DependencyBudgetUsageSnapshots(ctx context.Context) ([]observability.DependencyBudgetUsageSnapshot, error) {
@@ -137,6 +143,13 @@ func (b *RedisBroker) AdaptiveStatusSnapshot(ctx context.Context, pool string) (
 		return observability.AdaptivePoolSnapshot{Pool: pool}, nil
 	}
 	return b.adaptiveStore.AdaptiveStatusSnapshot(ctx, pool)
+}
+
+func (b *RedisBroker) WorkerLifecycleSnapshots(ctx context.Context) ([]observability.WorkerLifecycleSnapshot, error) {
+	if b.workerStore == nil {
+		return nil, nil
+	}
+	return b.workerStore.WorkerLifecycleSnapshots(ctx)
 }
 
 func (b *RedisBroker) Ping(ctx context.Context) error {

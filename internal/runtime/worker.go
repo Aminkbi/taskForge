@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -40,6 +41,7 @@ type Worker struct {
 	QueueMetrics      QueueMetricsProvider
 	Adaptive          AdaptiveConfig
 	AdaptiveStore     AdaptiveStateWriter
+	LifecycleWriter   WorkerLifecycleWriter
 	runtimeState      *workerState
 }
 
@@ -48,6 +50,13 @@ type workerState struct {
 	pending              []*pendingDelivery
 	running              int
 	effectiveConcurrency int
+	workerID             string
+	lifecycleState       string
+	drainStartedAt       time.Time
+	drainDeadline        time.Time
+	lastShutdownOutcome  string
+	abandonedDeliveries  int
+	drainLeaseLosses     int
 	window               adaptiveWindow
 	healthyWindows       int
 	lastAdjustmentAction string
@@ -76,10 +85,10 @@ type dispatchCandidate struct {
 }
 
 func (w *Worker) Run(ctx context.Context) error {
-	return w.run(ctx, nil)
+	return w.run(ctx, nil, nil, 0)
 }
 
-func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
+func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan struct{}, shutdownTimeout time.Duration) error {
 	if w.Concurrency < 1 {
 		return fmt.Errorf("worker concurrency must be >= 1")
 	}
@@ -108,6 +117,8 @@ func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 	state := &workerState{
 		effectiveConcurrency: w.Concurrency,
 		pending:              make([]*pendingDelivery, 0, w.Prefetch),
+		workerID:             w.workerIdentity(),
+		lifecycleState:       "accepting",
 	}
 	w.runtimeState = state
 	w.publishAdaptiveState(ctx, state, observability.AdaptivePoolSnapshot{
@@ -120,29 +131,27 @@ func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 		MaxConcurrency:        float64(w.maxConcurrency()),
 	})
 	w.Metrics.SetWorkerEffectiveConcurrency(w.PoolName, w.Queue, float64(w.Concurrency))
+	w.publishLifecycleState(ctx, state)
 
-	controlCtx, cancelControl := context.WithCancel(ctx)
-	defer cancelControl()
-	if stop != nil {
-		go func() {
-			select {
-			case <-stop:
-				cancelControl()
-			case <-controlCtx.Done():
-			}
-		}()
-	}
+	reserveCtx, cancelReserve := context.WithCancel(ctx)
+	defer cancelReserve()
+	execCtx, cancelExec := context.WithCancel(ctx)
+	defer cancelExec()
 
 	reserveWake := make(chan struct{}, 1)
 	dispatchWake := make(chan struct{}, 1)
 	errCh := make(chan error, 1)
 	var loops sync.WaitGroup
 	var executions sync.WaitGroup
+	forcedReturn := make(chan struct{}, 1)
+	stopRefresh := make(chan struct{})
+
+	go w.lifecycleRefreshLoop(stopRefresh, state)
 
 	loops.Add(1)
 	go func() {
 		defer loops.Done()
-		if err := w.reserveLoop(controlCtx, state, reserveWake, dispatchWake); err != nil {
+		if err := w.reserveLoop(reserveCtx, execCtx, state, reserveWake, dispatchWake); err != nil {
 			select {
 			case errCh <- err:
 			default:
@@ -153,7 +162,7 @@ func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 	loops.Add(1)
 	go func() {
 		defer loops.Done()
-		if err := w.dispatchLoop(ctx, controlCtx, state, reserveWake, dispatchWake, errCh, &executions); err != nil {
+		if err := w.dispatchLoop(execCtx, state, reserveWake, dispatchWake, errCh, &executions); err != nil {
 			select {
 			case errCh <- err:
 			default:
@@ -165,7 +174,7 @@ func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 		loops.Add(1)
 		go func() {
 			defer loops.Done()
-			if err := w.adaptiveLoop(controlCtx, state, reserveWake, dispatchWake); err != nil {
+			if err := w.adaptiveLoop(reserveCtx, state, reserveWake, dispatchWake); err != nil {
 				select {
 				case errCh <- err:
 				default:
@@ -174,30 +183,73 @@ func (w *Worker) run(ctx context.Context, stop <-chan struct{}) error {
 		}()
 	}
 
+	if drain != nil {
+		go func() {
+			select {
+			case <-drain:
+				if w.beginDrain(ctx, state, shutdownTimeout) {
+					cancelReserve()
+					notify(reserveWake)
+					notify(dispatchWake)
+				}
+			case <-execCtx.Done():
+			}
+		}()
+	}
+
+	if force != nil {
+		go func() {
+			select {
+			case <-force:
+				w.forceStop(ctx, state, cancelReserve, cancelExec)
+				select {
+				case forcedReturn <- struct{}{}:
+				default:
+				}
+				notify(reserveWake)
+				notify(dispatchWake)
+			case <-execCtx.Done():
+			}
+		}()
+	}
+
 	done := make(chan struct{})
 	go func() {
 		loops.Wait()
-		executions.Wait()
+		if !w.isStopped(state) {
+			executions.Wait()
+		}
 		close(done)
 	}()
+	defer close(stopRefresh)
 
 	select {
 	case <-ctx.Done():
+		cancelReserve()
+		cancelExec()
+		w.stopPendingReservations(ctx, state, "context_canceled")
 		<-done
+		w.finishStopped(ctx, state)
+		return nil
+	case <-forcedReturn:
+		loops.Wait()
+		w.finishStopped(ctx, state)
 		return nil
 	case <-done:
+		w.finishStopped(ctx, state)
 		return nil
 	case err := <-errCh:
-		cancelControl()
-		w.stopPendingReservations(state)
+		w.beginDrain(ctx, state, 0)
+		cancelReserve()
 		notify(reserveWake)
 		notify(dispatchWake)
 		<-done
+		w.finishStopped(ctx, state)
 		return err
 	}
 }
 
-func (w *Worker) reserveLoop(ctx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}) error {
+func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}) error {
 	if w.RecoveryHealth != nil {
 		w.RecoveryHealth.MarkReady("worker reserve and reclaim loop healthy")
 	}
@@ -241,27 +293,30 @@ func (w *Worker) reserveLoop(ctx context.Context, state *workerState, reserveWak
 
 		entry := &pendingDelivery{
 			delivery:    delivery,
-			brokerLease: startLeaseExtender(ctx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+			brokerLease: startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
 		}
 
 		w.Metrics.IncReserved(tasks.EffectiveQueue(delivery.Message))
 		state.mu.Lock()
 		state.pending = append(state.pending, entry)
 		state.mu.Unlock()
-		go w.watchLeaseLoss(ctx, state, reserveWake, dispatchWake, entry)
+		go w.watchLeaseLoss(leaseCtx, state, reserveWake, dispatchWake, entry)
 		notify(dispatchWake)
 	}
 }
 
-func (w *Worker) dispatchLoop(execCtx, controlCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error, executions *sync.WaitGroup) error {
+func (w *Worker) dispatchLoop(execCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error, executions *sync.WaitGroup) error {
 	for {
-		candidate, ok, err := w.nextDispatchable(controlCtx, state, reserveWake, dispatchWake)
+		candidate, ok, err := w.nextDispatchable(execCtx, state, reserveWake, dispatchWake)
 		if err != nil {
 			return err
 		}
 		if !ok {
+			if w.shouldExitDispatch(state) {
+				return nil
+			}
 			select {
-			case <-controlCtx.Done():
+			case <-execCtx.Done():
 				return nil
 			case <-dispatchWake:
 			case <-time.After(25 * time.Millisecond):
@@ -802,6 +857,9 @@ func (w *Worker) maxConcurrency() int {
 func (w *Worker) canReserve(state *workerState) bool {
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	if state.lifecycleState != "accepting" {
+		return false
+	}
 	return state.running+len(state.pending) < minInt(w.Prefetch, state.effectiveConcurrency)
 }
 
@@ -872,6 +930,10 @@ func (w *Worker) watchLeaseLoss(ctx context.Context, state *workerState, reserve
 	case <-entry.brokerLease.Lost():
 	}
 
+	if w.isDraining(state) {
+		w.recordDrainLeaseLoss(ctx, state)
+	}
+
 	if w.dropPendingIfLeaseLost(state, reserveWake, dispatchWake, entry) {
 		return
 	}
@@ -920,10 +982,12 @@ func (w *Worker) dropPendingIfLeaseLost(state *workerState, reserveWake, dispatc
 	return true
 }
 
-func (w *Worker) stopPendingReservations(state *workerState) {
+func (w *Worker) stopPendingReservations(ctx context.Context, state *workerState, reason string) {
 	state.mu.Lock()
 	pending := append([]*pendingDelivery(nil), state.pending...)
 	state.pending = nil
+	state.abandonedDeliveries += len(pending)
+	snapshot := w.lifecycleSnapshotLocked(state)
 	state.mu.Unlock()
 
 	for _, entry := range pending {
@@ -932,6 +996,9 @@ func (w *Worker) stopPendingReservations(state *workerState) {
 		}
 		entry.brokerLease.Stop()
 	}
+
+	w.publishLifecycleSnapshot(ctx, snapshot)
+	w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, reason, float64(len(pending)))
 }
 
 func (w *Worker) abandonIfLeaseLost(delivery broker.Delivery, brokerLease *leaseHandle, phase string) bool {
@@ -984,6 +1051,28 @@ func (w *Worker) publishAdaptiveState(ctx context.Context, _ *workerState, snaps
 	}
 }
 
+func (w *Worker) publishLifecycleState(ctx context.Context, state *workerState) {
+	if state == nil {
+		return
+	}
+	w.publishLifecycleSnapshot(ctx, w.lifecycleSnapshot(state))
+}
+
+func (w *Worker) publishLifecycleSnapshot(ctx context.Context, snapshot observability.WorkerLifecycleSnapshot) {
+	if w.LifecycleWriter == nil {
+		return
+	}
+	baseCtx := context.Background()
+	if ctx != nil {
+		baseCtx = context.WithoutCancel(ctx)
+	}
+	storeCtx, cancel := context.WithTimeout(baseCtx, 2*time.Second)
+	defer cancel()
+	if err := w.LifecycleWriter.StoreWorkerLifecycleSnapshot(storeCtx, snapshot); err != nil {
+		w.Logger.Debug("worker lifecycle status store failed", "pool", w.PoolName, "queue", w.Queue, "worker_id", snapshot.WorkerID, "error", err)
+	}
+}
+
 func indexPendingEntry(deliveries []*pendingDelivery, deliveryID string) int {
 	for i, delivery := range deliveries {
 		if delivery.delivery.Execution.DeliveryID == deliveryID {
@@ -1023,6 +1112,162 @@ func (d *pendingDelivery) cancelExecutionOnLeaseLoss() bool {
 	}
 	cancel()
 	return true
+}
+
+func (w *Worker) workerIdentity() string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown-host"
+	}
+	return fmt.Sprintf("%s:%s:%d", w.consumerKey(), hostname, os.Getpid())
+}
+
+func (w *Worker) beginDrain(ctx context.Context, state *workerState, shutdownTimeout time.Duration) bool {
+	state.mu.Lock()
+	if state.lifecycleState != "accepting" {
+		state.mu.Unlock()
+		return false
+	}
+	now := time.Now().UTC()
+	state.lifecycleState = "draining"
+	state.drainStartedAt = now
+	if shutdownTimeout > 0 {
+		state.drainDeadline = now.Add(shutdownTimeout)
+	}
+	snapshot := w.lifecycleSnapshotLocked(state)
+	state.mu.Unlock()
+
+	w.publishLifecycleSnapshot(ctx, snapshot)
+	return true
+}
+
+func (w *Worker) forceStop(ctx context.Context, state *workerState, cancelReserve, cancelExec context.CancelFunc) {
+	cancelReserve()
+	cancelExec()
+
+	state.mu.Lock()
+	if state.lifecycleState == "stopped" {
+		state.mu.Unlock()
+		return
+	}
+	if state.lifecycleState != "draining" {
+		now := time.Now().UTC()
+		state.lifecycleState = "draining"
+		state.drainStartedAt = now
+	}
+	if state.drainDeadline.IsZero() {
+		state.drainDeadline = time.Now().UTC()
+	}
+	state.lastShutdownOutcome = "forced_timeout"
+	running := state.running
+	state.abandonedDeliveries += running
+	state.lifecycleState = "stopped"
+	snapshot := w.lifecycleSnapshotLocked(state)
+	state.mu.Unlock()
+
+	w.stopPendingReservations(ctx, state, "shutdown_timeout")
+	w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, "shutdown_timeout", float64(running))
+	w.Metrics.IncWorkerShutdownOutcome(w.PoolName, w.Queue, "forced_timeout")
+	w.publishLifecycleSnapshot(ctx, snapshot)
+}
+
+func (w *Worker) finishStopped(ctx context.Context, state *workerState) {
+	state.mu.Lock()
+	if state.lifecycleState != "stopped" {
+		state.lifecycleState = "stopped"
+	}
+	if state.lastShutdownOutcome == "" {
+		if state.drainStartedAt.IsZero() {
+			snapshot := w.lifecycleSnapshotLocked(state)
+			state.mu.Unlock()
+			w.publishLifecycleSnapshot(ctx, snapshot)
+			return
+		}
+		state.lastShutdownOutcome = "drained"
+		snapshot := w.lifecycleSnapshotLocked(state)
+		state.mu.Unlock()
+		w.Metrics.IncWorkerShutdownOutcome(w.PoolName, w.Queue, "drained")
+		w.publishLifecycleSnapshot(ctx, snapshot)
+		return
+	}
+	snapshot := w.lifecycleSnapshotLocked(state)
+	state.mu.Unlock()
+	w.publishLifecycleSnapshot(ctx, snapshot)
+}
+
+func (w *Worker) lifecycleRefreshLoop(stop <-chan struct{}, state *workerState) {
+	if w.LifecycleWriter == nil {
+		return
+	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			w.publishLifecycleState(context.Background(), state)
+		}
+	}
+}
+
+func (w *Worker) shouldExitDispatch(state *workerState) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.lifecycleState != "accepting" && state.running == 0 && len(state.pending) == 0
+}
+
+func (w *Worker) isStopped(state *workerState) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.lifecycleState == "stopped"
+}
+
+func (w *Worker) isDraining(state *workerState) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.lifecycleState == "draining"
+}
+
+func (w *Worker) recordDrainLeaseLoss(ctx context.Context, state *workerState) {
+	state.mu.Lock()
+	state.drainLeaseLosses++
+	snapshot := w.lifecycleSnapshotLocked(state)
+	state.mu.Unlock()
+
+	w.Metrics.IncWorkerDrainLeaseLoss(w.PoolName, w.Queue)
+	w.publishLifecycleSnapshot(ctx, snapshot)
+}
+
+func (w *Worker) lifecycleSnapshot(state *workerState) observability.WorkerLifecycleSnapshot {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return w.lifecycleSnapshotLocked(state)
+}
+
+func (w *Worker) LifecycleSnapshot() (observability.WorkerLifecycleSnapshot, bool) {
+	if w == nil || w.runtimeState == nil {
+		return observability.WorkerLifecycleSnapshot{}, false
+	}
+	return w.lifecycleSnapshot(w.runtimeState), true
+}
+
+func (w *Worker) lifecycleSnapshotLocked(state *workerState) observability.WorkerLifecycleSnapshot {
+	return observability.WorkerLifecycleSnapshot{
+		WorkerID:            state.workerID,
+		Pool:                w.PoolName,
+		Queue:               w.Queue,
+		State:               state.lifecycleState,
+		Pending:             float64(len(state.pending)),
+		Running:             float64(state.running),
+		DrainStartedAt:      state.drainStartedAt,
+		DrainDeadline:       state.drainDeadline,
+		LastShutdownOutcome: state.lastShutdownOutcome,
+		AbandonedDeliveries: float64(state.abandonedDeliveries),
+		DrainLeaseLosses:    float64(state.drainLeaseLosses),
+		UpdatedAt:           time.Now().UTC(),
+	}
 }
 
 func notify(ch chan struct{}) {

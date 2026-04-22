@@ -29,10 +29,12 @@ TaskForge's execution contract is explicit:
 - Delivery is `at-least-once`.
 - Duplicate deliveries are possible.
 - Handlers must be idempotent.
+- Handlers should respect `ctx.Done()` because worker drain cancels long-running execution after the shutdown grace window expires.
 - Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
 - Exactly-once execution is out of scope.
 
 Internally, the runtime distinguishes the logical `task_id` from a single `delivery_id` so stale acknowledgements can be rejected deterministically.
+Worker shutdown is explicit: on drain, workers stop reserving new deliveries first, keep renewing owned leases for already-reserved work, and only force-cancel remaining execution when `TASKFORGE_SHUTDOWN_TIMEOUT` expires. Lease loss means local execution ownership is no longer authoritative, so cancellation-insensitive handlers may still produce duplicate side effects.
 
 The repository builds and starts three binaries:
 
@@ -203,6 +205,7 @@ TASKFORGE_SERVICE_NAME=taskforge
 ```
 
 `TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
+`TASKFORGE_SHUTDOWN_TIMEOUT` is also the worker drain grace window: workers stop taking new work immediately on shutdown, then either drain successfully within that window or force-abandon remaining owned deliveries.
 
 Workers are configured as isolated queue pools through `TASKFORGE_WORKER_POOLS_JSON`.
 Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, queue-local task caps, optional fairness rules, optional adaptive concurrency control, and queue-local admission control.
@@ -333,6 +336,10 @@ Worker metrics now include queue-aware counters and gauges, including:
 - `taskforge_admission_signal`
 - `taskforge_worker_effective_concurrency`
 - `taskforge_worker_concurrency_adjustments_total`
+- `taskforge_worker_lifecycle_state`
+- `taskforge_worker_shutdown_outcomes_total`
+- `taskforge_worker_abandoned_deliveries_total`
+- `taskforge_worker_drain_lease_losses_total`
 - `taskforge_dependency_budget_capacity`
 - `taskforge_dependency_budget_in_use`
 - `taskforge_dependency_budget_blocked_total`
@@ -345,10 +352,13 @@ The API process also exposes:
 - `/v1/admin/ping`
 - `/v1/admin/admission`
 - `/v1/admin/adaptive`
+- `/v1/admin/workers`
 
 `/v1/admin/admission` reports each queue's configured mode, current admission state, dominant rejection or defer reason, the latest signal snapshot, and `defer_interval`.
 
 `/v1/admin/adaptive` reports each worker pool's effective concurrency, configured bounds, latest adjustment reason, sampled adaptive signals, and cluster-wide dependency budget usage.
+
+`/v1/admin/workers` reports each worker instance's lifecycle state, current pending and running ownership, drain timestamps, shutdown outcome, abandoned-delivery count, and drain-time lease losses.
 
 ## Testing
 

@@ -92,6 +92,25 @@ type AdaptiveStatusProvider interface {
 	AdaptiveStatusSnapshot(ctx context.Context, pool string) (AdaptivePoolSnapshot, error)
 }
 
+type WorkerLifecycleSnapshot struct {
+	WorkerID            string
+	Pool                string
+	Queue               string
+	State               string
+	Pending             float64
+	Running             float64
+	DrainStartedAt      time.Time
+	DrainDeadline       time.Time
+	LastShutdownOutcome string
+	AbandonedDeliveries float64
+	DrainLeaseLosses    float64
+	UpdatedAt           time.Time
+}
+
+type WorkerLifecycleProvider interface {
+	WorkerLifecycleSnapshots(ctx context.Context) ([]WorkerLifecycleSnapshot, error)
+}
+
 type Metrics struct {
 	Registry                           *prometheus.Registry
 	TasksPublishedTotal                *prometheus.CounterVec
@@ -114,6 +133,9 @@ type Metrics struct {
 	WorkerConcurrencyAdjustmentsTotal  *prometheus.CounterVec
 	DependencyBudgetBlockedTotal       *prometheus.CounterVec
 	DependencyBudgetLeaseRenewFailures *prometheus.CounterVec
+	WorkerShutdownOutcomesTotal        *prometheus.CounterVec
+	WorkerAbandonedDeliveriesTotal     *prometheus.CounterVec
+	WorkerDrainLeaseLossesTotal        *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -207,6 +229,18 @@ func NewMetrics() *Metrics {
 			Name: "taskforge_dependency_budget_lease_renew_failures_total",
 			Help: "Total number of dependency budget lease renewals that failed.",
 		}, []string{"budget"}),
+		WorkerShutdownOutcomesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_worker_shutdown_outcomes_total",
+			Help: "Total number of worker shutdown outcomes by pool, queue, and outcome.",
+		}, []string{"pool", "queue", "outcome"}),
+		WorkerAbandonedDeliveriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_worker_abandoned_deliveries_total",
+			Help: "Total number of worker-owned deliveries abandoned during shutdown by pool, queue, and reason.",
+		}, []string{"pool", "queue", "reason"}),
+		WorkerDrainLeaseLossesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "taskforge_worker_drain_lease_losses_total",
+			Help: "Total number of worker lease losses observed while draining by pool and queue.",
+		}, []string{"pool", "queue"}),
 	}
 
 	registry.MustRegister(
@@ -230,6 +264,9 @@ func NewMetrics() *Metrics {
 		m.WorkerConcurrencyAdjustmentsTotal,
 		m.DependencyBudgetBlockedTotal,
 		m.DependencyBudgetLeaseRenewFailures,
+		m.WorkerShutdownOutcomesTotal,
+		m.WorkerAbandonedDeliveriesTotal,
+		m.WorkerDrainLeaseLossesTotal,
 	)
 
 	return m
@@ -388,6 +425,27 @@ func (m *Metrics) IncDependencyBudgetLeaseRenewFailure(budget string) {
 	m.DependencyBudgetLeaseRenewFailures.WithLabelValues(sanitizeBudgetName(budget)).Inc()
 }
 
+func (m *Metrics) IncWorkerShutdownOutcome(pool, queue, outcome string) {
+	if m == nil {
+		return
+	}
+	m.WorkerShutdownOutcomesTotal.WithLabelValues(sanitizePoolName(pool), queue, sanitizeShutdownOutcome(outcome)).Inc()
+}
+
+func (m *Metrics) AddWorkerAbandonedDeliveries(pool, queue, reason string, count float64) {
+	if m == nil || count <= 0 {
+		return
+	}
+	m.WorkerAbandonedDeliveriesTotal.WithLabelValues(sanitizePoolName(pool), queue, sanitizeAbandonReason(reason)).Add(count)
+}
+
+func (m *Metrics) IncWorkerDrainLeaseLoss(pool, queue string) {
+	if m == nil {
+		return
+	}
+	m.WorkerDrainLeaseLossesTotal.WithLabelValues(sanitizePoolName(pool), queue).Inc()
+}
+
 func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
 	if m == nil || provider == nil || len(queues) == 0 {
 		return nil
@@ -532,6 +590,22 @@ func (m *Metrics) RegisterDependencyBudgetCollector(provider DependencyBudgetUsa
 	})
 }
 
+func (m *Metrics) RegisterWorkerLifecycleCollector(provider WorkerLifecycleProvider) error {
+	if m == nil || provider == nil {
+		return nil
+	}
+
+	return m.Registry.Register(&workerLifecycleCollector{
+		provider: provider,
+		state: prometheus.NewDesc(
+			"taskforge_worker_lifecycle_state",
+			"Current lifecycle state for a worker.",
+			[]string{"pool", "queue", "worker_id", "state"},
+			nil,
+		),
+	})
+}
+
 func normalizeQueues(queues []string) []string {
 	cleanQueues := slices.Clone(queues)
 	slices.Sort(cleanQueues)
@@ -644,6 +718,11 @@ type dependencyBudgetCollector struct {
 	inUse    *prometheus.Desc
 }
 
+type workerLifecycleCollector struct {
+	provider WorkerLifecycleProvider
+	state    *prometheus.Desc
+}
+
 func (c *schedulerLagCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.lag
 }
@@ -708,6 +787,38 @@ func (c *dependencyBudgetCollector) Collect(ch chan<- prometheus.Metric) {
 		budget := sanitizeBudgetName(snapshot.Budget)
 		ch <- prometheus.MustNewConstMetric(c.capacity, prometheus.GaugeValue, snapshot.Capacity, budget)
 		ch <- prometheus.MustNewConstMetric(c.inUse, prometheus.GaugeValue, snapshot.InUse, budget)
+	}
+}
+
+func (c *workerLifecycleCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.state
+}
+
+func (c *workerLifecycleCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	snapshots, err := c.provider.WorkerLifecycleSnapshots(ctx)
+	cancel()
+	if err != nil {
+		return
+	}
+
+	for _, snapshot := range snapshots {
+		state := sanitizeLifecycleState(snapshot.State)
+		for _, candidate := range []string{"accepting", "draining", "stopped"} {
+			value := 0.0
+			if state == candidate {
+				value = 1
+			}
+			ch <- prometheus.MustNewConstMetric(
+				c.state,
+				prometheus.GaugeValue,
+				value,
+				sanitizePoolName(snapshot.Pool),
+				snapshot.Queue,
+				sanitizeWorkerID(snapshot.WorkerID),
+				candidate,
+			)
+		}
 	}
 }
 
@@ -789,4 +900,36 @@ func sanitizeAdmissionReason(reason string) string {
 		return "none"
 	}
 	return reason
+}
+
+func sanitizeLifecycleState(state string) string {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return "unknown"
+	}
+	return state
+}
+
+func sanitizeShutdownOutcome(outcome string) string {
+	outcome = strings.TrimSpace(outcome)
+	if outcome == "" {
+		return "unknown"
+	}
+	return outcome
+}
+
+func sanitizeAbandonReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "unknown"
+	}
+	return reason
+}
+
+func sanitizeWorkerID(workerID string) string {
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return "unknown"
+	}
+	return workerID
 }

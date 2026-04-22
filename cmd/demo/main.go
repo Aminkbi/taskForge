@@ -112,7 +112,10 @@ func main() {
 	}
 	_ = metrics.RegisterQueueMetricsCollector(brokerInstance, queueNames)
 	_ = metrics.RegisterFairnessMetricsCollector(brokerInstance, queueNames)
-	manager := &runtimepkg.Manager{Workers: workers}
+	manager := &runtimepkg.Manager{
+		Workers:         workers,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}
 	demoQueue := cfg.WorkerPools[0].Queue
 
 	recurringSchedules := cfg.RecurringSchedules

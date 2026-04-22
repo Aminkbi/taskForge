@@ -3,10 +3,14 @@ package runtime
 import (
 	"context"
 	"sync"
+	"time"
+
+	"github.com/aminkbi/taskforge/internal/observability"
 )
 
 type Manager struct {
-	Workers []*Worker
+	Workers         []*Worker
+	ShutdownTimeout time.Duration
 }
 
 func (m *Manager) Run(ctx context.Context) error {
@@ -16,15 +20,19 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 
 	errCh := make(chan error, len(m.Workers))
-	stopWorkers := make(chan struct{})
-	var stopOnce sync.Once
+	drainWorkers := make(chan struct{})
+	forceWorkers := make(chan struct{})
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	var drainOnce sync.Once
+	var forceOnce sync.Once
 	var wg sync.WaitGroup
 	for _, worker := range m.Workers {
 		worker := worker
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := worker.run(ctx, stopWorkers); err != nil {
+			if err := worker.run(runCtx, drainWorkers, forceWorkers, m.ShutdownTimeout); err != nil {
 				errCh <- err
 			}
 		}()
@@ -38,13 +46,49 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		<-done
+		drainOnce.Do(func() {
+			close(drainWorkers)
+		})
+		if m.ShutdownTimeout <= 0 {
+			forceOnce.Do(func() {
+				close(forceWorkers)
+			})
+			cancel()
+			<-done
+			return nil
+		}
+		select {
+		case <-done:
+			return nil
+		case <-time.After(m.ShutdownTimeout):
+			forceOnce.Do(func() {
+				close(forceWorkers)
+			})
+			cancel()
+			<-done
+		}
 		return nil
 	case err := <-errCh:
-		stopOnce.Do(func() {
-			close(stopWorkers)
+		forceOnce.Do(func() {
+			close(forceWorkers)
 		})
+		cancel()
 		<-done
 		return err
 	}
+}
+
+func (m *Manager) WorkerLifecycleSnapshots(context.Context) ([]observability.WorkerLifecycleSnapshot, error) {
+	snapshots := make([]observability.WorkerLifecycleSnapshot, 0, len(m.Workers))
+	for _, worker := range m.Workers {
+		if worker == nil {
+			continue
+		}
+		snapshot, ok := worker.LifecycleSnapshot()
+		if !ok {
+			continue
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
 }

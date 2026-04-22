@@ -99,7 +99,10 @@ func main() {
 	runCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 
-	manager := &runtimepkg.Manager{Workers: []*runtimepkg.Worker{worker}}
+	manager := &runtimepkg.Manager{
+		Workers:         []*runtimepkg.Worker{worker},
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- manager.Run(runCtx)

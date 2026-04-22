@@ -64,9 +64,65 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		})
 		mux.HandleFunc("/v1/admin/admission", admissionHandler(b, queues))
 		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
+		mux.HandleFunc("/v1/admin/workers", workerLifecycleHandler(b))
 	})
 
 	return &App{server: server}
+}
+
+func workerLifecycleHandler(provider observability.WorkerLifecycleProvider) http.HandlerFunc {
+	type workerStatus struct {
+		WorkerID            string  `json:"worker_id"`
+		Pool                string  `json:"pool"`
+		Queue               string  `json:"queue"`
+		State               string  `json:"state"`
+		Pending             float64 `json:"pending"`
+		Running             float64 `json:"running"`
+		DrainStartedAt      string  `json:"drain_started_at,omitempty"`
+		DrainDeadline       string  `json:"drain_deadline,omitempty"`
+		LastShutdownOutcome string  `json:"last_shutdown_outcome,omitempty"`
+		AbandonedDeliveries float64 `json:"abandoned_deliveries"`
+		DrainLeaseLosses    float64 `json:"drain_lease_losses"`
+		UpdatedAt           string  `json:"updated_at"`
+	}
+	type responseBody struct {
+		Workers []workerStatus `json:"workers"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		snapshots, err := provider.WorkerLifecycleSnapshots(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		response := responseBody{Workers: make([]workerStatus, 0, len(snapshots))}
+		for _, snapshot := range snapshots {
+			item := workerStatus{
+				WorkerID:            snapshot.WorkerID,
+				Pool:                snapshot.Pool,
+				Queue:               snapshot.Queue,
+				State:               snapshot.State,
+				Pending:             snapshot.Pending,
+				Running:             snapshot.Running,
+				LastShutdownOutcome: snapshot.LastShutdownOutcome,
+				AbandonedDeliveries: snapshot.AbandonedDeliveries,
+				DrainLeaseLosses:    snapshot.DrainLeaseLosses,
+				UpdatedAt:           snapshot.UpdatedAt.UTC().Format(time.RFC3339Nano),
+			}
+			if !snapshot.DrainStartedAt.IsZero() {
+				item.DrainStartedAt = snapshot.DrainStartedAt.UTC().Format(time.RFC3339Nano)
+			}
+			if !snapshot.DrainDeadline.IsZero() {
+				item.DrainDeadline = snapshot.DrainDeadline.UTC().Format(time.RFC3339Nano)
+			}
+			response.Workers = append(response.Workers, item)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(response)
+	}
 }
 
 func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budgetProvider observability.DependencyBudgetUsageProvider, pools []config.WorkerPoolConfig) http.HandlerFunc {
