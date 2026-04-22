@@ -1145,6 +1145,8 @@ func (w *Worker) forceStop(ctx context.Context, state *workerState, cancelReserv
 	cancelReserve()
 	cancelExec()
 
+	var pending []*pendingDelivery
+	var pendingAbandoned int
 	state.mu.Lock()
 	if state.lifecycleState == "stopped" {
 		state.mu.Unlock()
@@ -1160,12 +1162,23 @@ func (w *Worker) forceStop(ctx context.Context, state *workerState, cancelReserv
 	}
 	state.lastShutdownOutcome = "forced_timeout"
 	running := state.running
+	pending = append([]*pendingDelivery(nil), state.pending...)
+	state.pending = nil
+	pendingAbandoned = len(pending)
 	state.abandonedDeliveries += running
+	state.abandonedDeliveries += pendingAbandoned
 	state.lifecycleState = "stopped"
 	snapshot := w.lifecycleSnapshotLocked(state)
 	state.mu.Unlock()
 
-	w.stopPendingReservations(ctx, state, "shutdown_timeout")
+	for _, entry := range pending {
+		if entry == nil || entry.brokerLease == nil {
+			continue
+		}
+		entry.brokerLease.Stop()
+	}
+
+	w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, "shutdown_timeout", float64(pendingAbandoned))
 	w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, "shutdown_timeout", float64(running))
 	w.Metrics.IncWorkerShutdownOutcome(w.PoolName, w.Queue, "forced_timeout")
 	w.publishLifecycleSnapshot(ctx, snapshot)

@@ -202,6 +202,83 @@ func TestManagerForcedShutdownReturnsAfterTimeout(t *testing.T) {
 	}
 }
 
+func TestManagerForcedShutdownDoesNotDispatchPendingBufferedWork(t *testing.T) {
+	t.Parallel()
+
+	stub := newQueueBrokerStub(map[string][]broker.Delivery{
+		"default": {
+			testDeliveryWithQueue("task-1", "default", "shared.task"),
+			testDeliveryWithQueue("task-2", "default", "shared.task"),
+		},
+	})
+
+	started := make(chan string, 4)
+	block := make(chan struct{})
+	worker := newQueueWorkerForTest(stub, "default", HandlerFunc(func(_ context.Context, msg broker.TaskMessage) error {
+		started <- msg.ID
+		if msg.ID == "task-1" {
+			<-block
+		}
+		return nil
+	}))
+	worker.Concurrency = 2
+	worker.Prefetch = 2
+	worker.GlobalTaskLimiter = NewTaskTypeLimiter(map[string]int{"shared.task": 1})
+
+	manager := &Manager{
+		Workers:         []*Worker{worker},
+		ShutdownTimeout: 50 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Run(ctx)
+	}()
+
+	if first := waitForStartedTask(t, started); first != "task-1" {
+		t.Fatalf("first started task = %q, want %q", first, "task-1")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, ok := worker.LifecycleSnapshot()
+		if ok && snapshot.Pending == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	snapshot, ok := worker.LifecycleSnapshot()
+	if !ok {
+		t.Fatal("LifecycleSnapshot() unavailable")
+	}
+	if snapshot.Pending != 1 {
+		t.Fatalf("pending deliveries before shutdown = %v, want 1", snapshot.Pending)
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("manager.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager did not stop after shutdown timeout")
+	}
+
+	select {
+	case taskID := <-started:
+		t.Fatalf("unexpected task started after forced shutdown: %q", taskID)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(block)
+}
+
 func TestWorkerBudgetGatedTasksStayPendingUntilTokensFreeUp(t *testing.T) {
 	t.Parallel()
 
