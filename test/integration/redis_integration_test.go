@@ -1854,6 +1854,47 @@ func TestSchedulerRecurringRescheduleUpdatesDueIndex(t *testing.T) {
 	waitForSchedulerStop(t, errCh)
 }
 
+func TestRecurringRemoveFromDueIndexRejectsStaleLeadershipFence(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	store := schedulerpkg.NewRedisScheduleStateStore(client)
+	scheduleID := "integration-recurring-stale-remove"
+	currentFence := integrationLeadershipFence("scheduler-a", 1)
+	setIntegrationLeadership(t, ctx, client, currentFence, time.Minute)
+
+	if err := store.SaveIndexed(ctx, currentFence, scheduleID, schedulerpkg.ScheduleState{
+		NextRunAt:      now.Add(time.Minute),
+		DefinitionHash: "hash-1",
+		MisfirePolicy:  schedulerpkg.MisfirePolicyCoalesce,
+	}); err != nil {
+		t.Fatalf("SaveIndexed() error = %v", err)
+	}
+
+	newFence := integrationLeadershipFence("scheduler-b", 2)
+	setIntegrationLeadership(t, ctx, client, newFence, time.Minute)
+
+	err := store.RemoveFromDueIndex(ctx, currentFence, scheduleID)
+	if !errors.Is(err, schedulerpkg.ErrLeadershipLost) {
+		t.Fatalf("RemoveFromDueIndex() error = %v, want ErrLeadershipLost", err)
+	}
+
+	score, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result()
+	if err != nil {
+		t.Fatalf("ZScore() recurring due index error = %v", err)
+	}
+	if int64(score) <= 0 {
+		t.Fatalf("due index score = %d, want preserved member", int64(score))
+	}
+
+	if err := store.RemoveFromDueIndex(ctx, newFence, scheduleID); err != nil {
+		t.Fatalf("RemoveFromDueIndex() with current fence error = %v", err)
+	}
+	if _, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result(); err == nil {
+		t.Fatal("due index member still exists after current leader removal")
+	}
+}
+
 func TestWorkerPermanentErrorGoesDirectlyToDeadLetter(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())

@@ -243,7 +243,11 @@ func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, fence Lead
 
 func (s *RedisScheduleStateStore) RemoveFromDueIndex(ctx context.Context, fence LeadershipFence, scheduleID string) error {
 	return s.execWithFence(ctx, fence, "remove_due_index", func(tx *redis.Tx) error {
-		if err := tx.ZRem(ctx, s.dueIndexKey(), scheduleID).Err(); err != nil {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.ZRem(ctx, s.dueIndexKey(), scheduleID)
+			return nil
+		})
+		if err != nil {
 			return fmt.Errorf("remove recurring schedule from due index: %w", err)
 		}
 		return nil
