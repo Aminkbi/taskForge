@@ -218,6 +218,55 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "ns/scheduler_lag")
 }
 
+func BenchmarkDelayedQueueIndexSkipsUnrelatedBacklog(b *testing.B) {
+	env := newBenchEnv(b, 30*time.Second)
+	fence := benchLeadershipFence("bench-delayed-index", 1)
+	setBenchLeadership(b, env.client, fence, time.Minute)
+
+	base := time.Now().UTC()
+	for i := 0; i < 10000; i++ {
+		eta := base.Add(time.Hour).Add(time.Duration(i) * time.Millisecond)
+		msg := benchmarkMessage("unrelated-delayed", i)
+		msg.Queue = "bulk"
+		msg.ETA = &eta
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			b.Fatalf("Publish() unrelated delayed error = %v", err)
+		}
+	}
+
+	var total time.Duration
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		eta := time.Now().UTC().Add(10 * time.Millisecond)
+		msg := benchmarkMessage("critical-delayed", i)
+		msg.Queue = "critical"
+		msg.ETA = &eta
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			b.Fatalf("Publish() critical delayed error = %v", err)
+		}
+
+		start := time.Now()
+		moved, err := env.broker.MoveDue(env.ctx, fence, eta.Add(time.Second), 1)
+		if err != nil {
+			b.Fatalf("MoveDue() error = %v", err)
+		}
+		total += time.Since(start)
+		if moved != 1 {
+			b.Fatalf("MoveDue() moved = %d, want 1", moved)
+		}
+		delivery, err := env.broker.Reserve(env.ctx, "critical", "bench-delayed-index-worker")
+		if err != nil {
+			b.Fatalf("Reserve() critical error = %v", err)
+		}
+		if err := env.broker.Ack(env.ctx, delivery); err != nil {
+			b.Fatalf("Ack() critical error = %v", err)
+		}
+	}
+	b.StopTimer()
+
+	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "ns/move_due")
+}
+
 func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
 	dueAt := time.Date(2026, 4, 15, 10, 0, 0, 123000000, time.UTC)
 	warmupNow := dueAt.Add(-time.Hour)

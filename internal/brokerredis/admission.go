@@ -226,26 +226,9 @@ func (b *RedisBroker) oldestQueueReadyAge(ctx context.Context, queue string, now
 }
 
 func (b *RedisBroker) retryBacklog(ctx context.Context, queue string) (int64, error) {
-	values, err := b.client.ZRange(ctx, b.delayedKey(), 0, -1).Result()
+	count, err := b.client.ZCard(ctx, b.delayedRetryIndexKey(queue)).Result()
 	if err != nil {
 		return 0, fmt.Errorf("retry backlog %q: %w", queue, err)
-	}
-
-	var count int64
-	for _, raw := range values {
-		entry, err := decodeDelayedEntry(raw)
-		if err != nil {
-			return 0, fmt.Errorf("retry backlog %q: decode delayed entry: %w", queue, err)
-		}
-		if tasks.EffectiveQueue(entry.Message) != queue {
-			continue
-		}
-		if entry.Message.Headers == nil {
-			continue
-		}
-		if entry.Message.Headers[tasks.HeaderRetryScheduledAt] != "" {
-			count++
-		}
 	}
 	return count, nil
 }

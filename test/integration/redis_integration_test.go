@@ -513,10 +513,7 @@ func TestRedisBrokerAdmissionDefersWhenPendingCapReached(t *testing.T) {
 	if streamLen != 1 {
 		t.Fatalf("stream length = %d, want 1", streamLen)
 	}
-	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
-	if err != nil {
-		t.Fatalf("ZCard() error = %v", err)
-	}
+	delayedCount := delayedQueueCount(t, ctx, client, "default")
 	if delayedCount != 1 {
 		t.Fatalf("delayed count = %d, want 1", delayedCount)
 	}
@@ -568,10 +565,7 @@ func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 	if streamLen != 1 {
 		t.Fatalf("stream length = %d, want 1", streamLen)
 	}
-	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
-	if err != nil {
-		t.Fatalf("ZCard() error = %v", err)
-	}
+	delayedCount := delayedQueueCount(t, ctx, client, "default")
 	if delayedCount != 0 {
 		t.Fatalf("delayed count = %d, want 0", delayedCount)
 	}
@@ -693,10 +687,7 @@ func TestRedisBrokerAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
 		t.Fatalf("tenant-b result = %+v, want accepted", result)
 	}
 
-	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
-	if err != nil {
-		t.Fatalf("ZCard() error = %v", err)
-	}
+	delayedCount := delayedQueueCount(t, ctx, client, "default")
 	if delayedCount != 1 {
 		t.Fatalf("delayed count = %d, want 1", delayedCount)
 	}
@@ -850,12 +841,78 @@ func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 	if streamLen != 1 {
 		t.Fatalf("stream length = %d, want 1", streamLen)
 	}
-	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
-	if err != nil {
-		t.Fatalf("ZCard() error = %v", err)
-	}
+	delayedCount := delayedQueueCount(t, ctx, client, "default")
 	if delayedCount != 1 {
 		t.Fatalf("delayed count = %d, want 1", delayedCount)
+	}
+}
+
+func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+			"default": {
+				Mode:            brokerredis.AdmissionModeReject,
+				MaxRetryBacklog: 1,
+				DeferInterval:   50 * time.Millisecond,
+			},
+			"bulk": {
+				Mode:            brokerredis.AdmissionModeReject,
+				MaxRetryBacklog: 10,
+				DeferInterval:   50 * time.Millisecond,
+			},
+		},
+	})
+
+	eta := time.Now().UTC().Add(time.Minute)
+	for _, msg := range []broker.TaskMessage{
+		{
+			ID:        "retry-backlog-default",
+			Name:      "integration.retry",
+			Queue:     "default",
+			Headers:   map[string]string{tasks.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
+			ETA:       &eta,
+			CreatedAt: time.Now().UTC(),
+		},
+		{
+			ID:        "retry-backlog-bulk",
+			Name:      "integration.retry",
+			Queue:     "bulk",
+			Headers:   map[string]string{tasks.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
+			ETA:       &eta,
+			CreatedAt: time.Now().UTC(),
+		},
+	} {
+		if _, err := brokerInstance.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() retry backlog seed %q error = %v", msg.ID, err)
+		}
+	}
+
+	snapshot, err := brokerInstance.AdmissionStatusSnapshot(ctx, "default", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("AdmissionStatusSnapshot() error = %v", err)
+	}
+	if snapshot.RetryBacklog != 1 || snapshot.State != "rejecting" || snapshot.Reason != "retry_backlog" {
+		t.Fatalf("default admission snapshot = %+v, want one retry backlog and retry_backlog rejection", snapshot)
+	}
+
+	_, err = brokerInstance.Publish(ctx, broker.TaskMessage{
+		ID:        "retry-backlog-rejected",
+		Name:      "integration.retry",
+		Queue:     "default",
+		CreatedAt: time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	var admissionErr *broker.AdmissionError
+	if !errors.As(err, &admissionErr) || admissionErr.Reason != "retry_backlog" {
+		t.Fatalf("Publish() error = %v, want retry_backlog admission error", err)
+	}
+
+	if delayedQueueCount(t, ctx, client, "default") != 1 {
+		t.Fatal("default retry backlog should remain isolated in default delayed queue")
+	}
+	if delayedQueueCount(t, ctx, client, "bulk") != 1 {
+		t.Fatal("bulk retry backlog should remain isolated in bulk delayed queue")
 	}
 }
 
@@ -1328,6 +1385,62 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	}
 }
 
+func TestRedisBrokerMoveDueUsesQueueIndexForRelevantDueWork(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	for i := 0; i < 100; i++ {
+		eta := now.Add(time.Hour).Add(time.Duration(i) * time.Millisecond)
+		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+			ID:        fmt.Sprintf("bulk-future-%d", i),
+			Name:      "integration.delayed",
+			Queue:     "bulk",
+			ETA:       &eta,
+			CreatedAt: now,
+		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() bulk future %d error = %v", i, err)
+		}
+	}
+
+	dueAt := time.Now().UTC().Add(time.Second)
+	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		ID:        "critical-due",
+		Name:      "integration.delayed",
+		Queue:     "critical",
+		ETA:       &dueAt,
+		CreatedAt: time.Now().UTC(),
+	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() critical due error = %v", err)
+	}
+
+	fence := integrationLeadershipFence("direct-move-due", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+	moved, err := brokerInstance.MoveDue(ctx, fence, dueAt.Add(time.Second), 1)
+	if err != nil {
+		t.Fatalf("MoveDue() error = %v", err)
+	}
+	if moved != 1 {
+		t.Fatalf("MoveDue() moved = %d, want 1", moved)
+	}
+
+	delivery, err := brokerInstance.Reserve(ctx, "critical", "critical-delayed-consumer")
+	if err != nil {
+		t.Fatalf("Reserve() critical due task error = %v", err)
+	}
+	if delivery.Message.ID != "critical-due" {
+		t.Fatalf("Reserve() critical id = %q, want critical-due", delivery.Message.ID)
+	}
+	if err := brokerInstance.Ack(ctx, delivery); err != nil {
+		t.Fatalf("Ack() critical due task error = %v", err)
+	}
+	if delayedQueueCount(t, ctx, client, "bulk") != 100 {
+		t.Fatal("bulk delayed backlog should remain untouched")
+	}
+	if delayedQueueCount(t, ctx, client, "critical") != 0 {
+		t.Fatal("critical delayed queue should be empty after due release")
+	}
+}
+
 func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -1427,10 +1540,7 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 	if streamLen != 1 {
 		t.Fatalf("stream length = %d, want 1", streamLen)
 	}
-	delayedCount, err := client.ZCard(ctx, "taskforge:delayed").Result()
-	if err != nil {
-		t.Fatalf("ZCard() error = %v", err)
-	}
+	delayedCount := delayedQueueCount(t, ctx, client, "default")
 	if delayedCount != 0 {
 		t.Fatalf("delayed count = %d, want 0", delayedCount)
 	}
@@ -1460,17 +1570,14 @@ func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 	}
 
 	runWorkerUntil(t, worker, func() (bool, error) {
-		values, err := client.ZRange(ctx, "taskforge:delayed", 0, -1).Result()
+		values, err := client.ZRange(ctx, "taskforge:delayed:queue:default", 0, -1).Result()
 		if err != nil {
 			return false, err
 		}
 		return len(values) == 1, nil
 	})
 
-	values, err := client.ZRange(ctx, "taskforge:delayed", 0, -1).Result()
-	if err != nil {
-		t.Fatalf("ZRange() error = %v", err)
-	}
+	values := delayedQueueEntries(t, ctx, client, "default")
 	var retried struct {
 		Message broker.TaskMessage `json:"message"`
 	}
@@ -2181,6 +2288,26 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 	return ctx, brokerredis.NewWithOptions(client, slog.Default(), leaseTTL, nil, brokerredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	}), client
+}
+
+func delayedQueueCount(t *testing.T, ctx context.Context, client *redis.Client, queue string) int64 {
+	t.Helper()
+
+	count, err := client.ZCard(ctx, "taskforge:delayed:queue:"+queue).Result()
+	if err != nil {
+		t.Fatalf("ZCard() delayed queue %q error = %v", queue, err)
+	}
+	return count
+}
+
+func delayedQueueEntries(t *testing.T, ctx context.Context, client *redis.Client, queue string) []string {
+	t.Helper()
+
+	values, err := client.ZRange(ctx, "taskforge:delayed:queue:"+queue, 0, -1).Result()
+	if err != nil {
+		t.Fatalf("ZRange() delayed queue %q error = %v", queue, err)
+	}
+	return values
 }
 
 func mustFairnessPolicy(t *testing.T, defaultRule fairness.Rule, rules []fairness.Rule) *fairness.Policy {
