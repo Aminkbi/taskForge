@@ -19,6 +19,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/brokerredis"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/dlq"
+	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
@@ -267,6 +268,124 @@ func BenchmarkDelayedQueueIndexSkipsUnrelatedBacklog(b *testing.B) {
 	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "ns/move_due")
 }
 
+func BenchmarkMultiQueuePublishReserveAck(b *testing.B) {
+	env := newBenchEnv(b, 30*time.Second)
+	queues := []string{"critical", "default", "bulk", "media"}
+	for i := 0; i < b.N; i++ {
+		msg := benchmarkMessage("multi-queue", i)
+		msg.Queue = queues[i%len(queues)]
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			b.Fatalf("Publish() error = %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		queue := queues[i%len(queues)]
+		delivery, err := env.broker.Reserve(env.ctx, queue, "bench-multi-"+queue)
+		if err != nil {
+			b.Fatalf("Reserve(%q) error = %v", queue, err)
+		}
+		if err := env.broker.Ack(env.ctx, delivery); err != nil {
+			b.Fatalf("Ack(%q) error = %v", queue, err)
+		}
+	}
+}
+
+func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
+	policy, err := fairness.NewPolicy(fairness.Rule{}, []fairness.Rule{
+		{Name: "tenant-hot", Keys: []string{"tenant-hot"}},
+		{Name: "tenant-warm", Keys: []string{"tenant-warm"}},
+		{Name: "tenant-cold", Keys: []string{"tenant-cold"}},
+	})
+	if err != nil {
+		b.Fatalf("NewPolicy() error = %v", err)
+	}
+	env := newBenchEnvWithOptions(b, 30*time.Second, brokerredis.Options{
+		ReserveTimeout:   benchReserveTimeout,
+		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+	})
+
+	for i := 0; i < b.N; i++ {
+		msg := benchmarkMessage("skewed-fairness", i)
+		switch {
+		case i%20 == 0:
+			msg.FairnessKey = "tenant-cold"
+		case i%5 == 0:
+			msg.FairnessKey = "tenant-warm"
+		default:
+			msg.FairnessKey = "tenant-hot"
+		}
+		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+			b.Fatalf("Publish() error = %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		delivery, err := env.broker.Reserve(env.ctx, "default", "bench-skewed-fairness")
+		if err != nil {
+			b.Fatalf("Reserve() error = %v", err)
+		}
+		if err := env.broker.Ack(env.ctx, delivery); err != nil {
+			b.Fatalf("Ack() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkSchedulerCatchUpAfterDowntime(b *testing.B) {
+	env := newBenchEnv(b, 30*time.Second)
+	fence := benchLeadershipFence("bench-catch-up", 1)
+	setBenchLeadership(b, env.client, fence, time.Minute)
+
+	for _, backlog := range delayedBacklogSizes() {
+		b.Run(fmt.Sprintf("backlog_%d", backlog), func(b *testing.B) {
+			limit := int64(backlog)
+			if limit > 1000 {
+				limit = 1000
+			}
+			b.ResetTimer()
+			for run := 0; run < b.N; run++ {
+				b.StopTimer()
+				if err := env.client.FlushDB(env.ctx).Err(); err != nil {
+					b.Fatalf("FlushDB() error = %v", err)
+				}
+				setBenchLeadership(b, env.client, fence, time.Minute)
+
+				base := time.Now().UTC().Add(time.Hour)
+				for i := 0; i < backlog; i++ {
+					msg := benchmarkMessage(fmt.Sprintf("catch-up-%d", run), i)
+					msg.Queue = "default"
+					eta := base.Add(time.Duration(i) * time.Millisecond)
+					msg.ETA = &eta
+					if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+						b.Fatalf("Publish() delayed error = %v", err)
+					}
+				}
+
+				catchUpNow := base.Add(time.Duration(backlog)*time.Millisecond + time.Second)
+				movedTotal := 0
+				b.StartTimer()
+				for movedTotal < backlog {
+					moved, err := env.broker.MoveDue(env.ctx, fence, catchUpNow, limit)
+					if err != nil {
+						b.Fatalf("MoveDue() error = %v", err)
+					}
+					if moved == 0 {
+						b.Fatalf("MoveDue() moved 0 with %d remaining", backlog-movedTotal)
+					}
+					movedTotal += moved
+				}
+				b.StopTimer()
+				if movedTotal != backlog {
+					b.Fatalf("released tasks = %d, want %d", movedTotal, backlog)
+				}
+			}
+			b.ReportMetric(float64(backlog), "tasks/op")
+		})
+	}
+}
+
 func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
 	dueAt := time.Date(2026, 4, 15, 10, 0, 0, 123000000, time.UTC)
 	warmupNow := dueAt.Add(-time.Hour)
@@ -384,6 +503,13 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 
 func newBenchEnv(b *testing.B, leaseTTL time.Duration) *benchEnv {
 	b.Helper()
+	return newBenchEnvWithOptions(b, leaseTTL, brokerredis.Options{
+		ReserveTimeout: benchReserveTimeout,
+	})
+}
+
+func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options brokerredis.Options) *benchEnv {
+	b.Helper()
 
 	if os.Getenv("TASKFORGE_RUN_BENCHMARKS") != "1" {
 		b.Skip("set TASKFORGE_RUN_BENCHMARKS=1 to run Redis benchmarks")
@@ -420,9 +546,7 @@ func newBenchEnv(b *testing.B, leaseTTL time.Duration) *benchEnv {
 		ctx:    ctx,
 		cancel: cancel,
 		client: client,
-		broker: brokerredis.NewWithOptions(client, logger, leaseTTL, nil, brokerredis.Options{
-			ReserveTimeout: benchReserveTimeout,
-		}),
+		broker: brokerredis.NewWithOptions(client, logger, leaseTTL, nil, options),
 		logger: logger,
 	}
 }
@@ -468,6 +592,14 @@ func recurringBenchmarkScheduleCounts() []int {
 		counts = append(counts, 100000)
 	}
 	return counts
+}
+
+func delayedBacklogSizes() []int {
+	sizes := []int{100, 1000}
+	if os.Getenv("TASKFORGE_RUN_HEAVY_BENCHMARKS") == "1" {
+		sizes = append(sizes, 10000)
+	}
+	return sizes
 }
 
 func newBenchWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtime.Handler, leaseTTL time.Duration) *runtime.Worker {

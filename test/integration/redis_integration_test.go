@@ -1077,6 +1077,82 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 	}
 }
 
+func TestWorkerLeaseRenewFailureAbandonsAndAllowsRedisRedelivery(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 50*time.Millisecond)
+
+	message := broker.TaskMessage{
+		ID:        "integration-task-renew-failure",
+		Name:      "integration.lease_renew_failure",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"lease"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	failingBroker := &leaseRenewFailureBroker{
+		Broker: brokerInstance,
+		err:    broker.ErrDeliveryExpired,
+	}
+	started := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
+	worker := newIntegrationWorker(failingBroker, nil, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+		if msg.ID != message.ID {
+			t.Fatalf("handler task id = %q, want %q", msg.ID, message.ID)
+		}
+		started <- struct{}{}
+		<-ctx.Done()
+		canceled <- struct{}{}
+		return ctx.Err()
+	}), tasks.DefaultRetryPolicy(1))
+	worker.LeaseTTL = 50 * time.Millisecond
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(runCtx)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("handler did not start before timeout")
+	}
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("handler was not canceled after lease renewal failure")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop before timeout")
+	}
+
+	time.Sleep(75 * time.Millisecond)
+	redelivered, err := brokerInstance.Reserve(ctx, "default", "integration-redelivery-worker")
+	if err != nil {
+		t.Fatalf("Reserve() redelivery error = %v", err)
+	}
+	if redelivered.Message.ID != message.ID {
+		t.Fatalf("redelivered task id = %q, want %q", redelivered.Message.ID, message.ID)
+	}
+	if redelivered.Execution.DeliveryCount < 2 {
+		t.Fatalf("redelivered delivery count = %d, want >= 2", redelivered.Execution.DeliveryCount)
+	}
+	if err := brokerInstance.Ack(ctx, redelivered); err != nil {
+		t.Fatalf("Ack() redelivery error = %v", err)
+	}
+}
+
 func TestRedisBrokerReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -1200,6 +1276,44 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 
 	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
 		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+	}
+}
+
+func TestRedisBrokerMoveDueRejectsMalformedDelayedEntryWithoutPublishing(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	if err := client.ZAdd(ctx, "taskforge:delayed:queue:default", redis.Z{
+		Score:  float64(now.Add(-time.Second).UnixMilli()),
+		Member: `{"entry_id":`,
+	}).Err(); err != nil {
+		t.Fatalf("ZAdd() malformed delayed entry error = %v", err)
+	}
+	if err := client.ZAdd(ctx, "taskforge:delayed:queues", redis.Z{
+		Score:  float64(now.Add(-time.Second).UnixMilli()),
+		Member: "default",
+	}).Err(); err != nil {
+		t.Fatalf("ZAdd() delayed queue index error = %v", err)
+	}
+
+	fence := integrationLeadershipFence("malformed-move-due", 1)
+	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+	moved, err := brokerInstance.MoveDue(ctx, fence, now, 10)
+	if err == nil {
+		t.Fatal("MoveDue() error = nil, want malformed entry error")
+	}
+	if moved != 0 {
+		t.Fatalf("MoveDue() moved = %d, want 0", moved)
+	}
+	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() error = %v", err)
+	}
+	if streamLen != 0 {
+		t.Fatalf("stream length = %d, want 0", streamLen)
+	}
+	if delayedQueueCount(t, ctx, client, "default") != 1 {
+		t.Fatal("malformed delayed entry should remain for operator inspection")
 	}
 }
 
@@ -2393,6 +2507,15 @@ func newIntegrationWorkerWithQueue(b broker.Broker, deadLetters dlq.Publisher, q
 		Concurrency: 1,
 		Prefetch:    1,
 	}
+}
+
+type leaseRenewFailureBroker struct {
+	broker.Broker
+	err error
+}
+
+func (b *leaseRenewFailureBroker) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
+	return b.err
 }
 
 func newIntegrationScheduler(t *testing.T, client *redis.Client, owner string, schedules []schedulerpkg.ScheduleDefinition) *schedulerpkg.Scheduler {

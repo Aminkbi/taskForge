@@ -29,6 +29,9 @@ go test -run '^$' -bench . -benchmem ./test/benchmark/...
 - end-to-end latency through a live worker
 - reclaim latency after an unacked worker delivery expires
 - scheduler release lag for delayed tasks
+- multi-queue publish, reserve, and ack cycling
+- skewed fairness-key traffic across hot, warm, and cold tenants
+- scheduler catch-up after downtime over delayed backlogs
 - recurring scheduler tick cost as configured schedule count grows
 - retry-storm throughput until tasks land in DLQ
 
@@ -50,6 +53,9 @@ These settings bias toward short benchmark runtimes and observable reclaim/sched
 - End-to-end latency includes publish, reserve, handler dispatch, execution, and ack.
 - Reclaim latency is measured from the start of the reclaiming reserve call after the original lease has already expired.
 - Scheduler lag is measured from ETA to the point a worker can reserve the released task.
+- Multi-queue throughput rotates active queues to expose per-queue key and consumer-group overhead.
+- Skewed fairness reserve/ack throughput verifies that hot-tenant backlog shapes stay measurable.
+- Scheduler catch-up measures release throughput after a due backlog accumulates while the scheduler is down.
 - Recurring scheduler tick scaling measures one steady-state recurring dispatch tick after index reconciliation, with a fixed small due subset and larger total schedule counts.
 - The default recurring scaling benchmark covers `10` and `1000` schedules; set `TASKFORGE_RUN_HEAVY_BENCHMARKS=1` to include the `100000` schedule case.
 - Retry-storm throughput measures how quickly initial tasks move through retry scheduling into DLQ under sustained transient failure.

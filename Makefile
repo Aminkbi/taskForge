@@ -33,7 +33,7 @@ integration-test:
 	TASKFORGE_RUN_INTEGRATION=1 $(GO) test ./test/integration/...
 
 race-test:
-	$(GO) test -race ./...
+	$(SHELL) ./scripts/race.sh
 
 bench:
 	$(SHELL) ./scripts/bench.sh
