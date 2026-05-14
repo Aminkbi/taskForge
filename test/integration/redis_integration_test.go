@@ -29,6 +29,8 @@ import (
 	"github.com/aminkbi/taskforge/internal/observability"
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
+	"github.com/aminkbi/taskforge/internal/store"
+	"github.com/aminkbi/taskforge/internal/storeredis"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -85,6 +87,54 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 	}
 	if pendingAfterAck.Count != 0 {
 		t.Fatalf("pending count after ack = %d, want 0", pendingAfterAck.Count)
+	}
+}
+
+func TestRedisTaskStateTransitionsPersistAndExpire(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	stateStore := storeredis.New(client, store.RetentionPolicy{
+		SucceededState: 50 * time.Millisecond,
+		FailedState:    time.Hour,
+		ResultPayload:  time.Hour,
+	})
+	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+		StateStore:     stateStore,
+	})
+
+	message := broker.TaskMessage{
+		ID:        "state-success",
+		Name:      "integration.state",
+		Queue:     "default",
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	record, err := stateStore.Get(ctx, message.ID)
+	if err != nil {
+		t.Fatalf("Get() queued error = %v", err)
+	}
+	if record.State != tasks.StateQueued {
+		t.Fatalf("queued state = %q, want %q", record.State, tasks.StateQueued)
+	}
+
+	worker := newIntegrationWorker(brokerInstance, nil, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return nil
+	}), tasks.DefaultRetryPolicy(1))
+	worker.StateStore = stateStore
+	runWorkerUntil(t, worker, func() (bool, error) {
+		record, err := stateStore.Get(ctx, message.ID)
+		if err != nil {
+			return false, err
+		}
+		return record.State == tasks.StateSucceeded && record.DeliveryCount == 1 && record.CompletedAt.After(record.CreatedAt), nil
+	})
+
+	time.Sleep(75 * time.Millisecond)
+	if _, err := stateStore.Get(ctx, message.ID); !errors.Is(err, store.ErrTaskNotFound) {
+		t.Fatalf("Get() after success retention error = %v, want %v", err, store.ErrTaskNotFound)
 	}
 }
 

@@ -16,6 +16,8 @@ import (
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
 	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
+	"github.com/aminkbi/taskforge/internal/store"
+	"github.com/aminkbi/taskforge/internal/storeredis"
 )
 
 type App struct {
@@ -32,10 +34,12 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 
 	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
 	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
+	taskStateStore := storeredis.New(client, taskRetentionPolicy(cfg))
 	sharedBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
 		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
+		StateStore:        taskStateStore,
 	})
 	dispatcher := dlq.NewService(client, sharedBroker, logger.With("component", "dlq"))
 
@@ -48,6 +52,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			FairnessPolicies:  fairnessPolicies,
 			AdmissionPolicies: admissionPolicies,
 			DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
+			StateStore:        taskStateStore,
 		})
 		queues = append(queues, pool.Queue)
 		recoveryHealth := healthcheck.NewReporter("not_ready", "worker starting")
@@ -75,6 +80,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			Adaptive:          runtimeAdaptiveConfig(pool.Adaptive),
 			AdaptiveStore:     sharedBroker.AdaptiveStateStore(),
 			LifecycleWriter:   sharedBroker.WorkerLifecycleStore(),
+			StateStore:        taskStateStore,
 		})
 	}
 	manager := &runtimepkg.Manager{
@@ -155,6 +161,14 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	return &App{
 		server: server,
 		worker: manager,
+	}
+}
+
+func taskRetentionPolicy(cfg config.Config) store.RetentionPolicy {
+	return store.RetentionPolicy{
+		SucceededState: cfg.TaskSuccessRetention,
+		FailedState:    cfg.TaskFailureRetention,
+		ResultPayload:  cfg.TaskPayloadRetention,
 	}
 }
 

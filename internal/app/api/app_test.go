@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/observability"
+	"github.com/aminkbi/taskforge/internal/store"
+	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 type stubAdmissionProvider struct{}
@@ -81,6 +84,23 @@ func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]
 			UpdatedAt:           time.Date(2026, 4, 21, 10, 0, 2, 0, time.UTC),
 		},
 	}, nil
+}
+
+type stubTaskStateStore struct {
+	record store.TaskRecord
+	err    error
+}
+
+func (s stubTaskStateStore) RecordQueued(context.Context, broker.TaskMessage) error {
+	return nil
+}
+
+func (s stubTaskStateStore) RecordDelivery(context.Context, broker.Delivery, tasks.State, []byte) error {
+	return nil
+}
+
+func (s stubTaskStateStore) Get(context.Context, string) (store.TaskRecord, error) {
+	return s.record, s.err
 }
 
 func TestAdmissionHandlerReturnsQueueSnapshots(t *testing.T) {
@@ -171,6 +191,53 @@ func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
 	if app == nil {
 		t.Fatal("New() returned nil")
+	}
+}
+
+func TestTaskLookupHandlerReturnsTaskRecord(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/tasks/task-1", nil)
+
+	taskLookupHandler(stubTaskStateStore{record: store.TaskRecord{
+		TaskID:         "task-1",
+		Name:           "demo.echo",
+		Queue:          "default",
+		State:          tasks.StateSucceeded,
+		UpdatedAt:      time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC),
+		DeliveryCount:  2,
+		LastDeliveryID: "delivery-2",
+	}}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var payload struct {
+		TaskID         string `json:"task_id"`
+		State          string `json:"state"`
+		DeliveryCount  int    `json:"delivery_count"`
+		LastDeliveryID string `json:"last_delivery_id"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.TaskID != "task-1" || payload.State != string(tasks.StateSucceeded) || payload.DeliveryCount != 2 || payload.LastDeliveryID != "delivery-2" {
+		t.Fatalf("task lookup payload = %+v", payload)
+	}
+}
+
+func TestTaskLookupHandlerReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/tasks/missing", nil)
+
+	taskLookupHandler(stubTaskStateStore{err: store.ErrTaskNotFound}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusNotFound)
 	}
 }
 

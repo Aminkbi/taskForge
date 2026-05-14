@@ -15,6 +15,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/healthcheck"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
+	"github.com/aminkbi/taskforge/internal/store"
 	"github.com/aminkbi/taskforge/internal/tasks"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -42,6 +43,7 @@ type Worker struct {
 	Adaptive          AdaptiveConfig
 	AdaptiveStore     AdaptiveStateWriter
 	LifecycleWriter   WorkerLifecycleWriter
+	StateStore        store.StateStore
 	runtimeState      *workerState
 }
 
@@ -294,6 +296,9 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 		entry := &pendingDelivery{
 			delivery:    delivery,
 			brokerLease: startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+		}
+		if err := w.recordTaskState(ctx, delivery, tasks.StateLeased, nil); err != nil {
+			return err
 		}
 
 		w.Metrics.IncReserved(tasks.EffectiveQueue(delivery.Message))
@@ -615,6 +620,9 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 	if err != nil {
 		return fmt.Errorf("worker mark delivery running: %w", err)
 	}
+	if err := w.recordTaskState(execCtx, runningDelivery, tasks.StateRunning, nil); err != nil {
+		return err
+	}
 	execCtx, span := observability.StartQueueSpan(
 		execCtx,
 		"taskforge.worker",
@@ -655,6 +663,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
+		}
+		if err := w.recordTaskState(execCtx, succeededDelivery, tasks.StateSucceeded, nil); err != nil {
+			observability.MarkSpanError(span, err)
+			return err
 		}
 		return nil
 	}
@@ -732,6 +744,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 					observability.MarkSpanError(span, ackErr)
 					return ackErr
 				}
+				if err := w.recordTaskState(execCtx, deadLetterDelivery, tasks.StateDeadLettered, nil); err != nil {
+					observability.MarkSpanError(span, err)
+					return err
+				}
 				return nil
 			}
 			if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
@@ -755,6 +771,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
+		}
+		if err := w.recordTaskState(execCtx, retryDelivery, tasks.StateRetryScheduled, nil); err != nil {
+			observability.MarkSpanError(span, err)
+			return err
 		}
 		return nil
 	case outcomeDeadLetter:
@@ -792,6 +812,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
+		if err := w.recordTaskState(execCtx, deadLetterDelivery, tasks.StateDeadLettered, nil); err != nil {
+			observability.MarkSpanError(span, err)
+			return err
+		}
 		return nil
 	default:
 		if w.abandonIfLeaseLost(failedDelivery, brokerLease, "ack_failed_delivery") {
@@ -804,6 +828,10 @@ func (w *Worker) processTask(ctx context.Context, delivery broker.Delivery, brok
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
+		}
+		if err := w.recordTaskState(execCtx, failedDelivery, tasks.State(failedDelivery.Execution.State), nil); err != nil {
+			observability.MarkSpanError(span, err)
+			return err
 		}
 		return nil
 	}
@@ -823,6 +851,16 @@ func (w *Worker) recordExecution(duration time.Duration, failed bool) {
 	if failed {
 		w.runtimeState.window.failed++
 	}
+}
+
+func (w *Worker) recordTaskState(ctx context.Context, delivery broker.Delivery, state tasks.State, resultPayload []byte) error {
+	if w.StateStore == nil {
+		return nil
+	}
+	if err := w.StateStore.RecordDelivery(ctx, delivery, state, resultPayload); err != nil {
+		logging.WithDelivery(w.Logger, delivery).Warn("record task state failed", "state", state, "error", err)
+	}
+	return nil
 }
 
 func (w *Worker) consumerKey() string {

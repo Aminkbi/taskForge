@@ -18,6 +18,8 @@ import (
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
+	"github.com/aminkbi/taskforge/internal/store"
+	"github.com/aminkbi/taskforge/internal/storeredis"
 )
 
 type App struct {
@@ -38,10 +40,12 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	if len(cfg.WorkerPools) > 0 {
 		leaseTTL = cfg.WorkerPools[0].LeaseTTL
 	}
+	taskStateStore := storeredis.New(client, taskRetentionPolicy(cfg))
 	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
 		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
+		StateStore:        taskStateStore,
 	})
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -181,6 +185,14 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	return &App{
 		server:    server,
 		scheduler: schedulerRuntime,
+	}
+}
+
+func taskRetentionPolicy(cfg config.Config) store.RetentionPolicy {
+	return store.RetentionPolicy{
+		SucceededState: cfg.TaskSuccessRetention,
+		FailedState:    cfg.TaskFailureRetention,
+		ResultPayload:  cfg.TaskPayloadRetention,
 	}
 }
 

@@ -26,6 +26,9 @@ const (
 	defaultShutdownTimeout  = 10 * time.Second
 	defaultSchedulerLockTTL = 15 * time.Second
 	defaultSchedulerRenew   = 5 * time.Second
+	defaultTaskSuccessTTL   = 24 * time.Hour
+	defaultTaskFailureTTL   = 7 * 24 * time.Hour
+	defaultTaskPayloadTTL   = 24 * time.Hour
 )
 
 type ServiceRole string
@@ -51,6 +54,9 @@ type Config struct {
 	ShutdownTimeout        time.Duration
 	SchedulerLockTTL       time.Duration
 	SchedulerRenewInterval time.Duration
+	TaskSuccessRetention   time.Duration
+	TaskFailureRetention   time.Duration
+	TaskPayloadRetention   time.Duration
 	RecurringSchedules     []schedulerpkg.ScheduleDefinition
 	OTELEnabled            bool
 	ServiceName            string
@@ -206,6 +212,9 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 		ShutdownTimeout:        defaultShutdownTimeout,
 		SchedulerLockTTL:       defaultSchedulerLockTTL,
 		SchedulerRenewInterval: defaultSchedulerRenew,
+		TaskSuccessRetention:   defaultTaskSuccessTTL,
+		TaskFailureRetention:   defaultTaskFailureTTL,
+		TaskPayloadRetention:   defaultTaskPayloadTTL,
 		ServiceName:            getEnv("TASKFORGE_SERVICE_NAME", defaultServiceName),
 	}
 
@@ -225,6 +234,15 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	if cfg.SchedulerRenewInterval, err = getEnvDuration("TASKFORGE_SCHEDULER_RENEW_INTERVAL", defaultSchedulerRenew); err != nil {
 		return Config{}, err
 	}
+	if cfg.TaskSuccessRetention, err = getEnvDuration("TASKFORGE_TASK_SUCCESS_RETENTION", defaultTaskSuccessTTL); err != nil {
+		return Config{}, err
+	}
+	if cfg.TaskFailureRetention, err = getEnvDuration("TASKFORGE_TASK_FAILURE_RETENTION", defaultTaskFailureTTL); err != nil {
+		return Config{}, err
+	}
+	if cfg.TaskPayloadRetention, err = getEnvDuration("TASKFORGE_TASK_PAYLOAD_RETENTION", defaultTaskPayloadTTL); err != nil {
+		return Config{}, err
+	}
 	if cfg.SchedulerLockTTL <= 0 {
 		return Config{}, fmt.Errorf("TASKFORGE_SCHEDULER_LOCK_TTL must be > 0")
 	}
@@ -233,6 +251,15 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	}
 	if cfg.SchedulerRenewInterval >= cfg.SchedulerLockTTL {
 		return Config{}, fmt.Errorf("TASKFORGE_SCHEDULER_RENEW_INTERVAL must be less than TASKFORGE_SCHEDULER_LOCK_TTL")
+	}
+	if cfg.TaskSuccessRetention < 0 {
+		return Config{}, fmt.Errorf("TASKFORGE_TASK_SUCCESS_RETENTION must be >= 0")
+	}
+	if cfg.TaskFailureRetention < 0 {
+		return Config{}, fmt.Errorf("TASKFORGE_TASK_FAILURE_RETENTION must be >= 0")
+	}
+	if cfg.TaskPayloadRetention < 0 {
+		return Config{}, fmt.Errorf("TASKFORGE_TASK_PAYLOAD_RETENTION must be >= 0")
 	}
 	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON", role); err != nil {
 		return Config{}, err

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -14,6 +16,8 @@ import (
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
+	"github.com/aminkbi/taskforge/internal/store"
+	"github.com/aminkbi/taskforge/internal/storeredis"
 )
 
 type App struct {
@@ -26,6 +30,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})
+	taskStateStore := storeredis.New(client, taskRetentionPolicy(cfg))
 
 	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
 	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
@@ -65,9 +70,86 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		mux.HandleFunc("/v1/admin/admission", admissionHandler(b, queues))
 		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
 		mux.HandleFunc("/v1/admin/workers", workerLifecycleHandler(b))
+		mux.HandleFunc("/v1/tasks/", taskLookupHandler(taskStateStore))
 	})
 
 	return &App{server: server}
+}
+
+func taskRetentionPolicy(cfg config.Config) store.RetentionPolicy {
+	return store.RetentionPolicy{
+		SucceededState: cfg.TaskSuccessRetention,
+		FailedState:    cfg.TaskFailureRetention,
+		ResultPayload:  cfg.TaskPayloadRetention,
+	}
+}
+
+func taskLookupHandler(reader store.StateStore) http.HandlerFunc {
+	type responseBody struct {
+		TaskID         string `json:"task_id"`
+		Name           string `json:"name,omitempty"`
+		Queue          string `json:"queue,omitempty"`
+		State          string `json:"state"`
+		LastError      string `json:"last_error,omitempty"`
+		CreatedAt      string `json:"created_at,omitempty"`
+		StartedAt      string `json:"started_at,omitempty"`
+		CompletedAt    string `json:"completed_at,omitempty"`
+		UpdatedAt      string `json:"updated_at"`
+		DeliveryCount  int    `json:"delivery_count,omitempty"`
+		LastDeliveryID string `json:"last_delivery_id,omitempty"`
+		LastLeaseOwner string `json:"last_lease_owner,omitempty"`
+		ResultPayload  []byte `json:"result_payload,omitempty"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		taskID := strings.TrimPrefix(r.URL.Path, "/v1/tasks/")
+		taskID = strings.Trim(taskID, "/")
+		if taskID == "" || strings.Contains(taskID, "/") {
+			http.Error(w, "task id is required", http.StatusBadRequest)
+			return
+		}
+
+		record, err := reader.Get(r.Context(), taskID)
+		if errors.Is(err, store.ErrTaskNotFound) {
+			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		response := responseBody{
+			TaskID:         record.TaskID,
+			Name:           record.Name,
+			Queue:          record.Queue,
+			State:          string(record.State),
+			LastError:      record.LastError,
+			CreatedAt:      formatOptionalTime(record.CreatedAt),
+			StartedAt:      formatOptionalTime(record.StartedAt),
+			CompletedAt:    formatOptionalTime(record.CompletedAt),
+			UpdatedAt:      formatOptionalTime(record.UpdatedAt),
+			DeliveryCount:  record.DeliveryCount,
+			LastDeliveryID: record.LastDeliveryID,
+			LastLeaseOwner: record.LastLeaseOwner,
+			ResultPayload:  record.ResultPayload,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(response)
+	}
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func workerLifecycleHandler(provider observability.WorkerLifecycleProvider) http.HandlerFunc {

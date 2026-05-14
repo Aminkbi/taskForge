@@ -70,7 +70,7 @@ Most of the interesting logic lives under `internal/`:
 - `internal/brokerredis` contains the Redis Streams broker and delayed-job release implementation.
 - `internal/runtime` drives polling, execution, ack, retry, and lease extension.
 - `internal/scheduler` handles delayed release and retry scheduling.
-- `internal/store` and `internal/storeredis` sketch result storage.
+- `internal/store` and `internal/storeredis` define durable task state and result retention.
 - `internal/observability`, `internal/httpserver`, and `internal/logging` cover the operational baseline.
 
 ## Running locally
@@ -199,6 +199,9 @@ TASKFORGE_POLL_INTERVAL=1s
 TASKFORGE_SHUTDOWN_TIMEOUT=10s
 TASKFORGE_SCHEDULER_LOCK_TTL=15s
 TASKFORGE_SCHEDULER_RENEW_INTERVAL=5s
+TASKFORGE_TASK_SUCCESS_RETENTION=24h
+TASKFORGE_TASK_FAILURE_RETENTION=168h
+TASKFORGE_TASK_PAYLOAD_RETENTION=24h
 TASKFORGE_SCHEDULES_JSON=[]
 TASKFORGE_OTEL_ENABLED=false
 TASKFORGE_SERVICE_NAME=taskforge
@@ -214,6 +217,8 @@ Dependency budgets are configured globally through `TASKFORGE_DEPENDENCY_BUDGETS
 Budgets are cluster-wide Redis-backed token pools held for the full task execution. Task budget attachment is static by task type in this phase.
 
 Admission control is evaluated at publish time from Redis-visible queue state. Each queue can disable it, defer new work into the delayed set, or reject new work when configured thresholds are exceeded. Overload does not fail `/readyz`; operators should inspect admission metrics or the API admin endpoint instead.
+
+Task state is retained in Redis under task-level records. Publish records `queued`; reserve records `leased`; execution records `running`; successful ack records `succeeded`; retry scheduling records `retry_scheduled`; dead-letter ack records `dead_lettered`. The task view is keyed by logical `task_id`, so it summarizes the latest task-level state even when delivery attempts are duplicated. Successful terminal records expire after `TASKFORGE_TASK_SUCCESS_RETENTION`; failed, retry-scheduled, and dead-lettered records expire after `TASKFORGE_TASK_FAILURE_RETENTION`; optional result payload bytes use `TASKFORGE_TASK_PAYLOAD_RETENTION`. A retention value of `0` disables expiration for that category.
 
 Example:
 
@@ -364,6 +369,7 @@ The API process also exposes:
 - `/v1/admin/admission`
 - `/v1/admin/adaptive`
 - `/v1/admin/workers`
+- `/v1/tasks/{task_id}`
 
 `/v1/admin/admission` reports each queue's configured mode, current admission state, dominant rejection or defer reason, the latest signal snapshot, and `defer_interval`.
 
@@ -372,6 +378,8 @@ The API process also exposes:
 `/v1/admin/workers` reports each worker instance's lifecycle state, current pending and running ownership, drain timestamps, shutdown outcome, abandoned-delivery count, and drain-time lease losses.
 
 `/v1/admin/leadership` reports the scheduler's local leadership state, current fenced epoch, the live Redis leadership record, and grouped stale-write rejection plus control-plane failure counters.
+
+`/v1/tasks/{task_id}` returns the durable task record for a logical task ID, including state, last error, timestamps, delivery count, last delivery ID, lease owner, and retained result payload when one exists. Lookup is read-only; replay remains an explicit operator action rather than an arbitrary task-state mutation.
 
 ## Testing
 
@@ -403,5 +411,5 @@ TASKFORGE_RUN_BENCHMARKS=1 make bench
 
 - Add deeper admin and HTTP operations for dead-letter inspection and replay.
 - Add real task registration and user-defined handlers.
-- Persist task results and execution metadata properly.
+- Expand result payload production beyond the internal retention plumbing.
 - Add a second broker implementation without changing the runtime contract.

@@ -12,6 +12,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/dlq"
 	"github.com/aminkbi/taskforge/internal/observability"
+	"github.com/aminkbi/taskforge/internal/store"
 	"github.com/aminkbi/taskforge/internal/tasks"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -36,6 +37,28 @@ func TestWorkerProcessTaskAcksSucceededDelivery(t *testing.T) {
 	}
 	if got := b.acked[0].Execution.State; got != string(tasks.StateSucceeded) {
 		t.Fatalf("Ack state = %q, want %q", got, tasks.StateSucceeded)
+	}
+}
+
+func TestWorkerProcessTaskRecordsRunningAndTerminalState(t *testing.T) {
+	t.Parallel()
+
+	stateStore := &stubStateStore{}
+	b := &stubBroker{}
+	w := newTestWorker(b, nil, HandlerFunc(func(context.Context, broker.TaskMessage) error {
+		return nil
+	}))
+	w.StateStore = stateStore
+
+	if err := w.processTask(context.Background(), testDelivery(), nil); err != nil {
+		t.Fatalf("processTask() error = %v", err)
+	}
+
+	if len(stateStore.deliveryStates) != 2 {
+		t.Fatalf("state writes = %d, want 2", len(stateStore.deliveryStates))
+	}
+	if stateStore.deliveryStates[0] != tasks.StateRunning || stateStore.deliveryStates[1] != tasks.StateSucceeded {
+		t.Fatalf("state writes = %+v, want running then succeeded", stateStore.deliveryStates)
 	}
 }
 
@@ -224,6 +247,25 @@ type stubDeadLetter struct {
 func (d *stubDeadLetter) PublishDeadLetter(_ context.Context, envelope dlq.Envelope) error {
 	d.envelopes = append(d.envelopes, envelope)
 	return nil
+}
+
+type stubStateStore struct {
+	queued         []broker.TaskMessage
+	deliveryStates []tasks.State
+}
+
+func (s *stubStateStore) RecordQueued(_ context.Context, msg broker.TaskMessage) error {
+	s.queued = append(s.queued, msg)
+	return nil
+}
+
+func (s *stubStateStore) RecordDelivery(_ context.Context, _ broker.Delivery, state tasks.State, _ []byte) error {
+	s.deliveryStates = append(s.deliveryStates, state)
+	return nil
+}
+
+func (s *stubStateStore) Get(context.Context, string) (store.TaskRecord, error) {
+	return store.TaskRecord{}, store.ErrTaskNotFound
 }
 
 type fixedClock struct {

@@ -21,6 +21,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
+	"github.com/aminkbi/taskforge/internal/store"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -169,6 +170,7 @@ type RedisBroker struct {
 	budgetStore       *BudgetStore
 	adaptiveStore     *AdaptiveStateStore
 	workerStore       *WorkerLifecycleStore
+	stateStore        store.StateStore
 }
 
 func New(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics) *RedisBroker {
@@ -180,6 +182,7 @@ type Options struct {
 	FairnessPolicies  map[string]*fairness.Policy
 	AdmissionPolicies map[string]AdmissionPolicy
 	DependencyBudgets map[string]int
+	StateStore        store.StateStore
 }
 
 func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, metrics *observability.Metrics, options Options) *RedisBroker {
@@ -207,6 +210,7 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 		budgetStore:       NewBudgetStore(client, metrics, defaultPrefix, options.DependencyBudgets),
 		adaptiveStore:     NewAdaptiveStateStore(client, defaultPrefix),
 		workerStore:       NewWorkerLifecycleStore(client, defaultPrefix),
+		stateStore:        options.StateStore,
 	}
 }
 
@@ -269,6 +273,12 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage, opts 
 	if err != nil {
 		observability.MarkSpanError(span, err)
 		return broker.PublishResult{}, err
+	}
+	if b.stateStore != nil && result.Decision != broker.AdmissionDecisionRejected && !result.Deduplicated {
+		if err := b.stateStore.RecordQueued(ctx, msg); err != nil {
+			observability.MarkSpanError(span, err)
+			b.logger.Warn("record queued task state failed", "task_id", msg.ID, "error", err)
+		}
 	}
 	return result, nil
 }

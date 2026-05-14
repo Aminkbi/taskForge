@@ -24,6 +24,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "")
 	t.Setenv("TASKFORGE_SCHEDULER_LOCK_TTL", "")
 	t.Setenv("TASKFORGE_SCHEDULER_RENEW_INTERVAL", "")
+	t.Setenv("TASKFORGE_TASK_SUCCESS_RETENTION", "")
+	t.Setenv("TASKFORGE_TASK_FAILURE_RETENTION", "")
+	t.Setenv("TASKFORGE_TASK_PAYLOAD_RETENTION", "")
 	t.Setenv("TASKFORGE_SCHEDULES_JSON", "")
 	t.Setenv("TASKFORGE_OTEL_ENABLED", "")
 	t.Setenv("TASKFORGE_SERVICE_NAME", "")
@@ -69,6 +72,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.SchedulerRenewInterval != defaultSchedulerRenew {
 		t.Fatalf("SchedulerRenewInterval = %v, want %v", cfg.SchedulerRenewInterval, defaultSchedulerRenew)
+	}
+	if cfg.TaskSuccessRetention != defaultTaskSuccessTTL || cfg.TaskFailureRetention != defaultTaskFailureTTL || cfg.TaskPayloadRetention != defaultTaskPayloadTTL {
+		t.Fatalf("unexpected task retention defaults: %+v", cfg)
 	}
 	if len(cfg.RecurringSchedules) != 0 {
 		t.Fatalf("RecurringSchedules length = %d, want 0", len(cfg.RecurringSchedules))
@@ -138,6 +144,9 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_SHUTDOWN_TIMEOUT", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_LOCK_TTL", "20s")
 	t.Setenv("TASKFORGE_SCHEDULER_RENEW_INTERVAL", "4s")
+	t.Setenv("TASKFORGE_TASK_SUCCESS_RETENTION", "2h")
+	t.Setenv("TASKFORGE_TASK_FAILURE_RETENTION", "72h")
+	t.Setenv("TASKFORGE_TASK_PAYLOAD_RETENTION", "30m")
 	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"nightly","interval":"15m","queue":"critical","fairness_key":"tenant-vip","task_name":"demo.nightly","payload":{"job":"nightly"},"headers":{"x-source":"config"},"misfire_policy":"coalesce","start_at":"2026-04-14T10:00:00Z"}]`)
 	t.Setenv("TASKFORGE_OTEL_ENABLED", "true")
 	t.Setenv("TASKFORGE_SERVICE_NAME", "custom-service")
@@ -210,6 +219,9 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.SchedulerLockTTL != 20*time.Second || cfg.SchedulerRenewInterval != 4*time.Second {
 		t.Fatalf("unexpected scheduler fields: %+v", cfg)
 	}
+	if cfg.TaskSuccessRetention != 2*time.Hour || cfg.TaskFailureRetention != 72*time.Hour || cfg.TaskPayloadRetention != 30*time.Minute {
+		t.Fatalf("unexpected task retention fields: %+v", cfg)
+	}
 	if len(cfg.RecurringSchedules) != 1 {
 		t.Fatalf("RecurringSchedules length = %d, want 1", len(cfg.RecurringSchedules))
 	}
@@ -266,6 +278,15 @@ func TestLoadForRoleAllowsEmptyWorkerPoolsForAPI(t *testing.T) {
 
 func TestLoadInvalidDuration(t *testing.T) {
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "not-a-duration")
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsNegativeTaskRetention(t *testing.T) {
+	t.Setenv("TASKFORGE_TASK_FAILURE_RETENTION", "-1s")
 
 	_, err := Load("taskforge-test")
 	if err == nil {
