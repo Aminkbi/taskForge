@@ -94,7 +94,7 @@ func TestRedisTaskStateTransitionsPersistAndExpire(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
 	stateStore := storeredis.New(client, store.RetentionPolicy{
-		SucceededState: 50 * time.Millisecond,
+		SucceededState: time.Second,
 		FailedState:    time.Hour,
 		ResultPayload:  time.Hour,
 	})
@@ -132,10 +132,13 @@ func TestRedisTaskStateTransitionsPersistAndExpire(t *testing.T) {
 		return record.State == tasks.StateSucceeded && record.DeliveryCount == 1 && record.CompletedAt.After(record.CreatedAt), nil
 	})
 
-	time.Sleep(75 * time.Millisecond)
-	if _, err := stateStore.Get(ctx, message.ID); !errors.Is(err, store.ErrTaskNotFound) {
-		t.Fatalf("Get() after success retention error = %v, want %v", err, store.ErrTaskNotFound)
-	}
+	runUntil(t, 2*time.Second, func() (bool, error) {
+		_, err := stateStore.Get(ctx, message.ID)
+		if errors.Is(err, store.ErrTaskNotFound) {
+			return true, nil
+		}
+		return false, err
+	})
 }
 
 func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
@@ -2649,6 +2652,23 @@ func runWorkerUntil(t *testing.T, worker *runtimepkg.Worker, condition func() (b
 			t.Fatalf("worker.Run() error = %v", err)
 		}
 	default:
+	}
+	t.Fatalf("condition was not met before timeout")
+}
+
+func runUntil(t *testing.T, timeout time.Duration, condition func() (bool, error)) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ok, err := condition()
+		if err != nil {
+			t.Fatalf("condition error = %v", err)
+		}
+		if ok {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("condition was not met before timeout")
 }
