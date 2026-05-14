@@ -1,9 +1,9 @@
 SHELL := /bin/bash
 
 GO ?= go
-GOPROXY ?=
+export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-worker run-scheduler run-api run-demo run-example-email run-example-media run-example-external-api test bench lint fmt compose-up compose-down
+.PHONY: run-worker run-scheduler run-api run-demo run-example-email run-example-media run-example-external-api test integration-test race-test bench bench-smoke lint fmt release-smoke compose-up compose-down
 
 run-worker:
 	$(GO) run ./cmd/worker
@@ -27,18 +27,28 @@ run-example-external-api:
 	$(GO) run ./cmd/example-external-api
 
 test:
-	$(GO) test ./...
+	$(SHELL) ./scripts/test.sh
+
+integration-test:
+	TASKFORGE_RUN_INTEGRATION=1 $(GO) test ./test/integration/...
+
+race-test:
+	$(GO) test -race ./...
 
 bench:
-	./scripts/bench.sh
+	$(SHELL) ./scripts/bench.sh
+
+bench-smoke:
+	$(GO) test -run '^$$' -bench . -benchtime=1x ./...
 
 lint:
-	$(GO) vet ./...
-	@test -z "$$($(GO)fmt -l .)" || (echo "gofmt reported unformatted files"; $(GO)fmt -l .; exit 1)
-	@command -v staticcheck >/dev/null 2>&1 && staticcheck ./... || true
+	$(SHELL) ./scripts/lint.sh
 
 fmt:
 	$(GO)fmt -w .
+
+release-smoke:
+	$(SHELL) ./scripts/release-smoke.sh
 
 compose-up:
 	docker compose up --build -d

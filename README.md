@@ -80,6 +80,8 @@ Most of the interesting logic lives under `internal/`:
 - Go 1.25+
 - Docker with Compose support
 
+Repository tooling and CI policy are documented in [docs/development/toolchain.md](./docs/development/toolchain.md).
+
 ### Quick start
 
 ```bash
@@ -108,9 +110,13 @@ make run-example-email
 make run-example-media
 make run-example-external-api
 make test
+make integration-test
+make race-test
+make bench-smoke
 make bench
 make lint
 make fmt
+make release-smoke
 ```
 
 You can also use the helper scripts:
