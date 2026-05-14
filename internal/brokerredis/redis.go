@@ -52,11 +52,33 @@ redis.call("LTRIM", KEYS[3], 0, 0)
 redis.call("PSETEX", KEYS[4], ARGV[5], "1")
 return 1
 `)
+	publishDelayedScript = redis.NewScript(`
+redis.call("ZADD", KEYS[1], ARGV[1], ARGV[2])
+local head = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
+if head[1] then
+  redis.call("ZADD", KEYS[2], head[2], ARGV[3])
+else
+  redis.call("ZREM", KEYS[2], ARGV[3])
+end
+if ARGV[5] == "1" then
+  redis.call("ZADD", KEYS[3], ARGV[1], ARGV[4])
+end
+return 1
+`)
 	publishDelayedWithReceiptScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[2]) == 1 then
   return 0
 end
 redis.call("ZADD", KEYS[1], ARGV[1], ARGV[2])
+local head = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
+if head[1] then
+  redis.call("ZADD", KEYS[3], head[2], ARGV[4])
+else
+  redis.call("ZREM", KEYS[3], ARGV[4])
+end
+if ARGV[6] == "1" then
+  redis.call("ZADD", KEYS[4], ARGV[1], ARGV[5])
+end
 redis.call("PSETEX", KEYS[2], ARGV[3], "1")
 return 1
 `)
@@ -70,6 +92,13 @@ if existed == 0 then
   redis.call("PSETEX", KEYS[4], ARGV[5], "1")
 end
 local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+redis.call("ZREM", KEYS[6], ARGV[7])
+local head = redis.call("ZRANGE", KEYS[2], 0, 0, "WITHSCORES")
+if head[1] then
+  redis.call("ZADD", KEYS[5], head[2], ARGV[6])
+else
+  redis.call("ZREM", KEYS[5], ARGV[6])
+end
 return {existed, removed}
 `)
 	fencedReleaseFairReadyScript = redis.NewScript(`
@@ -85,18 +114,41 @@ if existed == 0 then
   redis.call("PSETEX", KEYS[6], ARGV[7], "1")
 end
 local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+redis.call("ZREM", KEYS[8], ARGV[9])
+local head = redis.call("ZRANGE", KEYS[2], 0, 0, "WITHSCORES")
+if head[1] then
+  redis.call("ZADD", KEYS[7], head[2], ARGV[8])
+else
+  redis.call("ZREM", KEYS[7], ARGV[8])
+end
 return {existed, removed}
 `)
 	fencedReleaseDelayedScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then
   return {-1, 0}
 end
-local existed = redis.call("EXISTS", KEYS[3])
+local existed = redis.call("EXISTS", KEYS[4])
 if existed == 0 then
-  redis.call("ZADD", KEYS[2], ARGV[3], ARGV[4])
-  redis.call("PSETEX", KEYS[3], ARGV[5], "1")
+  redis.call("ZADD", KEYS[3], ARGV[3], ARGV[4])
+  if ARGV[10] == "1" then
+    redis.call("ZADD", KEYS[7], ARGV[3], ARGV[9])
+  end
+  redis.call("PSETEX", KEYS[4], ARGV[5], "1")
 end
 local removed = redis.call("ZREM", KEYS[2], ARGV[2])
+redis.call("ZREM", KEYS[6], ARGV[8])
+local oldHead = redis.call("ZRANGE", KEYS[2], 0, 0, "WITHSCORES")
+if oldHead[1] then
+  redis.call("ZADD", KEYS[5], oldHead[2], ARGV[6])
+else
+  redis.call("ZREM", KEYS[5], ARGV[6])
+end
+local newHead = redis.call("ZRANGE", KEYS[3], 0, 0, "WITHSCORES")
+if newHead[1] then
+  redis.call("ZADD", KEYS[5], newHead[2], ARGV[7])
+else
+  redis.call("ZREM", KEYS[5], ARGV[7])
+end
 return {existed, removed}
 `)
 )
@@ -424,36 +476,57 @@ func (b *RedisBroker) MoveDue(ctx context.Context, fence schedulerpkg.Leadership
 		limit = 100
 	}
 
-	values, err := b.client.ZRangeByScore(ctx, b.delayedKey(), &redis.ZRangeBy{
+	queues, err := b.client.ZRangeByScore(ctx, b.delayedQueueIndexKey(), &redis.ZRangeBy{
 		Min:    "-inf",
 		Max:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
 		Offset: 0,
 		Count:  limit,
 	}).Result()
 	if err != nil {
-		return 0, fmt.Errorf("move due tasks: query delayed set: %w", err)
+		return 0, fmt.Errorf("move due tasks: query delayed queue index: %w", err)
 	}
 
 	moved := 0
-	for _, raw := range values {
-		entry, err := decodeDelayedEntry(raw)
+	for _, queue := range queues {
+		remaining := limit - int64(moved)
+		if remaining <= 0 {
+			break
+		}
+		values, err := b.client.ZRangeByScore(ctx, b.delayedQueueKey(queue), &redis.ZRangeBy{
+			Min:    "-inf",
+			Max:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
+			Offset: 0,
+			Count:  remaining,
+		}).Result()
 		if err != nil {
-			return moved, fmt.Errorf("move due tasks: decode delayed entry: %w", err)
+			return moved, fmt.Errorf("move due tasks: query delayed queue %q: %w", queue, err)
 		}
+		if len(values) == 0 {
+			if err := b.refreshDelayedQueueIndex(ctx, queue); err != nil {
+				return moved, err
+			}
+			continue
+		}
+		for _, raw := range values {
+			entry, err := decodeDelayedEntry(raw)
+			if err != nil {
+				return moved, fmt.Errorf("move due tasks: decode delayed entry: %w", err)
+			}
 
-		msg := entry.Message
-		if msg.Headers == nil {
-			msg.Headers = map[string]string{}
+			msg := entry.Message
+			if msg.Headers == nil {
+				msg.Headers = map[string]string{}
+			}
+			scheduledFor := entry.ScheduledFor.UTC()
+			msg.Headers[schedulerpkg.HeaderScheduledFor] = scheduledFor.Format(time.RFC3339Nano)
+			msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
+			msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
+			msg.ETA = nil
+			if err := b.releaseDueEntry(ctx, fence, raw, entry, msg, now); err != nil {
+				return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
+			}
+			moved++
 		}
-		scheduledFor := entry.ScheduledFor.UTC()
-		msg.Headers[schedulerpkg.HeaderScheduledFor] = scheduledFor.Format(time.RFC3339Nano)
-		msg.Headers[schedulerpkg.HeaderReleasedAt] = now.UTC().Format(time.RFC3339Nano)
-		msg.Headers[schedulerpkg.HeaderReleaseLagMS] = strconv.FormatInt(now.UTC().Sub(scheduledFor).Milliseconds(), 10)
-		msg.ETA = nil
-		if err := b.releaseDueEntry(ctx, fence, raw, entry, msg, now); err != nil {
-			return moved, fmt.Errorf("move due tasks: release delayed message: %w", err)
-		}
-		moved++
 	}
 
 	return moved, nil
@@ -490,26 +563,30 @@ func (b *RedisBroker) releaseDueEntry(
 		return fmt.Errorf("publish task: marshal message: %w", err)
 	}
 	if b.fairnessPolicy(queue) != nil {
-		return b.releaseDueIntoFairReady(ctx, fence, raw, queue, msg.FairnessKey, payload, opts.DeduplicationKey, now)
+		return b.releaseDueIntoFairReady(ctx, fence, raw, entry.EntryID, queue, msg.FairnessKey, payload, opts.DeduplicationKey, now)
 	}
-	return b.releaseDueIntoReady(ctx, fence, raw, queue, payload, opts.DeduplicationKey)
+	return b.releaseDueIntoReady(ctx, fence, raw, entry.EntryID, queue, payload, opts.DeduplicationKey)
 }
 
-func (b *RedisBroker) releaseDueIntoReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, queue string, payload []byte, deduplicationKey string) error {
+func (b *RedisBroker) releaseDueIntoReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, entryID, queue string, payload []byte, deduplicationKey string) error {
 	values, err := fencedReleaseReadyScript.Run(
 		ctx,
 		b.client,
 		[]string{
 			b.schedulerLeadershipKey(),
-			b.delayedKey(),
+			b.delayedQueueKey(queue),
 			b.streamKey(queue),
 			b.publishReceiptKey(deduplicationKey),
+			b.delayedQueueIndexKey(),
+			b.delayedRetryIndexKey(queue),
 		},
 		fence.Token,
 		raw,
 		streamPayloadField,
 		string(payload),
 		b.publishReceiptTTL().Milliseconds(),
+		queue,
+		entryID,
 	).Result()
 	if err != nil {
 		return err
@@ -524,17 +601,19 @@ func (b *RedisBroker) releaseDueIntoReady(ctx context.Context, fence schedulerpk
 	return nil
 }
 
-func (b *RedisBroker) releaseDueIntoFairReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, queue, fairnessKey string, payload []byte, deduplicationKey string, now time.Time) error {
+func (b *RedisBroker) releaseDueIntoFairReady(ctx context.Context, fence schedulerpkg.LeadershipFence, raw, entryID, queue, fairnessKey string, payload []byte, deduplicationKey string, now time.Time) error {
 	values, err := fencedReleaseFairReadyScript.Run(
 		ctx,
 		b.client,
 		[]string{
 			b.schedulerLeadershipKey(),
-			b.delayedKey(),
+			b.delayedQueueKey(queue),
 			b.fairnessKeysSetKey(queue),
 			b.fairnessStreamKey(queue, fairness.NormalizeKey(fairnessKey)),
 			b.fairnessNotifyKey(queue),
 			b.publishReceiptKey(deduplicationKey),
+			b.delayedQueueIndexKey(),
+			b.delayedRetryIndexKey(queue),
 		},
 		fence.Token,
 		raw,
@@ -543,6 +622,8 @@ func (b *RedisBroker) releaseDueIntoFairReady(ctx context.Context, fence schedul
 		string(payload),
 		now.UTC().Format(time.RFC3339Nano),
 		b.publishReceiptTTL().Milliseconds(),
+		queue,
+		entryID,
 	).Result()
 	if err != nil {
 		return err
@@ -558,8 +639,13 @@ func (b *RedisBroker) releaseDueIntoFairReady(ctx context.Context, fence schedul
 }
 
 func (b *RedisBroker) releaseDueIntoDelayed(ctx context.Context, fence schedulerpkg.LeadershipFence, raw string, msg broker.TaskMessage, deduplicationKey string) error {
+	oldEntry, err := decodeDelayedEntry(raw)
+	if err != nil {
+		return fmt.Errorf("publish task: decode delayed entry: %w", err)
+	}
+	newEntryID := uuid.NewString()
 	entryPayload, err := json.Marshal(delayedEntry{
-		EntryID:      uuid.NewString(),
+		EntryID:      newEntryID,
 		ScheduledFor: msg.ETA.UTC(),
 		Message:      msg,
 	})
@@ -571,14 +657,23 @@ func (b *RedisBroker) releaseDueIntoDelayed(ctx context.Context, fence scheduler
 		b.client,
 		[]string{
 			b.schedulerLeadershipKey(),
-			b.delayedKey(),
+			b.delayedQueueKey(tasks.EffectiveQueue(oldEntry.Message)),
+			b.delayedQueueKey(tasks.EffectiveQueue(msg)),
 			b.publishReceiptKey(deduplicationKey),
+			b.delayedQueueIndexKey(),
+			b.delayedRetryIndexKey(tasks.EffectiveQueue(oldEntry.Message)),
+			b.delayedRetryIndexKey(tasks.EffectiveQueue(msg)),
 		},
 		fence.Token,
 		raw,
 		msg.ETA.UTC().UnixMilli(),
 		string(entryPayload),
 		b.publishReceiptTTL().Milliseconds(),
+		tasks.EffectiveQueue(oldEntry.Message),
+		tasks.EffectiveQueue(msg),
+		oldEntry.EntryID,
+		newEntryID,
+		retryIndexFlag(msg),
 	).Result()
 	if err != nil {
 		return err
@@ -823,8 +918,10 @@ func (b *RedisBroker) publishReadyWithDedup(ctx context.Context, queue string, p
 }
 
 func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage, deduplicationKey string) (bool, error) {
+	queue := tasks.EffectiveQueue(msg)
+	entryID := uuid.NewString()
 	entryPayload, err := json.Marshal(delayedEntry{
-		EntryID:      uuid.NewString(),
+		EntryID:      entryID,
 		ScheduledFor: msg.ETA.UTC(),
 		Message:      msg,
 	})
@@ -832,10 +929,16 @@ func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage
 		return false, fmt.Errorf("publish task: marshal delayed entry: %w", err)
 	}
 	if deduplicationKey == "" {
-		if err := b.client.ZAdd(ctx, b.delayedKey(), redis.Z{
-			Score:  float64(msg.ETA.UnixMilli()),
-			Member: entryPayload,
-		}).Err(); err != nil {
+		if err := publishDelayedScript.Run(
+			ctx,
+			b.client,
+			[]string{b.delayedQueueKey(queue), b.delayedQueueIndexKey(), b.delayedRetryIndexKey(queue)},
+			msg.ETA.UTC().UnixMilli(),
+			string(entryPayload),
+			queue,
+			entryID,
+			retryIndexFlag(msg),
+		).Err(); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -843,10 +946,18 @@ func (b *RedisBroker) publishDelayed(ctx context.Context, msg broker.TaskMessage
 	published, err := publishDelayedWithReceiptScript.Run(
 		ctx,
 		b.client,
-		[]string{b.delayedKey(), b.publishReceiptKey(deduplicationKey)},
+		[]string{
+			b.delayedQueueKey(queue),
+			b.publishReceiptKey(deduplicationKey),
+			b.delayedQueueIndexKey(),
+			b.delayedRetryIndexKey(queue),
+		},
 		msg.ETA.UTC().UnixMilli(),
 		string(entryPayload),
 		b.publishReceiptTTL().Milliseconds(),
+		queue,
+		entryID,
+		retryIndexFlag(msg),
 	).Int64()
 	if err != nil {
 		return false, err
@@ -977,7 +1088,8 @@ func (b *RedisBroker) DeadLetterQueueSize(ctx context.Context, queue string) (fl
 }
 
 func (b *RedisBroker) SchedulerLag(ctx context.Context, now time.Time, queue string) (float64, error) {
-	values, err := b.client.ZRange(ctx, b.delayedKey(), 0, -1).Result()
+	queue = normalizeQueue(queue)
+	values, err := b.client.ZRange(ctx, b.delayedQueueKey(queue), 0, 0).Result()
 	if err != nil {
 		if isMissingStream(err) {
 			return 0, nil
@@ -985,22 +1097,18 @@ func (b *RedisBroker) SchedulerLag(ctx context.Context, now time.Time, queue str
 		return 0, fmt.Errorf("scheduler lag metrics %q: %w", queue, err)
 	}
 
-	for _, raw := range values {
-		entry, err := decodeDelayedEntry(raw)
-		if err != nil {
-			return 0, fmt.Errorf("scheduler lag metrics %q: decode delayed entry: %w", queue, err)
-		}
-		if tasks.EffectiveQueue(entry.Message) != normalizeQueue(queue) {
-			continue
-		}
-		lag := now.UTC().Sub(entry.ScheduledFor.UTC())
-		if lag < 0 {
-			return 0, nil
-		}
-		return lag.Seconds(), nil
+	if len(values) == 0 {
+		return 0, nil
 	}
-
-	return 0, nil
+	entry, err := decodeDelayedEntry(values[0])
+	if err != nil {
+		return 0, fmt.Errorf("scheduler lag metrics %q: decode delayed entry: %w", queue, err)
+	}
+	lag := now.UTC().Sub(entry.ScheduledFor.UTC())
+	if lag < 0 {
+		return 0, nil
+	}
+	return lag.Seconds(), nil
 }
 
 func (b *RedisBroker) incrementLeaseExtensionFailure(queue string) {
@@ -1231,8 +1339,16 @@ func (b *RedisBroker) consumerName(consumerID string) string {
 	return fmt.Sprintf("%s:%s:%s", base, b.hostname, b.instanceID)
 }
 
-func (b *RedisBroker) delayedKey() string {
-	return fmt.Sprintf("%s:delayed", b.prefix)
+func (b *RedisBroker) delayedQueueKey(queue string) string {
+	return fmt.Sprintf("%s:delayed:queue:%s", b.prefix, normalizeQueue(queue))
+}
+
+func (b *RedisBroker) delayedQueueIndexKey() string {
+	return fmt.Sprintf("%s:delayed:queues", b.prefix)
+}
+
+func (b *RedisBroker) delayedRetryIndexKey(queue string) string {
+	return fmt.Sprintf("%s:delayed:retry:%s", b.prefix, normalizeQueue(queue))
 }
 
 func (b *RedisBroker) schedulerLeadershipKey() string {
@@ -1253,6 +1369,27 @@ func (b *RedisBroker) publishReceiptExists(ctx context.Context, deduplicationKey
 		return false, fmt.Errorf("publish task: inspect receipt: %w", err)
 	}
 	return exists > 0, nil
+}
+
+func (b *RedisBroker) refreshDelayedQueueIndex(ctx context.Context, queue string) error {
+	queue = normalizeQueue(queue)
+	values, err := b.client.ZRangeWithScores(ctx, b.delayedQueueKey(queue), 0, 0).Result()
+	if err != nil {
+		return fmt.Errorf("refresh delayed queue index %q: %w", queue, err)
+	}
+	if len(values) == 0 {
+		if err := b.client.ZRem(ctx, b.delayedQueueIndexKey(), queue).Err(); err != nil {
+			return fmt.Errorf("refresh delayed queue index %q: remove queue: %w", queue, err)
+		}
+		return nil
+	}
+	if err := b.client.ZAdd(ctx, b.delayedQueueIndexKey(), redis.Z{
+		Score:  values[0].Score,
+		Member: queue,
+	}).Err(); err != nil {
+		return fmt.Errorf("refresh delayed queue index %q: update queue: %w", queue, err)
+	}
+	return nil
 }
 
 func normalizeQueue(queue string) string {
@@ -1317,6 +1454,13 @@ func decodeDelayedEntry(raw string) (delayedEntry, error) {
 		return delayedEntry{}, fmt.Errorf("missing delayed entry id")
 	}
 	return entry, nil
+}
+
+func retryIndexFlag(msg broker.TaskMessage) string {
+	if msg.Headers != nil && msg.Headers[tasks.HeaderRetryScheduledAt] != "" {
+		return "1"
+	}
+	return "0"
 }
 
 func deliveryCount(msg broker.TaskMessage, fallback int64) int {

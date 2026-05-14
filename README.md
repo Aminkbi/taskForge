@@ -317,6 +317,7 @@ Phase 06 adds queue isolation as an explicit runtime model:
 - Scheduler control-plane safety: each successful leader acquisition advances a monotonic epoch, and delayed release plus recurring state mutation must present the current fenced token before Redis accepts the write.
 - Recurring scheduler scaling: steady-state recurring dispatch work is proportional to schedules due in the current window, not the total configured schedule count. Inactive or far-future schedules stay in Redis durable state and the recurring due-time sorted set without forcing a full scan each tick.
 - Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
+- Delayed Redis considerations: deferred payloads live in queue-scoped sorted sets, a small queue index tracks each delayed queue's earliest ETA, and queue-scoped retry indexes make retry backlog admission checks O(1). This repository is not released, so the old single `taskforge:delayed` layout is not retained as a compatibility read path.
 - Recurring Redis considerations: the main cost of large recurring fleets is Redis memory plus sorted-set maintenance for `next_run_at`, rather than scheduler CPU spent scanning every configured schedule.
 
 ## Health and metrics
