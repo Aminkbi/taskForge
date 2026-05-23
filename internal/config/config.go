@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aminkbi/taskforge/internal/fairness"
+	"github.com/aminkbi/taskforge/internal/routing"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
@@ -47,6 +48,7 @@ type Config struct {
 	RedisPassword          string
 	RedisDB                int
 	WorkerPools            []WorkerPoolConfig
+	RoutingPolicy          *routing.Policy
 	DependencyBudgets      map[string]DependencyBudgetConfig
 	TaskBudgets            map[string]TaskBudgetConfig
 	TaskTypeLimits         map[string]int
@@ -262,6 +264,9 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 		return Config{}, fmt.Errorf("TASKFORGE_TASK_PAYLOAD_RETENTION must be >= 0")
 	}
 	if cfg.WorkerPools, err = getWorkerPools("TASKFORGE_WORKER_POOLS_JSON", role); err != nil {
+		return Config{}, err
+	}
+	if cfg.RoutingPolicy, err = getRoutingPolicy("TASKFORGE_ROUTING_POLICY_JSON"); err != nil {
 		return Config{}, err
 	}
 	if cfg.DependencyBudgets, err = getDependencyBudgets("TASKFORGE_DEPENDENCY_BUDGETS_JSON"); err != nil {
@@ -584,6 +589,18 @@ func getTaskBudgets(key string, budgets map[string]DependencyBudgetConfig) (map[
 	}
 
 	return mappings, nil
+}
+
+func getRoutingPolicy(key string) (*routing.Policy, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return nil, nil
+	}
+	policy, err := routing.ParseJSON([]byte(value))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", key, err)
+	}
+	return policy, nil
 }
 
 func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPolicy, error) {

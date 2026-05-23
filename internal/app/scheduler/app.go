@@ -44,6 +44,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
+		RoutingPolicy:     cfg.RoutingPolicy,
 		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 		StateStore:        taskStateStore,
 	})

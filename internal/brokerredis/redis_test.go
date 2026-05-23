@@ -6,6 +6,7 @@ import (
 
 	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/fairness"
+	"github.com/aminkbi/taskforge/internal/routing"
 	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
@@ -128,5 +129,34 @@ func TestDeliveryCountUsesClaimFallback(t *testing.T) {
 	msg.Attempt = 3
 	if got := deliveryCount(msg, 2); got != 4 {
 		t.Fatalf("deliveryCount() = %d, want 4", got)
+	}
+}
+
+func TestRoutePublishedMessageAppliesOnlyToNewPublishes(t *testing.T) {
+	t.Parallel()
+
+	policy, err := routing.ParseJSON([]byte(`{
+		"rules":[
+			{
+				"name":"critical",
+				"match":{"task_names":["demo.critical"]},
+				"destination":{"queue":"critical","shard":"shard-a"}
+			}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("ParseJSON() error = %v", err)
+	}
+	b := &RedisBroker{routingPolicy: policy}
+	msg := broker.TaskMessage{ID: "task-1", Name: "demo.critical", Queue: "ingress"}
+
+	routed, placement := b.routePublishedMessage(msg, broker.PublishOptions{Source: broker.PublishSourceNew})
+	if routed.Queue != "critical" || placement.Shard != "shard-a" || placement.Rule != "critical" {
+		t.Fatalf("unexpected routed placement: msg=%+v placement=%+v", routed, placement)
+	}
+
+	preserved, placement := b.routePublishedMessage(routed, broker.PublishOptions{Source: broker.PublishSourceRetry})
+	if preserved.Queue != "critical" || placement.Rule != "" || placement.Shard != "" {
+		t.Fatalf("retry publish should preserve assigned placement: msg=%+v placement=%+v", preserved, placement)
 	}
 }

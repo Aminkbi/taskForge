@@ -79,6 +79,7 @@ func main() {
 		queueNames = append(queueNames, pool.Queue)
 		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
 			FairnessPolicies: fairnessPolicies,
+			RoutingPolicy:    cfg.RoutingPolicy,
 		})
 		workers = append(workers, &runtimepkg.Worker{
 			Broker:            poolBroker,
@@ -105,6 +106,7 @@ func main() {
 
 	brokerInstance := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies: fairnessPolicies,
+		RoutingPolicy:    cfg.RoutingPolicy,
 	})
 	if err := brokerInstance.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)

@@ -9,6 +9,7 @@ type PublishSource string
 
 const (
 	PublishSourceNew        PublishSource = "new"
+	PublishSourceRequeue    PublishSource = "requeue"
 	PublishSourceRetry      PublishSource = "retry"
 	PublishSourceDueRelease PublishSource = "due_release"
 	PublishSourceRecurring  PublishSource = "recurring"
@@ -40,6 +41,8 @@ type PublishResult struct {
 	Decision      AdmissionDecision
 	Reason        string
 	Queue         string
+	Shard         string
+	RoutingRule   string
 	DeferredUntil *time.Time
 	Deduplicated  bool
 }

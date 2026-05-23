@@ -38,6 +38,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	sharedBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
 		FairnessPolicies:  fairnessPolicies,
 		AdmissionPolicies: admissionPolicies,
+		RoutingPolicy:     cfg.RoutingPolicy,
 		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 		StateStore:        taskStateStore,
 	})
@@ -51,6 +52,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
 			FairnessPolicies:  fairnessPolicies,
 			AdmissionPolicies: admissionPolicies,
+			RoutingPolicy:     cfg.RoutingPolicy,
 			DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
 			StateStore:        taskStateStore,
 		})

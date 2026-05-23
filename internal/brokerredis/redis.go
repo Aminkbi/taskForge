@@ -20,6 +20,7 @@ import (
 	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
+	"github.com/aminkbi/taskforge/internal/routing"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/store"
 	"github.com/aminkbi/taskforge/internal/tasks"
@@ -165,6 +166,7 @@ type RedisBroker struct {
 	instanceID        string
 	fairnessPolicies  map[string]*fairness.Policy
 	admissionPolicies map[string]AdmissionPolicy
+	routingPolicy     *routing.Policy
 	admissionStateMu  sync.RWMutex
 	admissionStates   map[string]observability.AdmissionStatusSnapshot
 	budgetStore       *BudgetStore
@@ -181,6 +183,7 @@ type Options struct {
 	ReserveTimeout    time.Duration
 	FairnessPolicies  map[string]*fairness.Policy
 	AdmissionPolicies map[string]AdmissionPolicy
+	RoutingPolicy     *routing.Policy
 	DependencyBudgets map[string]int
 	StateStore        store.StateStore
 }
@@ -206,6 +209,7 @@ func NewWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Dur
 		instanceID:        fmt.Sprintf("%d", os.Getpid()),
 		fairnessPolicies:  cloneFairnessPolicies(options.FairnessPolicies),
 		admissionPolicies: cloneAdmissionPolicies(options.AdmissionPolicies),
+		routingPolicy:     options.RoutingPolicy,
 		admissionStates:   make(map[string]observability.AdmissionStatusSnapshot),
 		budgetStore:       NewBudgetStore(client, metrics, defaultPrefix, options.DependencyBudgets),
 		adaptiveStore:     NewAdaptiveStateStore(client, defaultPrefix),
@@ -259,6 +263,7 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage, opts 
 	now := time.Now().UTC()
 	msg = normalizePublishedMessage(msg, now)
 	opts = opts.Normalize()
+	msg, placement := b.routePublishedMessage(msg, opts)
 	ctx, span := observability.StartQueueSpan(
 		ctx,
 		"taskforge.brokerredis",
@@ -274,6 +279,12 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage, opts 
 		observability.MarkSpanError(span, err)
 		return broker.PublishResult{}, err
 	}
+	if placement.Shard != "" {
+		result.Shard = placement.Shard
+	}
+	if placement.Rule != "" {
+		result.RoutingRule = placement.Rule
+	}
 	if b.stateStore != nil && result.Decision != broker.AdmissionDecisionRejected && !result.Deduplicated {
 		if err := b.stateStore.RecordQueued(ctx, msg); err != nil {
 			observability.MarkSpanError(span, err)
@@ -281,6 +292,14 @@ func (b *RedisBroker) Publish(ctx context.Context, msg broker.TaskMessage, opts 
 		}
 	}
 	return result, nil
+}
+
+func (b *RedisBroker) routePublishedMessage(msg broker.TaskMessage, opts broker.PublishOptions) (broker.TaskMessage, routing.Placement) {
+	placement := routing.Placement{Queue: tasks.EffectiveQueue(msg)}
+	if b.routingPolicy == nil || opts.Source != broker.PublishSourceNew {
+		return msg, placement
+	}
+	return b.routingPolicy.Apply(msg)
 }
 
 func (b *RedisBroker) Reserve(ctx context.Context, queue, consumerID string) (broker.Delivery, error) {
@@ -410,7 +429,7 @@ func (b *RedisBroker) Nack(ctx context.Context, delivery broker.Delivery, requeu
 		requeued := delivery.Message
 		requeued.ETA = nil
 		if _, err := b.Publish(ctx, requeued, broker.PublishOptions{
-			Source:           broker.PublishSourceNew,
+			Source:           broker.PublishSourceRequeue,
 			DeduplicationKey: fmt.Sprintf("requeue:%s", delivery.Execution.DeliveryID),
 		}); err != nil {
 			observability.MarkSpanError(span, err)

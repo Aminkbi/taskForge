@@ -208,6 +208,7 @@ TASKFORGE_SCHEDULER_RENEW_INTERVAL=5s
 TASKFORGE_TASK_SUCCESS_RETENTION=24h
 TASKFORGE_TASK_FAILURE_RETENTION=168h
 TASKFORGE_TASK_PAYLOAD_RETENTION=24h
+TASKFORGE_ROUTING_POLICY_JSON=
 TASKFORGE_SCHEDULES_JSON=[]
 TASKFORGE_OTEL_ENABLED=false
 TASKFORGE_SERVICE_NAME=taskforge
@@ -223,6 +224,8 @@ Dependency budgets are configured globally through `TASKFORGE_DEPENDENCY_BUDGETS
 Budgets are cluster-wide Redis-backed token pools held for the full task execution. Task budget attachment is static by task type in this phase.
 
 Admission control is evaluated at publish time from Redis-visible queue state. Each queue can disable it, defer new work into the delayed set, or reject new work when configured thresholds are exceeded. Overload does not fail `/readyz`; operators should inspect admission metrics or the API admin endpoint instead.
+
+Routing is configured globally through `TASKFORGE_ROUTING_POLICY_JSON`. Rules match new publishes by task name, source queue, fairness key, traffic class, and headers, then assign a destination queue and optional logical shard. Retries, due releases, recurring dispatches, DLQ flows, and broker requeues preserve their existing queue placement. See [docs/operations/cluster-routing.md](docs/operations/cluster-routing.md).
 
 Task state is retained in Redis under task-level records. Publish records `queued`; reserve records `leased`; execution records `running`; successful ack records `succeeded`; retry scheduling records `retry_scheduled`; dead-letter ack records `dead_lettered`. The task view is keyed by logical `task_id`, so it summarizes the latest task-level state even when delivery attempts are duplicated. Successful terminal records expire after `TASKFORGE_TASK_SUCCESS_RETENTION`; failed, retry-scheduled, and dead-lettered records expire after `TASKFORGE_TASK_FAILURE_RETENTION`; optional result payload bytes use `TASKFORGE_TASK_PAYLOAD_RETENTION`. A retention value of `0` disables expiration for that category.
 
@@ -291,6 +294,22 @@ TASKFORGE_TASK_BUDGETS_JSON=[
 TASKFORGE_TASK_TYPE_LIMITS_JSON=[
   {"task_name":"tenant.sync","max_concurrency":2}
 ]
+TASKFORGE_ROUTING_POLICY_JSON={
+  "default_queue":"default",
+  "default_shard":"shard-a",
+  "rules":[
+    {
+      "name":"critical-tenant",
+      "match":{"fairness_keys":["tenant-vip"],"traffic_classes":["critical"]},
+      "destination":{"queue":"critical","shard":"shard-a"}
+    },
+    {
+      "name":"bulk-spread",
+      "match":{"traffic_classes":["bulk"]},
+      "destination":{"queue":"bulk","shards":["bulk-a","bulk-b"],"shard_by":"fairness_key"}
+    }
+  ]
+}
 ```
 
 Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`. The first release is intentionally narrow:
@@ -330,6 +349,7 @@ Phase 06 adds queue isolation as an explicit runtime model:
 - Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
 - Delayed Redis considerations: deferred payloads live in queue-scoped sorted sets, a small queue index tracks each delayed queue's earliest ETA, and queue-scoped retry indexes make retry backlog admission checks O(1). This repository is not released, so the old single `taskforge:delayed` layout is not retained as a compatibility read path.
 - Recurring Redis considerations: the main cost of large recurring fleets is Redis memory plus sorted-set maintenance for `next_run_at`, rather than scheduler CPU spent scanning every configured schedule.
+- Cluster routing considerations: routing policy is evaluated on new publishes before admission control. Queue placement is executable today; shard placement is logical metadata carried in `taskforge_shard` until a later multi-control-plane dispatcher exists.
 
 ## Health and metrics
 

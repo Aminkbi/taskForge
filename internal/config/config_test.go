@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aminkbi/taskforge/internal/broker"
 	"github.com/aminkbi/taskforge/internal/fairness"
+	"github.com/aminkbi/taskforge/internal/routing"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 )
 
@@ -17,6 +19,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", "")
+	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", "")
 	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", "")
 	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", "")
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", "")
@@ -57,6 +60,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if len(cfg.TaskTypeLimits) != 0 {
 		t.Fatalf("TaskTypeLimits length = %d, want 0", len(cfg.TaskTypeLimits))
+	}
+	if cfg.RoutingPolicy != nil {
+		t.Fatalf("RoutingPolicy = %+v, want nil", cfg.RoutingPolicy)
 	}
 	if len(cfg.DependencyBudgets) != 0 {
 		t.Fatalf("DependencyBudgets length = %d, want 0", len(cfg.DependencyBudgets))
@@ -138,6 +144,17 @@ func TestLoadOverrides(t *testing.T) {
 		}
 	]`)
 	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"downstream-api","capacity":5}]`)
+	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", `{
+		"default_queue":"default",
+		"default_shard":"shard-a",
+		"rules":[
+			{
+				"name":"critical-tenant",
+				"match":{"task_names":["demo.nightly"],"fairness_keys":["tenant-vip"],"traffic_classes":["critical"]},
+				"destination":{"queue":"critical","shard":"shard-b"}
+			}
+		]
+	}`)
 	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", `[{"task_name":"demo.nightly","budget":"downstream-api","tokens":2}]`)
 	t.Setenv("TASKFORGE_TASK_TYPE_LIMITS_JSON", `[{"task_name":"shared.sync","max_concurrency":2}]`)
 	t.Setenv("TASKFORGE_POLL_INTERVAL", "250ms")
@@ -212,6 +229,13 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.TaskBudgets["demo.nightly"].Budget != "downstream-api" || cfg.TaskBudgets["demo.nightly"].Tokens != 2 {
 		t.Fatalf("unexpected task budgets: %+v", cfg.TaskBudgets)
+	}
+	if cfg.RoutingPolicy == nil {
+		t.Fatalf("expected routing policy")
+	}
+	placement := cfg.RoutingPolicy.Place(brokerTask("demo.nightly", "tenant-vip", "critical"))
+	if placement.Queue != "critical" || placement.Shard != "shard-b" || placement.Rule != "critical-tenant" {
+		t.Fatalf("unexpected routing placement: %+v", placement)
 	}
 	if cfg.PollInterval != 250*time.Millisecond {
 		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, 250*time.Millisecond)
@@ -469,6 +493,15 @@ func TestLoadRejectsInvalidScheduleJSON(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidRoutingPolicy(t *testing.T) {
+	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", `{"rules":[{"name":"missing-match","destination":{"queue":"default"}}]}`)
+
+	_, err := Load("taskforge-test")
+	if err == nil {
+		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
 func TestLoadRejectsDuplicateScheduleIDs(t *testing.T) {
 	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"dup","interval":"1m","task_name":"demo.one","payload":{}},{"id":"dup","interval":"2m","task_name":"demo.two","payload":{}}]`)
 
@@ -499,4 +532,13 @@ func TestLoadRejectsInvalidSchedulerIntervals(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
+}
+
+func brokerTask(name, fairnessKey, trafficClass string) broker.TaskMessage {
+	return broker.TaskMessage{
+		ID:          "task-1",
+		Name:        name,
+		FairnessKey: fairnessKey,
+		Headers:     map[string]string{routing.HeaderTrafficClass: trafficClass},
+	}
 }
