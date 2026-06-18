@@ -12,6 +12,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/aminkbi/taskforge/internal/app/api/dashboard"
 	"github.com/aminkbi/taskforge/internal/brokerredis"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/httpserver"
@@ -72,6 +73,13 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
 		mux.HandleFunc("/v1/admin/workers", workerLifecycleHandler(b))
 		mux.HandleFunc("/v1/tasks/", taskLookupHandler(taskStateStore))
+
+		// Operator dashboard: a static config builder + live ops view backed
+		// by the /v1/admin endpoints above. Served from the embedded assets.
+		mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", dashboard.Handler()))
+		mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
+		})
 	})
 
 	return &App{server: server}

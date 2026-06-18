@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TaskForge Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">TF</div>
+    <div>
+      <h1>TaskForge Dashboard</h1>
+      <div class="sub">Config builder &amp; live operations</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="sub" id="conn-hint"></div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-view="builder">Config builder</button>
+    <button class="tab" data-view="ops">Live operations</button>
+  </nav>
+
+  <main>
+    <!-- ===================== CONFIG BUILDER ===================== -->
+    <section class="view active" id="view-builder">
+      <div class="layout">
+        <div class="forms">
+
+          <div class="card">
+            <h2>Core &amp; Redis</h2>
+            <div class="card-body grid" id="core-fields"></div>
+          </div>
+
+          <div class="card">
+            <h2>Timings &amp; retention <span class="hint">Go durations, e.g. 30s, 5m, 1h</span></h2>
+            <div class="card-body grid" id="timing-fields"></div>
+          </div>
+
+          <div class="card">
+            <h2>Worker pools <span class="hint">TASKFORGE_WORKER_POOLS_JSON</span></h2>
+            <div class="card-body">
+              <div id="pools-list"></div>
+              <div class="btn-row inline-add">
+                <button class="btn" id="add-pool">+ Add worker pool</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Dependency budgets <span class="hint">TASKFORGE_DEPENDENCY_BUDGETS_JSON</span></h2>
+            <div class="card-body">
+              <div id="budgets-list"></div>
+              <div class="btn-row inline-add"><button class="btn" id="add-budget">+ Add budget</button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Task → budget mappings <span class="hint">TASKFORGE_TASK_BUDGETS_JSON</span></h2>
+            <div class="card-body">
+              <div id="taskbudgets-list"></div>
+              <div class="btn-row inline-add"><button class="btn" id="add-taskbudget">+ Add mapping</button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Global task-type limits <span class="hint">TASKFORGE_TASK_TYPE_LIMITS_JSON</span></h2>
+            <div class="card-body">
+              <div id="tasklimits-list"></div>
+              <div class="btn-row inline-add"><button class="btn" id="add-tasklimit">+ Add limit</button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Routing policy <span class="hint">TASKFORGE_ROUTING_POLICY_JSON</span></h2>
+            <div class="card-body">
+              <label class="check" style="margin-bottom:12px">
+                <input type="checkbox" id="routing-enabled" /> <span>Enable routing policy</span>
+              </label>
+              <div id="routing-body" style="display:none">
+                <div class="grid">
+                  <label class="field"><span>Default queue</span><input id="routing-default-queue" placeholder="default" /></label>
+                  <label class="field"><span>Default shard</span><input id="routing-default-shard" placeholder="(optional)" /></label>
+                </div>
+                <div class="subsection">
+                  <div class="sub-h">Rules</div>
+                  <div id="routing-rules"></div>
+                  <div class="btn-row inline-add"><button class="btn" id="add-route">+ Add rule</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Recurring schedules <span class="hint">TASKFORGE_SCHEDULES_JSON</span></h2>
+            <div class="card-body">
+              <div id="schedules-list"></div>
+              <div class="btn-row inline-add"><button class="btn" id="add-schedule">+ Add schedule</button></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Output panel -->
+        <div class="output-col">
+          <div class="card output">
+            <h2>
+              Generated config
+              <span class="spacer" style="flex:1"></span>
+              <span class="format-toggle" id="format-toggle">
+                <button data-fmt="env" class="active">.env</button>
+                <button data-fmt="compose">compose</button>
+                <button data-fmt="shell">export</button>
+              </span>
+            </h2>
+            <pre id="output"></pre>
+            <div class="status-line" id="output-status"></div>
+            <div class="card-body btn-row">
+              <button class="btn primary" id="copy-output">Copy</button>
+              <button class="btn" id="download-output">Download .env</button>
+              <button class="btn ghost" id="load-sample">Load sample</button>
+              <button class="btn ghost danger" id="reset-all">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LIVE OPS ===================== -->
+    <section class="view" id="view-ops">
+      <div class="ops-bar">
+        <label class="field">
+          <span>API base URL</span>
+          <input id="ops-base" placeholder="(same origin)" />
+        </label>
+        <button class="btn primary" id="ops-refresh">Refresh all</button>
+        <label class="check"><input type="checkbox" id="ops-auto" /> <span>Auto every 5s</span></label>
+      </div>
+      <div id="ops-status" class="status-line"></div>
+
+      <div class="card">
+        <h2>Workers <span class="hint">/v1/admin/workers</span></h2>
+        <div class="card-body" id="ops-workers"><div class="empty">Not loaded.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Admission control <span class="hint">/v1/admin/admission</span></h2>
+        <div class="card-body" id="ops-admission"><div class="empty">Not loaded.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Adaptive concurrency &amp; budgets <span class="hint">/v1/admin/adaptive</span></h2>
+        <div class="card-body" id="ops-adaptive"><div class="empty">Not loaded.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Task lookup <span class="hint">/v1/tasks/{id}</span></h2>
+        <div class="card-body">
+          <div class="row-flex" style="margin-bottom:12px">
+            <input id="ops-task-id" placeholder="task id" />
+            <button class="btn" id="ops-task-go" style="flex:0 0 auto">Look up</button>
+          </div>
+          <div id="ops-task"><div class="empty">Enter a task id.</div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
