@@ -1,441 +1,161 @@
 # TaskForge
 
-TaskForge is a Go codebase for building a small distributed job system.
-It borrows a few ideas from Celery, but it is not trying to clone Celery feature-for-feature. The goal is narrower: keep the queue runtime easy to read, easy to extend, and honest about what is implemented versus what is still missing.
+TaskForge is an early-stage Go runtime for building a small distributed job system on Redis Streams.
+It is intentionally explicit about its reliability model: delivery is at least once, duplicate execution is possible, and task handlers must be idempotent.
 
-Right now the repo gives you the shape of the system:
+The project is not a drop-in Celery replacement and does not claim production-complete semantics yet.
+It is a readable foundation for queue runtime work, scheduler behavior, worker lifecycle handling, observability, and operational experiments.
 
-- a worker process
-- a scheduler for delayed and retryable jobs
-- a small API/admin process
-- Redis Streams-backed active queueing plus Redis delayed release paths
-- logging, metrics, health checks, and optional OpenTelemetry wiring
+## What Is Here
 
-It is a usable starting point for backend or infra work, but it is still an early-stage system rather than a finished queue product. Some areas are intentionally incomplete instead of being hidden behind vague promises.
+- Redis Streams-backed active queueing with durable delivery ownership.
+- Delayed jobs, retry scheduling, recurring interval schedules, and DLQ replay paths.
+- Worker drain behavior with lease renewal and forced shutdown after a grace window.
+- Queue isolation, fairness policies, admission control, adaptive concurrency, and dependency budgets.
+- Health checks, metrics, structured logging, and optional OpenTelemetry tracing.
+- A public Go package for publishing tasks and embedding workers.
 
-## What is here today
+## Quick Start
 
-- At-least-once delivery is the intended model.
-- A task ID is the logical identity; each reserve creates a distinct delivery attempt.
-- Redis is the first broker and result-store candidate.
-- Delayed jobs and policy-driven retries flow through Redis plus a scheduler loop.
-- Active delivery uses Redis Streams consumer groups with reclaim and durable lease renewal.
-- Metrics, structured logging, and tracing hooks are already wired in.
-
-## Execution contract
-
-TaskForge's execution contract is explicit:
-
-- Delivery is `at-least-once`.
-- Duplicate deliveries are possible.
-- Handlers must be idempotent.
-- Handlers should respect `ctx.Done()` because worker drain cancels long-running execution after the shutdown grace window expires.
-- Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
-- Exactly-once execution is out of scope.
-
-Internally, the runtime distinguishes the logical `task_id` from a single `delivery_id` so stale acknowledgements can be rejected deterministically.
-Worker shutdown is explicit: on drain, workers stop reserving new deliveries first, keep renewing owned leases for already-reserved work, and only force-cancel remaining execution when `TASKFORGE_SHUTDOWN_TIMEOUT` expires. Lease loss means local execution ownership is no longer authoritative, so cancellation-insensitive handlers may still produce duplicate side effects.
-
-The repository builds and starts three binaries:
-
-- `cmd/worker` polls Redis, runs a placeholder handler, and exercises the retry and DLQ paths.
-- `cmd/scheduler` releases delayed work when its ETA is reached.
-- `cmd/api` exposes health, readiness, metrics, and a small admin surface.
-- `cmd/demo` runs a small end-to-end demo that lets the scheduler trigger file-appending tasks.
-
-## What this is not
-
-- It is not a drop-in Celery replacement.
-- It is not trying to hide complexity behind a big framework.
-- It does not ship RabbitMQ support yet.
-- It does not claim production-complete retry, scheduling, scaling, or observability semantics in the current state.
-
-## Project layout
-
-```text
-taskforge/
-  cmd/
-  deploy/docker/
-  internal/
-  pkg/taskforge/
-  scripts/
-  test/integration/
-```
-
-Most of the interesting logic lives under `internal/`:
-
-- `internal/app/*` wires each binary together.
-- `internal/config` loads typed config from environment variables.
-- `internal/broker` defines the queue contract and message model.
-- `internal/brokerredis` contains the Redis Streams broker and delayed-job release implementation.
-- `internal/runtime` drives polling, execution, ack, retry, and lease extension.
-- `internal/scheduler` handles delayed release and retry scheduling.
-- `internal/store` and `internal/storeredis` define durable task state and result retention.
-- `internal/observability`, `internal/httpserver`, and `internal/logging` cover the operational baseline.
-
-## Running locally
-
-### Prerequisites
+Prerequisites:
 
 - Go 1.25+
 - Docker with Compose support
 
-Repository tooling and CI policy are documented in [docs/development/toolchain.md](./docs/development/toolchain.md).
-
-### Quick start
+Run the local stack:
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-That brings up:
+That starts Redis, worker, scheduler, API/admin, and Prometheus:
 
-- Redis on `localhost:6379`
-- worker admin endpoints on `localhost:8081`
-- scheduler admin endpoints on `localhost:8082`, including `/v1/admin/leadership`
-- API/admin endpoints on `localhost:8083`
-- Prometheus on `localhost:9090`
+- worker admin: `http://localhost:8081`
+- scheduler admin: `http://localhost:8082`
+- API/admin: `http://localhost:8083`
+- Prometheus: `http://localhost:9090`
 
-If you prefer make targets:
+Useful local commands:
 
 ```bash
-make compose-up
-make compose-down
-make run-worker
-make run-scheduler
-make run-api
-make run-demo
-make run-example-email
-make run-example-media
-make run-example-external-api
 make test
-make integration-test
-make race-test
-make bench-smoke
-make bench
 make lint
-make fmt
-make release-smoke
-```
-
-You can also use the helper scripts:
-
-```bash
-./scripts/dev.sh
-./scripts/test.sh
-./scripts/lint.sh
-./scripts/bench.sh
-```
-
-### Demo the scheduler
-
-If you want to see delayed and recurring scheduling do real work on your machine, use the demo binary. It starts the worker manager plus scheduler, creates one immediate append task per configured worker pool, publishes one delayed task on the first pool queue, registers one recurring schedule on that same queue, and appends lines to a local file when tasks run.
-
-```bash
 make run-demo
-```
-
-By default it:
-
-- uses Redis DB `15` unless `TASKFORGE_REDIS_DB` is explicitly set
-- clears that demo DB before starting
-- writes output to `/tmp/taskforge-demo.log`
-- schedules one delayed run after `3s`
-- schedules one recurring run every `2s`
-- stops after `8s`
-
-You can customize it:
-
-```bash
-TASKFORGE_DEMO_OUTPUT_FILE=/tmp/taskforge-demo.log \
-TASKFORGE_DEMO_DELAYED_AFTER=2s \
-TASKFORGE_DEMO_RECURRING_EVERY=1s \
-TASKFORGE_DEMO_RUN_FOR=6s \
-make run-demo
-```
-
-Then inspect the output file:
-
-```bash
-sed -n '1,20p' /tmp/taskforge-demo.log
-```
-
-### Runnable examples
-
-TaskForge also includes three local example commands:
-
-```bash
 make run-example-email
 make run-example-media
 make run-example-external-api
 ```
 
-They are documented in:
+## Public Go API
 
-- [docs/operations/examples.md](./docs/operations/examples.md)
-- [docs/operations/failure-matrix.md](./docs/operations/failure-matrix.md)
-- [docs/operations/runbooks.md](./docs/operations/runbooks.md)
-- [docs/operations/benchmarks.md](./docs/operations/benchmarks.md)
+Import the package:
 
-## Configuration
-
-TaskForge reads configuration from environment variables:
-
-```env
-TASKFORGE_LOG_LEVEL=info
-TASKFORGE_HTTP_ADDR=:8080
-TASKFORGE_METRICS_ADDR=:8080
-TASKFORGE_REDIS_ADDR=localhost:6379
-TASKFORGE_REDIS_PASSWORD=
-TASKFORGE_REDIS_DB=0
-TASKFORGE_WORKER_POOLS_JSON=[
-  {
-    "name":"default",
-    "queue":"default",
-    "concurrency":4,
-    "prefetch":4,
-    "lease_ttl":"30s"
-  }
-]
-TASKFORGE_DEPENDENCY_BUDGETS_JSON=[]
-TASKFORGE_TASK_BUDGETS_JSON=[]
-TASKFORGE_TASK_TYPE_LIMITS_JSON=[]
-TASKFORGE_POLL_INTERVAL=1s
-TASKFORGE_SHUTDOWN_TIMEOUT=10s
-TASKFORGE_SCHEDULER_LOCK_TTL=15s
-TASKFORGE_SCHEDULER_RENEW_INTERVAL=5s
-TASKFORGE_TASK_SUCCESS_RETENTION=24h
-TASKFORGE_TASK_FAILURE_RETENTION=168h
-TASKFORGE_TASK_PAYLOAD_RETENTION=24h
-TASKFORGE_ROUTING_POLICY_JSON=
-TASKFORGE_SCHEDULES_JSON=[]
-TASKFORGE_OTEL_ENABLED=false
-TASKFORGE_SERVICE_NAME=taskforge
+```go
+import "github.com/aminkbi/taskforge/pkg/taskforge"
 ```
 
-`TASKFORGE_METRICS_ADDR` is already part of the config surface, but today `/metrics` is still served on the main HTTP listener.
-`TASKFORGE_SHUTDOWN_TIMEOUT` is also the worker drain grace window: workers stop taking new work immediately on shutdown, then either drain successfully within that window or force-abandon remaining owned deliveries.
+Publish a task:
 
-Workers are configured as isolated queue pools through `TASKFORGE_WORKER_POOLS_JSON`.
-Each pool can set `queue`, `concurrency`, `prefetch`, `lease_ttl`, retry defaults, queue-local task caps, optional fairness rules, optional adaptive concurrency control, and queue-local admission control.
-
-Dependency budgets are configured globally through `TASKFORGE_DEPENDENCY_BUDGETS_JSON` and `TASKFORGE_TASK_BUDGETS_JSON`.
-Budgets are cluster-wide Redis-backed token pools held for the full task execution. Task budget attachment is static by task type in this phase.
-
-Admission control is evaluated at publish time from Redis-visible queue state. Each queue can disable it, defer new work into the delayed set, or reject new work when configured thresholds are exceeded. Overload does not fail `/readyz`; operators should inspect admission metrics or the API admin endpoint instead.
-
-Routing is configured globally through `TASKFORGE_ROUTING_POLICY_JSON`. Rules match new publishes by task name, source queue, fairness key, traffic class, and headers, then assign a destination queue and optional logical shard. Retries, due releases, recurring dispatches, DLQ flows, and broker requeues preserve their existing queue placement. See [docs/operations/cluster-routing.md](docs/operations/cluster-routing.md).
-
-Task state is retained in Redis under task-level records. Publish records `queued`; reserve records `leased`; execution records `running`; successful ack records `succeeded`; retry scheduling records `retry_scheduled`; dead-letter ack records `dead_lettered`. The task view is keyed by logical `task_id`, so it summarizes the latest task-level state even when delivery attempts are duplicated. Successful terminal records expire after `TASKFORGE_TASK_SUCCESS_RETENTION`; failed, retry-scheduled, and dead-lettered records expire after `TASKFORGE_TASK_FAILURE_RETENTION`; optional result payload bytes use `TASKFORGE_TASK_PAYLOAD_RETENTION`. A retention value of `0` disables expiration for that category.
-
-Example:
-
-```env
-TASKFORGE_WORKER_POOLS_JSON=[
-  {
-    "name":"critical",
-    "queue":"critical",
-    "concurrency":2,
-    "prefetch":2,
-    "lease_ttl":"20s",
-    "fairness":{
-      "default":{"hard_quota":8},
-      "rules":[
-        {"name":"vip","keys":["tenant-vip"],"hard_quota":2,"reserved_concurrency":1}
-      ]
-    },
-    "admission":{
-      "mode":"defer",
-      "max_pending":2000,
-      "max_pending_per_fairness_key":250,
-      "max_oldest_ready_age":"15s",
-      "max_retry_backlog":500,
-      "max_dead_letter_size":1000,
-      "defer_interval":"5s"
-    },
-    "adaptive":{
-      "enabled":true,
-      "min_concurrency":1,
-      "max_concurrency":6,
-      "control_period":"5s",
-      "cooldown":"15s",
-      "scale_up_step":1,
-      "scale_down_step":1,
-      "latency_threshold":"500ms",
-      "error_rate_threshold":0.2,
-      "backlog_threshold":10,
-      "healthy_windows_required":2
-    },
-    "task_limits":[
-      {"task_name":"reports.generate","max_concurrency":1}
-    ]
-  },
-  {
-    "name":"bulk",
-    "queue":"bulk",
-    "concurrency":6,
-    "prefetch":12,
-    "lease_ttl":"45s",
-    "retry":{
-      "max_deliveries":5,
-      "initial_backoff":"1s",
-      "max_backoff":"30s",
-      "multiplier":2
-    }
-  }
-]
-TASKFORGE_DEPENDENCY_BUDGETS_JSON=[
-  {"name":"external-api","capacity":4}
-]
-TASKFORGE_TASK_BUDGETS_JSON=[
-  {"task_name":"reports.generate","budget":"external-api","tokens":1}
-]
-TASKFORGE_TASK_TYPE_LIMITS_JSON=[
-  {"task_name":"tenant.sync","max_concurrency":2}
-]
-TASKFORGE_ROUTING_POLICY_JSON={
-  "default_queue":"default",
-  "default_shard":"shard-a",
-  "rules":[
-    {
-      "name":"critical-tenant",
-      "match":{"fairness_keys":["tenant-vip"],"traffic_classes":["critical"]},
-      "destination":{"queue":"critical","shard":"shard-a"}
-    },
-    {
-      "name":"bulk-spread",
-      "match":{"traffic_classes":["bulk"]},
-      "destination":{"queue":"bulk","shards":["bulk-a","bulk-b"],"shard_by":"fairness_key"}
-    }
-  ]
+```go
+broker, err := taskforge.NewRedisBroker(taskforge.RedisOptions{
+	Addr: "localhost:6379",
+})
+if err != nil {
+	return err
 }
+defer broker.Close()
+
+task := taskforge.NewTask(
+	"email.send",
+	[]byte(`{"to":"user@example.com"}`),
+	taskforge.WithQueue("default"),
+	taskforge.WithIdempotencyKey("email:user@example.com:welcome"),
+)
+
+_, err = broker.Publish(ctx, task, taskforge.PublishOptions{})
 ```
 
-Recurring schedules are configured statically through `TASKFORGE_SCHEDULES_JSON`. The first release is intentionally narrow:
+Embed a worker in your own Go process:
 
-- interval schedules only
-- `coalesce` misfire policy only
-- scheduler leadership enforced through a Redis lock plus fenced leadership epochs for control-plane writes
-- durable recurring state plus a Redis due-time index keyed by `next_run_at`
+```go
+registry := taskforge.NewRegistry()
+_ = registry.RegisterFunc("email.send", func(ctx context.Context, task taskforge.Task) error {
+	// Decode task.Payload and perform an idempotent side effect.
+	return nil
+})
 
-Example:
-
-```env
-TASKFORGE_SCHEDULES_JSON=[
-  {
-    "id":"nightly-report",
-    "interval":"15m",
-    "queue":"default",
-    "task_name":"reports.generate",
-    "payload":{"kind":"nightly"},
-    "headers":{"x-source":"scheduler"},
-    "enabled":true,
-    "misfire_policy":"coalesce",
-    "start_at":"2026-04-14T10:00:00Z"
-  }
-]
+err := taskforge.RunWorker(ctx, taskforge.WorkerOptions{
+	Broker:      broker,
+	Handler:     registry,
+	Queue:       "default",
+	Concurrency: 4,
+})
 ```
 
-## Scaling model
+The `cmd/worker` binary is still a runtime harness with a placeholder handler.
+For real applications, the intended integration path is embedding the public Go API so your process owns task registration and handler code.
 
-Phase 06 adds queue isolation as an explicit runtime model:
+## Execution Contract
 
-- Shared-queue horizontal scaling: run multiple worker processes with the same pool definition and queue name when you want throughput on one queue.
-- Isolated critical queues: place critical work in its own queue and give it a dedicated worker pool so bulk backlogs do not consume that pool's leases or executor slots.
-- Scheduler scaling: the scheduler remains leader-elected through Redis, so multiple scheduler instances are acceptable but only one should actively dispatch recurring work at a time.
-- Scheduler control-plane safety: each successful leader acquisition advances a monotonic epoch, and delayed release plus recurring state mutation must present the current fenced token before Redis accepts the write.
-- Recurring scheduler scaling: steady-state recurring dispatch work is proportional to schedules due in the current window, not the total configured schedule count. Inactive or far-future schedules stay in Redis durable state and the recurring due-time sorted set without forcing a full scan each tick.
-- Redis considerations: each queue maps to its own stream and consumer group. Finalized entries are deleted on ack and nack so queue depth reflects live work instead of historical stream growth.
-- Delayed Redis considerations: deferred payloads live in queue-scoped sorted sets, a small queue index tracks each delayed queue's earliest ETA, and queue-scoped retry indexes make retry backlog admission checks O(1). This repository is not released, so the old single `taskforge:delayed` layout is not retained as a compatibility read path.
-- Recurring Redis considerations: the main cost of large recurring fleets is Redis memory plus sorted-set maintenance for `next_run_at`, rather than scheduler CPU spent scanning every configured schedule.
-- Cluster routing considerations: routing policy is evaluated on new publishes before admission control. Queue placement is executable today; shard placement is logical metadata carried in `taskforge_shard` until a later multi-control-plane dispatcher exists.
+TaskForge's execution contract is deliberately narrow:
 
-## Health and metrics
+- Delivery is `at-least-once`.
+- Duplicate deliveries are possible.
+- Handlers must be idempotent.
+- Handlers should respect `ctx.Done()`.
+- A logical task ID is separate from a broker delivery attempt.
+- Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
+- Exactly-once execution is out of scope.
 
-Every process exposes:
+Worker shutdown is explicit: workers stop reserving new deliveries first, keep renewing owned leases for already-reserved work, and only force-cancel remaining execution when `TASKFORGE_SHUTDOWN_TIMEOUT` expires.
+Lease loss means local execution ownership is no longer authoritative, so cancellation-insensitive handlers may still produce duplicate side effects.
 
-- `/healthz`
-- `/readyz`
-- `/metrics`
+## Project Layout
 
-Worker metrics now include queue-aware counters and gauges, including:
+```text
+cmd/                  runnable service and example entrypoints
+deploy/docker/        Dockerfiles for worker, scheduler, and API
+docs/                 reference, operations, and development notes
+internal/             runtime, broker, scheduler, config, HTTP, and observability internals
+pkg/taskforge/        public Go API
+scripts/              test, lint, benchmark, and release helpers
+test/integration/     opt-in Redis integration tests
+```
 
-- `taskforge_queue_depth`
-- `taskforge_queue_reserved`
-- `taskforge_queue_consumers`
-- `taskforge_admission_decisions_total`
-- `taskforge_admission_state`
-- `taskforge_admission_signal`
-- `taskforge_worker_effective_concurrency`
-- `taskforge_worker_concurrency_adjustments_total`
-- `taskforge_worker_lifecycle_state`
-- `taskforge_worker_shutdown_outcomes_total`
-- `taskforge_worker_abandoned_deliveries_total`
-- `taskforge_worker_drain_lease_losses_total`
-- `taskforge_dependency_budget_capacity`
-- `taskforge_dependency_budget_in_use`
-- `taskforge_dependency_budget_blocked_total`
-- `taskforge_dependency_budget_lease_renew_failures_total`
-- `taskforge_scheduler_leader`
-- `taskforge_scheduler_leadership_epoch`
-- `taskforge_scheduler_leadership_last_renewed_at_seconds`
-- `taskforge_scheduler_stale_write_rejections_total`
-- `taskforge_scheduler_control_plane_failures_total`
-- per-queue success, failure, retry, reclaim, and active-task metrics
+## Documentation
 
-The scheduler process also exposes:
+- [Configuration reference](./docs/reference/configuration.md)
+- [HTTP and operations API reference](./docs/reference/http-api.md)
+- [Runnable examples](./docs/operations/examples.md)
+- [Operator runbooks](./docs/operations/runbooks.md)
+- [Benchmark guide](./docs/operations/benchmarks.md)
+- [Toolchain and CI policy](./docs/development/toolchain.md)
 
-- `/v1/admin/leadership`
+## Validation
 
-The API process also exposes:
-
-- `/`
-- `/v1/admin/ping`
-- `/v1/admin/admission`
-- `/v1/admin/adaptive`
-- `/v1/admin/workers`
-- `/v1/tasks/{task_id}`
-
-`/v1/admin/admission` reports each queue's configured mode, current admission state, dominant rejection or defer reason, the latest signal snapshot, and `defer_interval`.
-
-`/v1/admin/adaptive` reports each worker pool's effective concurrency, configured bounds, latest adjustment reason, sampled adaptive signals, and cluster-wide dependency budget usage.
-
-`/v1/admin/workers` reports each worker instance's lifecycle state, current pending and running ownership, drain timestamps, shutdown outcome, abandoned-delivery count, and drain-time lease losses.
-
-`/v1/admin/leadership` reports the scheduler's local leadership state, current fenced epoch, the live Redis leadership record, and grouped stale-write rejection plus control-plane failure counters.
-
-`/v1/tasks/{task_id}` returns the durable task record for a logical task ID, including state, last error, timestamps, delivery count, last delivery ID, lease owner, and retained result payload when one exists. Lookup is read-only; replay remains an explicit operator action rather than an arbitrary task-state mutation.
-
-## Testing
-
-The unit test coverage is still small, but the basics are there:
-
-- config parsing tests
-- retry policy tests
-- opt-in Redis integration tests under `test/integration`
-
-Run the full unit suite with:
+Run the unit suite:
 
 ```bash
-go test ./...
+make test
 ```
 
-Run integration tests against local infrastructure with:
+Run Redis-backed integration tests against local Redis:
 
 ```bash
 TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
 ```
 
-Run the opt-in benchmark harness against local Redis with:
+Run the opt-in benchmark harness:
 
 ```bash
 TASKFORGE_RUN_BENCHMARKS=1 make bench
 ```
 
-## Notes for the next pass
+## Current Gaps
 
-- Add deeper admin and HTTP operations for dead-letter inspection and replay.
-- Add real task registration and user-defined handlers.
-- Expand result payload production beyond the internal retention plumbing.
-- Add a second broker implementation without changing the runtime contract.
+- The public API is intentionally small and Redis-first.
+- `cmd/worker` does not yet load user-defined handlers.
+- RabbitMQ and other broker backends are not implemented.
+- Admin operations for DLQ inspection and replay are still narrow.
+- Release publishing is being shaped around tagged binaries, checksums, and container images.
