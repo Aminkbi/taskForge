@@ -1,4 +1,5 @@
-// Package taskforge contains package-level documentation for the TaskForge module.
+// Package taskforge is the public Go API for publishing tasks and embedding
+// TaskForge workers.
 //
 // TaskForge uses an at-least-once execution contract. A logical task may be
 // delivered more than once, so handlers must be idempotent and the runtime
