@@ -12,7 +12,16 @@ import (
 	"github.com/aminkbi/taskforge/internal/shutdown"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func main() {
+	if printVersion("taskforge-worker") {
+		return
+	}
+
 	ctx, stop := shutdown.NotifyContext(context.Background())
 	defer stop()
 
@@ -49,5 +58,18 @@ func main() {
 	if err := app.Run(ctx); err != nil {
 		logger.Error("worker exited with error", "error", err)
 		os.Exit(1)
+	}
+}
+
+func printVersion(name string) bool {
+	if len(os.Args) < 2 {
+		return false
+	}
+	switch os.Args[1] {
+	case "version", "--version", "-version":
+		fmt.Fprintf(os.Stdout, "%s %s (%s)\n", name, version, commit)
+		return true
+	default:
+		return false
 	}
 }

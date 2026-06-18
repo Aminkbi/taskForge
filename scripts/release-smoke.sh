@@ -72,6 +72,7 @@ smoke_container() {
 
 for binary in "$TASKFORGE_DIST_DIR"/taskforge-*-linux-amd64; do
   test -x "$binary"
+  "$binary" version
 done
 
 if command -v curl >/dev/null 2>&1; then

@@ -12,6 +12,7 @@ dist_dir="${TASKFORGE_DIST_DIR:-dist}"
 platforms="${TASKFORGE_PLATFORMS:-linux/amd64}"
 
 mkdir -p "$dist_dir"
+rm -f "$dist_dir/SHA256SUMS"
 
 for platform in $platforms; do
   os="${platform%/*}"
@@ -26,3 +27,8 @@ for platform in $platforms; do
       "./cmd/$cmd"
   done
 done
+
+(
+  cd "$dist_dir"
+  sha256sum taskforge-* > SHA256SUMS
+)
