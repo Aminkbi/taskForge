@@ -1,48 +1,22 @@
 # Contributing
 
-Thanks for taking an interest in TaskForge.
-The project is still early, so contributions are most useful when they tighten the runtime contract, public API, tests, docs, or operational behavior without widening the scope too quickly.
+TaskForge is early-stage. Keep contributions scoped to one observable behavior.
 
 ## Development Setup
 
-Prerequisites:
-
-- Go 1.25+
-- Docker with Compose support
-- Redis for integration tests
-
-Useful commands:
+Prerequisites: Go 1.25+, Docker Compose, and Redis for integration tests.
+Start with the [architecture map](docs/development/agent-context.md). Common checks:
 
 ```bash
 make test
 make lint
 make race-test
-TASKFORGE_RUN_INTEGRATION=1 make integration-test
-TASKFORGE_RUN_BENCHMARKS=1 make bench
+make integration-test # requires Redis on localhost:6379
 ```
-
-## Contribution Guidelines
-
-- Keep the at-least-once execution contract explicit.
-- Assume handlers must be idempotent.
-- Prefer durable broker state over process-local bookkeeping.
-- Keep public APIs small, documented, and covered by tests.
-- Add or update tests alongside observable behavior changes.
-- Keep unrelated refactors out of focused changes.
 
 ## Pull Requests
 
-PRs should include:
-
-- A short description of the behavior change.
-- Validation performed, such as `make test` and `make lint`.
-- Notes about reliability, lease, retry, scheduling, or compatibility impacts.
-- Logs or screenshots only when API or operational output changed.
-
-## Commit Style
-
-Use concise imperative subjects, for example:
-
-```text
-Add public Redis worker API
-```
+Keep public APIs small and tested, and avoid unrelated refactors. Include a
+short behavior summary, validation performed, and delivery, lease, retry,
+scheduling, or compatibility implications. Use a concise, imperative commit
+subject.

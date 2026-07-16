@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test integration-test race-test bench bench-smoke lint fmt release-smoke compose-up compose-down
+.PHONY: run-scheduler run-api run-demo test-demo test integration-test race-test bench bench-smoke lint fmt docs-check release-smoke compose-up compose-down
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -37,6 +37,9 @@ lint:
 
 fmt:
 	$(GO)fmt -w .
+
+docs-check:
+	$(SHELL) ./scripts/docs-check.sh
 
 release-smoke:
 	$(SHELL) ./scripts/release-smoke.sh

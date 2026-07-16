@@ -1,19 +1,13 @@
 # TaskForge
 
-TaskForge is an early-stage Go runtime for building a small distributed job system on Redis Streams.
-It is intentionally explicit about its reliability model: delivery is at least once, duplicate execution is possible, and task handlers must be idempotent.
-
-The project is not a drop-in Celery replacement and does not claim production-complete semantics yet.
-It is a readable foundation for queue runtime work, scheduler behavior, worker lifecycle handling, observability, and operational experiments.
+TaskForge is an early-stage Go runtime for Redis Streams-backed background work.
+It delivers at least once: handlers must be idempotent because a task may run more than once.
 
 ## What Is Here
 
-- Redis Streams-backed active queueing with durable delivery ownership.
-- Delayed jobs, retry scheduling, recurring interval schedules, and DLQ replay paths.
-- Worker drain behavior with lease renewal and forced shutdown after a grace window.
-- Queue isolation, fairness policies, admission control, adaptive concurrency, and dependency budgets.
-- Health checks, metrics, structured logging, and optional OpenTelemetry tracing.
-- A public Go package for publishing tasks and embedding workers.
+- Redis-backed publishing, leases, retries, delayed and recurring work, and DLQ handling.
+- An embeddable worker, optional scheduler and read-only API sidecars, and operational metrics.
+- Queue placement, fairness, admission, adaptive concurrency, and dependency budgets.
 
 ## Quick Start
 
@@ -22,17 +16,15 @@ Prerequisites:
 - Go 1.25+
 - Docker with Compose support
 
-Run Redis and the five-minute adoption demo:
+Run Redis and the adoption demo:
 
 ```bash
 docker compose up -d redis
 make run-demo
 ```
 
-The command publishes a protected task and two noisy-tenant tasks, embeds the
-worker and handlers in the same process, then prints JSON showing completed
-task states, queue/fairness metrics, and the Prometheus metrics surface. It
-uses no external service beyond local Redis.
+The demo embeds the worker and prints task, queue, and metrics results. It uses
+only local Redis.
 
 The scheduler and read-only API are optional operator sidecars. Run the full
 operator stack when you need them:
@@ -47,13 +39,13 @@ That starts Redis, the optional scheduler and API sidecars, and Prometheus:
 - API/admin: `http://localhost:8083`
 - Prometheus: `http://localhost:9090`
 
-Useful local commands:
+Validate the repository:
 
 ```bash
 make test
 make lint
-make run-demo
-make test-demo
+make race-test       # concurrency changes
+make integration-test # requires Redis on localhost:6379
 ```
 
 ## Public Go API
@@ -110,7 +102,7 @@ err = runtime.Run(ctx)
 There is intentionally no generic worker binary. Applications embed the worker
 package so their process owns task registration and handler code.
 
-## Execution Contract
+## Delivery Contract
 
 TaskForge's execution contract is deliberately narrow:
 
@@ -122,8 +114,9 @@ TaskForge's execution contract is deliberately narrow:
 - Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
 - Exactly-once execution is out of scope.
 
-Worker shutdown is explicit: workers stop reserving new deliveries first, keep renewing owned leases for already-reserved work, and only force-cancel remaining execution when `TASKFORGE_SHUTDOWN_TIMEOUT` expires.
-Lease loss means local execution ownership is no longer authoritative, so cancellation-insensitive handlers may still produce duplicate side effects.
+For ownership, retry, scheduling, and retention invariants, see the
+[architecture map](./docs/development/agent-context.md). Operator recovery
+steps are in the [runbooks](./docs/operations/runbooks.md).
 
 ## Project Layout
 
@@ -144,35 +137,14 @@ test/integration/     opt-in Redis integration tests
 
 - [Configuration reference](./docs/reference/configuration.md)
 - [HTTP and operations API reference](./docs/reference/http-api.md)
-- [Runnable examples](./docs/operations/examples.md)
 - [Operator runbooks](./docs/operations/runbooks.md)
 - [Benchmark guide](./docs/operations/benchmarks.md)
+- [Cluster-routing guide](./docs/operations/cluster-routing.md)
 - [Toolchain and CI policy](./docs/development/toolchain.md)
 - [Redis v2 development reset](./docs/development/redis-v2-development-migration.md)
-
-## Validation
-
-Run the unit suite:
-
-```bash
-make test
-```
-
-Run Redis-backed integration tests against local Redis:
-
-```bash
-TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...
-```
-
-Run the opt-in benchmark harness:
-
-```bash
-TASKFORGE_RUN_BENCHMARKS=1 make bench
-```
+- [Architecture map for contributors and agents](./docs/development/agent-context.md)
 
 ## Current Gaps
 
-- The public API is intentionally small and Redis-first.
-- RabbitMQ and other broker backends are not implemented.
-- Admin operations for DLQ inspection and replay are still narrow.
-- Release publishing is being shaped around tagged binaries, checksums, and container images.
+- Redis is the only broker backend.
+- The operator API is intentionally read-only and narrow.
