@@ -54,19 +54,36 @@ Import the canonical model plus the Redis and worker implementations:
 
 ```go
 import (
+	"time"
+
 	"github.com/aminkbi/taskforge"
 	taskforgeredis "github.com/aminkbi/taskforge/redis"
 	"github.com/aminkbi/taskforge/worker"
 )
 ```
 
+Configure the overload controls once, then compile the same validated model for
+the broker and worker:
+
+```go
+cfg := taskforge.Config{
+	WorkerPools: []taskforge.WorkerPoolConfig{{
+		Name: "default", Queue: "default", Concurrency: 4,
+		TaskTimeout: 30 * time.Second,
+	}},
+}
+broker, err := taskforgeredis.NewFromConfig(cfg, taskforgeredis.Options{
+	Addr: "localhost:6379",
+})
+if err != nil {
+	return err
+}
+defer broker.Close()
+```
+
 Publish a task:
 
 ```go
-broker := taskforgeredis.New(taskforgeredis.Options{
-	Addr: "localhost:6379",
-})
-defer broker.Close()
 
 task := taskforge.NewTask(
 	"email.send",
@@ -87,11 +104,9 @@ _ = registry.RegisterFunc("email.send", func(ctx context.Context, task taskforge
 	return nil
 })
 
-runtime, err := worker.New(worker.Options{
-	Broker:      broker,
-	Handler:     registry,
-	Queue:       "default",
-	Concurrency: 4,
+runtime, err := worker.NewFromConfig(cfg, "default", worker.Options{
+	Broker:  broker,
+	Handler: registry,
 })
 if err != nil {
 	return err

@@ -59,6 +59,45 @@ func TestWorkerProcessTaskRecordsRunningAndTerminalState(t *testing.T) {
 	}
 }
 
+func TestWorkerProcessTaskAppliesPoolTimeoutAndTaskOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		poolTimeout time.Duration
+		taskTimeout *time.Duration
+		wantUpper   time.Duration
+	}{
+		{name: "pool default", poolTimeout: time.Minute, wantUpper: time.Minute},
+		{name: "task override", poolTimeout: time.Minute, taskTimeout: durationPointer(5 * time.Second), wantUpper: 5 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var remaining time.Duration
+			w := newTestWorker(&stubBroker{}, nil, taskforge.HandlerFunc(func(ctx context.Context, _ taskforge.Task) error {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("handler context has no deadline")
+				}
+				remaining = time.Until(deadline)
+				return nil
+			}))
+			w.TaskTimeout = test.poolTimeout
+			delivery := testDelivery()
+			delivery.Message.Timeout = test.taskTimeout
+
+			if err := w.processTask(context.Background(), delivery, nil); err != nil {
+				t.Fatalf("processTask() error = %v", err)
+			}
+			if remaining <= 0 || remaining > test.wantUpper {
+				t.Fatalf("handler deadline remaining = %v, want within (0, %v]", remaining, test.wantUpper)
+			}
+		})
+	}
+}
+
+func durationPointer(value time.Duration) *time.Duration { return &value }
+
 func TestWorkerProcessTaskRetriesFailedTask(t *testing.T) {
 	t.Parallel()
 

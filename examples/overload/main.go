@@ -82,42 +82,43 @@ func run(parent context.Context, output io.Writer, options options) (runErr erro
 	ctx, cancel := context.WithTimeout(parent, options.Timeout)
 	defer cancel()
 
-	policy, err := taskforgeredis.NewFairnessPolicy(
-		taskforgeredis.FairnessRule{Name: "shared", Weight: 1},
-		[]taskforgeredis.FairnessRule{
-			{Name: "protected", Keys: []string{protectedTenant}, ReservedConcurrency: 1, HardQuota: 1},
-			{Name: "noisy", Keys: []string{noisyTenant}, HardQuota: 1},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("build fairness policy: %w", err)
+	control := taskforge.Config{
+		LeaseTTL: time.Second,
+		WorkerPools: []taskforge.WorkerPoolConfig{{
+			Name:        "overload-demo",
+			Queue:       demoQueue,
+			Concurrency: 2,
+			Prefetch:    2,
+			TaskTimeout: 2 * time.Second,
+			Fairness: &taskforge.FairnessConfig{
+				Default: taskforge.FairnessRule{Name: "shared", Weight: 1},
+				Rules: []taskforge.FairnessRule{
+					{Name: "protected", Keys: []string{protectedTenant}, ReservedConcurrency: 1, HardQuota: 1},
+					{Name: "noisy", Keys: []string{noisyTenant}, HardQuota: 1},
+				},
+			},
+		}},
+		Retention: &taskforge.RetentionPolicy{SucceededState: time.Minute},
 	}
-	broker := taskforgeredis.New(taskforgeredis.Options{
+	broker, err := taskforgeredis.NewFromConfig(control, taskforgeredis.Options{
 		Addr:           options.RedisAddr,
 		Password:       options.RedisPassword,
 		DB:             options.RedisDB,
-		LeaseTTL:       time.Second,
 		ReserveTimeout: 20 * time.Millisecond,
-		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{
-			demoQueue: policy,
-		},
-		Retention: taskforge.RetentionPolicy{SucceededState: time.Minute},
 	})
+	if err != nil {
+		return fmt.Errorf("configure Redis broker: %w", err)
+	}
 	defer broker.Close()
 	if err := broker.Ping(ctx); err != nil {
 		return fmt.Errorf("connect to Redis at %s: %w", options.RedisAddr, err)
 	}
 
 	handler := newGateHandler()
-	runtime, err := worker.New(worker.Options{
-		Broker:      broker,
-		Handler:     handler,
-		Queue:       demoQueue,
-		PoolName:    "overload-demo",
-		ConsumerID:  "overload-demo",
-		Concurrency: 2,
-		Prefetch:    2,
-		LeaseTTL:    time.Second,
+	runtime, err := worker.NewFromConfig(control, "overload-demo", worker.Options{
+		Broker:     broker,
+		Handler:    handler,
+		ConsumerID: "overload-demo",
 	})
 	if err != nil {
 		return fmt.Errorf("build worker: %w", err)

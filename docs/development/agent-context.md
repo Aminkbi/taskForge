@@ -10,7 +10,7 @@ in [runbooks](../operations/runbooks.md).
 
 | Change concerns | Start here |
 | --- | --- |
-| Public task, delivery, state, retry, handler, DLQ, broker contracts | module-root `*.go` |
+| Public task, delivery, state, retry, configuration, handler, DLQ, broker contracts | module-root `*.go` |
 | Redis transport, persistence, routing, fairness, admission, budgets | `redis/` |
 | Embedded execution, leases, drain, concurrency | `worker/` |
 | Delayed/retry release, recurring work, leadership | `internal/scheduler/` |
@@ -35,9 +35,9 @@ generic standalone worker binary.
 - Scheduler writes require current leadership fencing. Routing is chosen on a
   new publish; retry, due release, recurrence, DLQ, and requeue preserve the
   existing placement.
-- Configuration is environment-based through `internal/config`; new settings
-  use the `TASKFORGE_` prefix. Copy payloads and headers at API ownership
-  boundaries.
+- Embedded applications use the validated module-root configuration model;
+  sidecars decode `TASKFORGE_` environment settings into that same model through
+  `internal/config`. Copy payloads and headers at API ownership boundaries.
 
 ## Narrow validation
 

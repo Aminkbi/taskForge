@@ -21,6 +21,7 @@ type Options struct {
 	Queue            string
 	ConsumerID       string
 	LeaseTTL         time.Duration
+	TaskTimeout      time.Duration
 	Concurrency      int
 	Prefetch         int
 	RetryPolicy      taskforge.RetryPolicy
@@ -84,6 +85,7 @@ func New(options Options) (*Worker, error) {
 		Queue:             options.Queue,
 		ConsumerID:        options.ConsumerID,
 		LeaseTTL:          options.LeaseTTL,
+		TaskTimeout:       options.TaskTimeout,
 		Concurrency:       options.Concurrency,
 		Prefetch:          options.Prefetch,
 		GlobalTaskLimiter: NewTaskTypeLimiter(options.GlobalTaskLimits),

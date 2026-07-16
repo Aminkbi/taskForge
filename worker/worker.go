@@ -29,6 +29,7 @@ type Worker struct {
 	Queue             string
 	ConsumerID        string
 	LeaseTTL          time.Duration
+	TaskTimeout       time.Duration
 	Concurrency       int
 	Prefetch          int
 	RecoveryHealth    *healthcheck.Reporter
@@ -607,8 +608,12 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 	msg := delivery.Message
 	execCtx := ctx
 	cancelExec := func() {}
-	if msg.Timeout != nil && *msg.Timeout > 0 {
-		execCtx, cancelExec = context.WithTimeout(ctx, *msg.Timeout)
+	taskTimeout := w.TaskTimeout
+	if msg.Timeout != nil {
+		taskTimeout = *msg.Timeout
+	}
+	if taskTimeout > 0 {
+		execCtx, cancelExec = context.WithTimeout(ctx, taskTimeout)
 	}
 	defer cancelExec()
 	execCtx = observability.ExtractTraceContext(execCtx, msg.Headers)

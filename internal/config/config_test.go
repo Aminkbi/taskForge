@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", "")
+	t.Setenv("TASKFORGE_LEASE_TTL", "")
 	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", "")
 	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", "")
 	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", "")
@@ -55,6 +58,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if pool.LeaseTTL != defaultLeaseTTL {
 		t.Fatalf("default pool lease ttl = %v, want %v", pool.LeaseTTL, defaultLeaseTTL)
+	}
+	if pool.TaskTimeout != defaultTaskTimeout {
+		t.Fatalf("default pool task timeout = %v, want %v", pool.TaskTimeout, defaultTaskTimeout)
 	}
 	if len(cfg.TaskTypeLimits) != 0 {
 		t.Fatalf("TaskTypeLimits length = %d, want 0", len(cfg.TaskTypeLimits))
@@ -100,7 +106,7 @@ func TestLoadOverrides(t *testing.T) {
 			"queue":"critical",
 			"concurrency":2,
 			"prefetch":6,
-			"lease_ttl":"45s",
+			"task_timeout":"12s",
 			"retry":{
 				"max_deliveries":5,
 				"initial_backoff":"2s",
@@ -111,9 +117,9 @@ func TestLoadOverrides(t *testing.T) {
 			},
 			"task_limits":[{"task_name":"demo.nightly","max_concurrency":1}],
 			"fairness":{
-				"default_rule":{"soft_quota":1,"hard_quota":2},
+				"default":{"hard_quota":2},
 				"rules":[
-					{"name":"protected","keys":["tenant-vip"],"weight":2,"reserved_concurrency":1,"soft_quota":1,"hard_quota":1}
+					{"name":"protected","keys":["tenant-vip"],"weight":2,"reserved_concurrency":1,"hard_quota":1}
 				]
 			},
 			"admission":{
@@ -122,7 +128,6 @@ func TestLoadOverrides(t *testing.T) {
 				"max_pending_per_fairness_key":4,
 				"max_oldest_ready_age":"30s",
 				"max_retry_backlog":3,
-				"max_dead_letter_size":2,
 				"defer_interval":"5s"
 			},
 			"adaptive":{
@@ -130,16 +135,13 @@ func TestLoadOverrides(t *testing.T) {
 				"min_concurrency":1,
 				"max_concurrency":6,
 				"control_period":"2s",
-				"cooldown":"6s",
-				"scale_up_step":1,
-				"scale_down_step":2,
 				"latency_threshold":"500ms",
 				"error_rate_threshold":0.25,
-				"backlog_threshold":10,
-				"healthy_windows_required":3
+				"backlog_threshold":10
 			}
 		}
 	]`)
+	t.Setenv("TASKFORGE_LEASE_TTL", "45s")
 	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"downstream-api","capacity":5}]`)
 	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", `{
 		"default_queue":"default",
@@ -161,7 +163,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_TASK_SUCCESS_RETENTION", "2h")
 	t.Setenv("TASKFORGE_TASK_FAILURE_RETENTION", "72h")
 	t.Setenv("TASKFORGE_TASK_PAYLOAD_RETENTION", "30m")
-	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"nightly","interval":"15m","queue":"critical","fairness_key":"tenant-vip","task_name":"demo.nightly","payload":{"job":"nightly"},"headers":{"x-source":"config"},"misfire_policy":"coalesce","start_at":"2026-04-14T10:00:00Z"}]`)
+	t.Setenv("TASKFORGE_SCHEDULES_JSON", `[{"id":"nightly","interval":"15m","queue":"critical","fairness_key":"tenant-vip","task_name":"demo.nightly","payload":{"job":"nightly"},"headers":{"x-source":"config"},"enabled":true,"misfire_policy":"coalesce","start_at":"2026-04-14T10:00:00Z"}]`)
 	t.Setenv("TASKFORGE_OTEL_ENABLED", "true")
 	t.Setenv("TASKFORGE_SERVICE_NAME", "custom-service")
 
@@ -183,7 +185,7 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.Name != "critical" || pool.Queue != "critical" {
 		t.Fatalf("unexpected worker pool identity: %+v", pool)
 	}
-	if pool.Concurrency != 2 || pool.Prefetch != 6 || pool.LeaseTTL != 45*time.Second {
+	if pool.Concurrency != 2 || pool.Prefetch != 6 || pool.LeaseTTL != 45*time.Second || pool.TaskTimeout != 12*time.Second {
 		t.Fatalf("unexpected worker pool runtime: %+v", pool)
 	}
 	if pool.RetryPolicy.MaxDeliveries != 5 || pool.RetryPolicy.InitialBackoff != 2*time.Second || pool.RetryPolicy.MaxBackoff != time.Minute {
@@ -198,7 +200,7 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.Admission.Mode != taskforgeredis.AdmissionModeDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
 		t.Fatalf("unexpected worker pool admission policy: %+v", pool.Admission)
 	}
-	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.MaxDeadLetterSize != 2 || pool.Admission.DeferInterval != 5*time.Second {
+	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.DeferInterval != 5*time.Second {
 		t.Fatalf("unexpected admission timing values: %+v", pool.Admission)
 	}
 	if !pool.Adaptive.Enabled || pool.Adaptive.MinConcurrency != 1 || pool.Adaptive.MaxConcurrency != 6 {
@@ -207,7 +209,7 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.Adaptive.ControlPeriod != 2*time.Second || pool.Adaptive.Cooldown != 6*time.Second || pool.Adaptive.LatencyThreshold != 500*time.Millisecond {
 		t.Fatalf("unexpected adaptive timing config: %+v", pool.Adaptive)
 	}
-	if pool.Adaptive.ScaleUpStep != 1 || pool.Adaptive.ScaleDownStep != 2 || pool.Adaptive.ErrorRateThreshold != 0.25 || pool.Adaptive.BacklogThreshold != 10 || pool.Adaptive.HealthyWindowsRequired != 3 {
+	if pool.Adaptive.ScaleUpStep != 1 || pool.Adaptive.ScaleDownStep != 1 || pool.Adaptive.ErrorRateThreshold != 0.25 || pool.Adaptive.BacklogThreshold != 10 || pool.Adaptive.HealthyWindowsRequired != 2 {
 		t.Fatalf("unexpected adaptive thresholds: %+v", pool.Adaptive)
 	}
 	protected := pool.FairnessPolicy.Resolve("tenant-vip")
@@ -215,7 +217,7 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatalf("unexpected fairness rule resolution: %+v", protected)
 	}
 	defaultRule := pool.FairnessPolicy.Resolve(taskforgeredis.DefaultKey)
-	if defaultRule.Bucket != "default" || defaultRule.SoftQuota != 1 || defaultRule.HardQuota != 2 {
+	if defaultRule.Bucket != "default" || defaultRule.HardQuota != 2 {
 		t.Fatalf("unexpected default fairness rule: %+v", defaultRule)
 	}
 	if cfg.TaskTypeLimits["shared.sync"] != 2 {
@@ -253,6 +255,9 @@ func TestLoadOverrides(t *testing.T) {
 	if schedule.FairnessKey != "tenant-vip" {
 		t.Fatalf("schedule fairness key = %q, want %q", schedule.FairnessKey, "tenant-vip")
 	}
+	if !schedule.Enabled {
+		t.Fatal("schedule enabled = false, want true")
+	}
 	if schedule.Interval != 15*time.Minute {
 		t.Fatalf("schedule interval = %v, want %v", schedule.Interval, 15*time.Minute)
 	}
@@ -270,6 +275,72 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if !cfg.OTELEnabled || cfg.ServiceName != "custom-service" {
 		t.Fatalf("unexpected otel/service fields: %+v", cfg)
+	}
+}
+
+func TestEnvironmentAndGoConfigurationNormalizeIdentically(t *testing.T) {
+	t.Setenv("TASKFORGE_LEASE_TTL", "20s")
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{
+		"name":"critical","queue":"critical","concurrency":2,"prefetch":4,"task_timeout":"10s",
+		"retry":{"max_deliveries":4},
+		"fairness":{"rules":[{"name":"vip","keys":["tenant-vip"],"reserved_concurrency":1,"hard_quota":1}]},
+		"admission":{"mode":"defer","max_pending_per_fairness_key":10},
+		"adaptive":{"enabled":true,"min_concurrency":1,"max_concurrency":4}
+	}]`)
+	t.Setenv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", `[{"name":"api","capacity":2}]`)
+	t.Setenv("TASKFORGE_TASK_BUDGETS_JSON", `[{"task_name":"report","budget":"api"}]`)
+
+	environment, err := Load("taskforge-test")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	goConfig, err := (taskforge.Config{
+		LeaseTTL: 20 * time.Second,
+		WorkerPools: []taskforge.WorkerPoolConfig{{
+			Name: "critical", Queue: "critical", Concurrency: 2, Prefetch: 4, TaskTimeout: 10 * time.Second,
+			Retry: taskforge.RetryPolicy{MaxDeliveries: 4},
+			Fairness: &taskforge.FairnessConfig{Rules: []taskforge.FairnessRule{{
+				Name: "vip", Keys: []string{"tenant-vip"}, ReservedConcurrency: 1, HardQuota: 1,
+			}}},
+			Admission: taskforge.AdmissionPolicy{Mode: taskforge.AdmissionDefer, MaxPendingPerFairnessKey: 10},
+			Adaptive:  taskforge.AdaptiveConcurrencyConfig{Enabled: true, MinConcurrency: 1, MaxConcurrency: 4},
+		}},
+		DependencyBudgets: []taskforge.DependencyBudget{{Name: "api", Capacity: 2}},
+		TaskBudgets:       []taskforge.TaskBudget{{TaskName: "report", Budget: "api"}},
+	}).Normalize()
+	if err != nil {
+		t.Fatalf("Go Normalize() error = %v", err)
+	}
+	if !reflect.DeepEqual(environment.Control, goConfig) {
+		t.Fatalf("environment control differs from Go control:\nenv = %#v\ngo  = %#v", environment.Control, goConfig)
+	}
+}
+
+func TestEnvironmentAndGoConfigurationShareValidationErrors(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{
+		"name":"default","concurrency":1,
+		"admission":{"mode":"defer","max_pending_per_fairness_key":1}
+	}]`)
+
+	_, environmentErr := Load("taskforge-test")
+	goErr := (taskforge.Config{WorkerPools: []taskforge.WorkerPoolConfig{{
+		Name: "default", Concurrency: 1,
+		Admission: taskforge.AdmissionPolicy{Mode: taskforge.AdmissionDefer, MaxPendingPerFairnessKey: 1},
+	}}}).Validate()
+	if goErr == nil {
+		t.Fatal("Go Validate() error = nil")
+	}
+	if environmentErr == nil || !strings.Contains(environmentErr.Error(), goErr.Error()) {
+		t.Fatalf("environment error = %v, want containing Go error %q", environmentErr, goErr)
+	}
+}
+
+func TestLoadRejectsUnknownControlField(t *testing.T) {
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","concurrency":1,"scale_up_step":2}]`)
+
+	_, err := Load("taskforge-test")
+	if err == nil || !strings.Contains(err.Error(), `unknown field "scale_up_step"`) {
+		t.Fatalf("Load() error = %v, want unknown field error", err)
 	}
 }
 
@@ -325,7 +396,7 @@ func TestLoadInvalidBoolean(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidWorkerPools(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":0,"lease_ttl":"30s"}]`)
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":-1}]`)
 
 	_, err := Load("taskforge-test")
 	if err == nil {
@@ -344,8 +415,8 @@ func TestLoadRejectsEmptyWorkerPoolsForWorkerRole(t *testing.T) {
 
 func TestLoadRejectsDuplicatePoolQueue(t *testing.T) {
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
-		{"name":"default","queue":"default","concurrency":1,"prefetch":1,"lease_ttl":"30s"},
-		{"name":"critical","queue":"default","concurrency":1,"prefetch":1,"lease_ttl":"30s"}
+		{"name":"default","queue":"default","concurrency":1,"prefetch":1},
+		{"name":"critical","queue":"default","concurrency":1,"prefetch":1}
 	]`)
 
 	_, err := Load("taskforge-test")
@@ -380,19 +451,14 @@ func TestLoadRejectsInvalidAdaptiveBounds(t *testing.T) {
 			"queue":"default",
 			"concurrency":2,
 			"prefetch":2,
-			"lease_ttl":"30s",
 			"adaptive":{
 				"enabled":true,
 				"min_concurrency":1,
 				"max_concurrency":3,
 				"control_period":"1s",
-				"cooldown":"1s",
-				"scale_up_step":1,
-				"scale_down_step":1,
 				"latency_threshold":"1s",
 				"error_rate_threshold":0.5,
-				"backlog_threshold":1,
-				"healthy_windows_required":1
+				"backlog_threshold":1
 			}
 		}
 	]`)
@@ -422,9 +488,8 @@ func TestLoadRejectsInvalidFairnessPolicy(t *testing.T) {
 			"name":"default",
 			"queue":"default",
 			"concurrency":1,
-			"lease_ttl":"30s",
 			"fairness":{
-				"default_rule":{"soft_quota":2,"hard_quota":1}
+				"default":{"reserved_concurrency":2,"hard_quota":1}
 			}
 		}
 	]`)
@@ -435,14 +500,13 @@ func TestLoadRejectsInvalidFairnessPolicy(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsAdmissionWithoutDeferInterval(t *testing.T) {
+func TestLoadRejectsAdmissionWithoutThreshold(t *testing.T) {
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
 		{
 			"name":"default",
 			"queue":"default",
 			"concurrency":1,
-			"lease_ttl":"30s",
-			"admission":{"mode":"reject","max_pending":1}
+			"admission":{"mode":"reject"}
 		}
 	]`)
 
@@ -458,7 +522,6 @@ func TestLoadRejectsFairnessAdmissionWithoutFairnessPolicy(t *testing.T) {
 			"name":"default",
 			"queue":"default",
 			"concurrency":1,
-			"lease_ttl":"30s",
 			"admission":{"mode":"defer","max_pending_per_fairness_key":1,"defer_interval":"1s"}
 		}
 	]`)
@@ -470,7 +533,7 @@ func TestLoadRejectsFairnessAdmissionWithoutFairnessPolicy(t *testing.T) {
 }
 
 func TestLoadNormalizesRetryDefaults(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":1,"lease_ttl":"30s","retry":{"max_deliveries":7}}]`)
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":1,"retry":{"max_deliveries":7}}]`)
 
 	cfg, err := Load("taskforge-test")
 	if err != nil {

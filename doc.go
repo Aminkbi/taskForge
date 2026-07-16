@@ -1,6 +1,9 @@
 // Package taskforge is the public Go API for publishing tasks and embedding
 // TaskForge workers.
 //
+// Config is the supported overload-control surface for both embedded Go
+// applications and environment-configured sidecars.
+//
 // TaskForge uses an at-least-once execution contract. A logical task may be
 // delivered more than once, so handlers must be idempotent and the runtime
 // distinguishes logical task identity from individual broker delivery attempts.

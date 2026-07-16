@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -15,11 +14,9 @@ import (
 	"github.com/aminkbi/taskforge"
 )
 
-type MisfirePolicy string
+type MisfirePolicy = taskforge.MisfirePolicy
 
-const (
-	MisfirePolicyCoalesce MisfirePolicy = "coalesce"
-)
+const MisfirePolicyCoalesce = taskforge.MisfireCoalesce
 
 const (
 	HeaderScheduleID            = "taskforge_schedule_id"
@@ -29,18 +26,7 @@ const (
 	HeaderScheduleMissedRuns    = "taskforge_schedule_missed_runs"
 )
 
-type ScheduleDefinition struct {
-	ID            string
-	Interval      time.Duration
-	Queue         string
-	FairnessKey   string
-	TaskName      string
-	Payload       json.RawMessage
-	Headers       map[string]string
-	Enabled       bool
-	MisfirePolicy MisfirePolicy
-	StartAt       *time.Time
-}
+type ScheduleDefinition = taskforge.Schedule
 
 type ScheduleState struct {
 	NextRunAt        time.Time     `json:"next_run_at"`
