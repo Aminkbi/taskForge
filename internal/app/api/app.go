@@ -30,11 +30,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})
-	leaseTTL := config.DefaultLeaseTTL()
-	if len(cfg.WorkerPools) > 0 {
-		leaseTTL = cfg.WorkerPools[0].LeaseTTL
-	}
-	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis"), leaseTTL))
+	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis")))
 
 	queues := make([]string, 0, len(cfg.WorkerPools))
 	for _, pool := range cfg.WorkerPools {

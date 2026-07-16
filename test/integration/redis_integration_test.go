@@ -2484,7 +2484,7 @@ func TestIntegrationReclaimAndDeadLetterMetrics(t *testing.T) {
 	if got := metricCounterValue(t, metricBroker.MetricsGatherer(), "taskforge_tasks_reclaimed_total", map[string]string{"queue": "default"}); got != 1 {
 		t.Fatalf("reclaim counter = %v, want 1", got)
 	}
-	if got := metricCounterValue(t, deadLetterBroker.MetricsGatherer(), "taskforge_task_dead_letter_results_total", map[string]string{
+	if got := metricCounterValue(t, deadLetterMetrics.Registry, "taskforge_task_dead_letter_results_total", map[string]string{
 		"queue":        "default",
 		"task_name":    "integration.metrics.dead_letter",
 		"result_class": string(taskforge.FailureClassPermanent),

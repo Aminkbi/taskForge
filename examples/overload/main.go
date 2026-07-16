@@ -168,7 +168,8 @@ func run(parent context.Context, output io.Writer, options options) (runErr erro
 	}
 
 	handler.releaseFirstWave()
-	if err := waitForSucceeded(ctx, broker, taskIDs(tasks)); err != nil {
+	completed := taskIDs(tasks)
+	if err := waitForSucceeded(ctx, broker, completed); err != nil {
 		return err
 	}
 	maxNoisyConcurrency := handler.maxNoisyConcurrency()
@@ -190,7 +191,6 @@ func run(parent context.Context, output io.Writer, options options) (runErr erro
 		return fmt.Errorf("expose Prometheus metrics: status=%d bytes=%d", metricsResponse.Code, metricsResponse.Body.Len())
 	}
 
-	completed := taskIDs(tasks)
 	if err := json.NewEncoder(output).Encode(result{
 		CompletedTaskIDs:              completed,
 		MaxNoisyTenantConcurrency:     maxNoisyConcurrency,

@@ -254,11 +254,11 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	return cfg, nil
 }
 
-func DefaultLeaseTTL() time.Duration {
-	return defaultLeaseTTL
-}
-
-func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger, leaseTTL time.Duration) redis.Options {
+func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) redis.Options {
+	leaseTTL := defaultLeaseTTL
+	if len(c.WorkerPools) > 0 {
+		leaseTTL = c.WorkerPools[0].LeaseTTL
+	}
 	capacities := make(map[string]int, len(c.DependencyBudgets))
 	for name, budget := range c.DependencyBudgets {
 		capacities[name] = budget.Capacity
@@ -270,8 +270,8 @@ func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger, leaseT
 		Client:            client,
 		Logger:            logger,
 		LeaseTTL:          leaseTTL,
-		FairnessPolicies:  FairnessPoliciesByQueue(c.WorkerPools),
-		AdmissionPolicies: AdmissionPoliciesByQueue(c.WorkerPools),
+		FairnessPolicies:  fairnessPoliciesByQueue(c.WorkerPools),
+		AdmissionPolicies: admissionPoliciesByQueue(c.WorkerPools),
 		RoutingPolicy:     c.RoutingPolicy,
 		DependencyBudgets: capacities,
 		Retention: taskforge.RetentionPolicy{
@@ -282,7 +282,7 @@ func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger, leaseT
 	}
 }
 
-func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*redis.FairnessPolicy {
+func fairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*redis.FairnessPolicy {
 	policies := make(map[string]*redis.FairnessPolicy)
 	for _, pool := range pools {
 		if pool.FairnessPolicy == nil {
@@ -296,7 +296,7 @@ func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*redis.Fairnes
 	return policies
 }
 
-func AdmissionPoliciesByQueue(pools []WorkerPoolConfig) map[string]redis.AdmissionPolicy {
+func admissionPoliciesByQueue(pools []WorkerPoolConfig) map[string]redis.AdmissionPolicy {
 	policies := make(map[string]redis.AdmissionPolicy)
 	for _, pool := range pools {
 		if pool.Admission.Mode == redis.AdmissionModeDisabled {

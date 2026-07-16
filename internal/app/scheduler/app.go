@@ -33,11 +33,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	leaseTTL := config.DefaultLeaseTTL()
-	if len(cfg.WorkerPools) > 0 {
-		leaseTTL = cfg.WorkerPools[0].LeaseTTL
-	}
-	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis"), leaseTTL))
+	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis")))
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
 		client,
