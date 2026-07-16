@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +194,49 @@ func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 	}
 }
 
+func TestAppSafeDefaultExposure(t *testing.T) {
+	t.Parallel()
+
+	app := New(config.Config{RedisAddr: ":6379"}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{path: "/healthz", want: http.StatusOK},
+		{path: "/metrics", want: http.StatusNotFound},
+		{path: "/dashboard/", want: http.StatusNotFound},
+		{path: "/v1/admin/ping", want: http.StatusNotFound},
+		{path: "/v1/tasks/task-1", want: http.StatusNotFound},
+	} {
+		recorder := httptest.NewRecorder()
+		app.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if recorder.Code != tc.want {
+			t.Errorf("GET %s: status = %d, want %d", tc.path, recorder.Code, tc.want)
+		}
+	}
+}
+
+func TestAppOperatorRouteRequiresAuthenticationAndRestrictsMethod(t *testing.T) {
+	t.Parallel()
+
+	const token = "0123456789abcdef0123456789abcdef"
+	app := New(config.Config{RedisAddr: ":6379", HTTPAuthToken: token}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+
+	unauthorized := httptest.NewRecorder()
+	app.server.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/v1/admin/ping", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/admin/ping", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	app.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("authenticated POST status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestTaskLookupHandlerReturnsTaskRecord(t *testing.T) {
 	t.Parallel()
 
@@ -236,6 +281,50 @@ func TestTaskLookupHandlerReturnsNotFound(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
+
+func TestTaskLookupHandlerRedactsPayloadAndError(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/tasks/task-1", nil)
+	taskLookupHandler(stubTaskStateStore{record: taskforge.TaskRecord{
+		TaskID:        "task-1",
+		State:         taskforge.StateDeadLettered,
+		LastError:     "password=top-secret",
+		ResultPayload: []byte(`{"customer":"private"}`),
+		UpdatedAt:     time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC),
+	}}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	body := recorder.Body.String()
+	for _, secret := range []string{"top-secret", "private", "result_payload", "last_error"} {
+		if strings.Contains(body, secret) {
+			t.Errorf("response contains redacted value %q: %s", secret, body)
+		}
+	}
+	if !strings.Contains(body, `"error_present":true`) {
+		t.Errorf("response does not preserve safe error presence signal: %s", body)
+	}
+}
+
+func TestTaskLookupHandlerRedactsBackendErrors(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	taskLookupHandler(stubTaskStateStore{err: errors.New("redis.internal:6379 password=secret")}).ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/v1/tasks/task-1", nil),
+	)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	if recorder.Body.String() != "{\"error\":\"internal server error\"}\n" {
+		t.Fatalf("body = %q, want redacted error", recorder.Body.String())
 	}
 }
 

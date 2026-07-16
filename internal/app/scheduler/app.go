@@ -71,7 +71,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		cfg.SchedulerRenewInterval,
 	)
 	schedulerRuntime.LoopHealth = loopHealth
-	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
+	server := httpserver.New(cfg.HTTPServerConfig(), logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
 		"redis": func(ctx context.Context) httpserver.CheckResult {
 			if err := b.Ping(ctx); err != nil {
 				return httpserver.CheckResult{
@@ -114,10 +114,12 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			}
 		},
 	}, func(mux *http.ServeMux) {
-		mux.HandleFunc("/v1/admin/leadership", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("/v1/admin/leadership", httpserver.ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			record, err := elector.Observe(r.Context())
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error":"internal server error"}`))
 				return
 			}
 			safety := schedulerRuntime.SafetySnapshot()
@@ -166,7 +168,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(response)
-		})
+		})))
 	})
 
 	return &App{

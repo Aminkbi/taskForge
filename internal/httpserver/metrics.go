@@ -3,5 +3,8 @@ package httpserver
 import "net/http"
 
 func registerMetrics(mux *http.ServeMux, handler http.Handler) {
-	mux.Handle("/metrics", handler)
+	if handler == nil {
+		handler = http.NotFoundHandler()
+	}
+	mux.Handle("/metrics", ReadOnly(handler))
 }

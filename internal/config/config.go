@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aminkbi/taskforge"
+	"github.com/aminkbi/taskforge/internal/httpserver"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/redis"
 	"github.com/aminkbi/taskforge/worker"
@@ -20,7 +22,7 @@ import (
 
 const (
 	defaultLogLevel         = "info"
-	defaultHTTPAddr         = ":8080"
+	defaultHTTPAddr         = "127.0.0.1:8080"
 	defaultRedisAddr        = "localhost:6379"
 	defaultRedisDB          = 0
 	defaultWorkerConcurrent = 4
@@ -48,13 +50,20 @@ const (
 // configuration in Control. Promoted legacy fields are compiled from Control
 // for the existing application wiring; they are never validated separately.
 type Config struct {
-	LogLevel      string
-	HTTPAddr      string
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
-	RoutingPolicy *redis.RoutingPolicy
-	Control       taskforge.Config
+	LogLevel              string
+	HTTPAddr              string
+	HTTPAuthToken         string
+	HTTPReadHeaderTimeout time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	HTTPMaxBodyBytes      int64
+	HTTPMaxHeaderBytes    int
+	RedisAddr             string
+	RedisPassword         string
+	RedisDB               int
+	RoutingPolicy         *redis.RoutingPolicy
+	Control               taskforge.Config
 
 	WorkerPools            []WorkerPoolConfig
 	DependencyBudgets      map[string]DependencyBudgetConfig
@@ -186,18 +195,46 @@ func Load(defaultServiceName string) (Config, error) {
 
 func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	cfg := Config{
-		LogLevel:        getEnv("TASKFORGE_LOG_LEVEL", defaultLogLevel),
-		HTTPAddr:        getEnv("TASKFORGE_HTTP_ADDR", defaultHTTPAddr),
-		RedisAddr:       getEnv("TASKFORGE_REDIS_ADDR", defaultRedisAddr),
-		RedisPassword:   getEnv("TASKFORGE_REDIS_PASSWORD", ""),
-		ShutdownTimeout: defaultShutdownTimeout,
-		ServiceName:     getEnv("TASKFORGE_SERVICE_NAME", defaultServiceName),
+		LogLevel:              getEnv("TASKFORGE_LOG_LEVEL", defaultLogLevel),
+		HTTPAddr:              getEnv("TASKFORGE_HTTP_ADDR", defaultHTTPAddr),
+		HTTPAuthToken:         getEnv("TASKFORGE_HTTP_AUTH_TOKEN", ""),
+		HTTPReadHeaderTimeout: httpserver.DefaultReadHeaderTimeout,
+		HTTPReadTimeout:       httpserver.DefaultReadTimeout,
+		HTTPWriteTimeout:      httpserver.DefaultWriteTimeout,
+		HTTPIdleTimeout:       httpserver.DefaultIdleTimeout,
+		HTTPMaxBodyBytes:      httpserver.DefaultMaxBodyBytes,
+		HTTPMaxHeaderBytes:    httpserver.DefaultMaxHeaderBytes,
+		RedisAddr:             getEnv("TASKFORGE_REDIS_ADDR", defaultRedisAddr),
+		RedisPassword:         getEnv("TASKFORGE_REDIS_PASSWORD", ""),
+		ShutdownTimeout:       defaultShutdownTimeout,
+		ServiceName:           getEnv("TASKFORGE_SERVICE_NAME", defaultServiceName),
 	}
 	var err error
+	if err := validateHTTPAuthToken(cfg.HTTPAuthToken); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPReadHeaderTimeout, err = getEnvPositiveDuration("TASKFORGE_HTTP_READ_HEADER_TIMEOUT", httpserver.DefaultReadHeaderTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPReadTimeout, err = getEnvPositiveDuration("TASKFORGE_HTTP_READ_TIMEOUT", httpserver.DefaultReadTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPWriteTimeout, err = getEnvPositiveDuration("TASKFORGE_HTTP_WRITE_TIMEOUT", httpserver.DefaultWriteTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPIdleTimeout, err = getEnvPositiveDuration("TASKFORGE_HTTP_IDLE_TIMEOUT", httpserver.DefaultIdleTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPMaxBodyBytes, err = getEnvPositiveInt64("TASKFORGE_HTTP_MAX_BODY_BYTES", httpserver.DefaultMaxBodyBytes); err != nil {
+		return Config{}, err
+	}
+	if cfg.HTTPMaxHeaderBytes, err = getEnvPositiveInt("TASKFORGE_HTTP_MAX_HEADER_BYTES", httpserver.DefaultMaxHeaderBytes); err != nil {
+		return Config{}, err
+	}
 	if cfg.RedisDB, err = getEnvInt("TASKFORGE_REDIS_DB", defaultRedisDB); err != nil {
 		return Config{}, err
 	}
-	if cfg.ShutdownTimeout, err = getEnvDuration("TASKFORGE_SHUTDOWN_TIMEOUT", defaultShutdownTimeout); err != nil {
+	if cfg.ShutdownTimeout, err = getEnvPositiveDuration("TASKFORGE_SHUTDOWN_TIMEOUT", defaultShutdownTimeout); err != nil {
 		return Config{}, err
 	}
 	if cfg.OTELEnabled, err = getEnvBool("TASKFORGE_OTEL_ENABLED", false); err != nil {
@@ -465,6 +502,20 @@ func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) redis.
 	return options
 }
 
+func (c Config) HTTPServerConfig() httpserver.Config {
+	return httpserver.Config{
+		Addr:              c.HTTPAddr,
+		AuthToken:         c.HTTPAuthToken,
+		ReadHeaderTimeout: c.HTTPReadHeaderTimeout,
+		ReadTimeout:       c.HTTPReadTimeout,
+		WriteTimeout:      c.HTTPWriteTimeout,
+		IdleTimeout:       c.HTTPIdleTimeout,
+		ShutdownTimeout:   c.ShutdownTimeout,
+		MaxBodyBytes:      c.HTTPMaxBodyBytes,
+		MaxHeaderBytes:    c.HTTPMaxHeaderBytes,
+	}
+}
+
 func getRoutingPolicy(key string) (*redis.RoutingPolicy, error) {
 	value := getEnv(key, "")
 	if value == "" {
@@ -558,6 +609,56 @@ func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: parse duration: %w", key, err)
 	}
 	return parsed, nil
+}
+
+func getEnvPositiveDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value, err := getEnvDuration(key, fallback)
+	if err != nil {
+		return 0, err
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s: must be greater than zero", key)
+	}
+	return value, nil
+}
+
+func getEnvPositiveInt(key string, fallback int) (int, error) {
+	value, err := getEnvInt(key, fallback)
+	if err != nil {
+		return 0, err
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s: must be greater than zero", key)
+	}
+	return value, nil
+}
+
+func getEnvPositiveInt64(key string, fallback int64) (int64, error) {
+	value := getEnv(key, "")
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: parse int: %w", key, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s: must be greater than zero", key)
+	}
+	return parsed, nil
+}
+
+func validateHTTPAuthToken(token string) error {
+	if token == "" {
+		return nil
+	}
+	if len(token) < 32 {
+		return fmt.Errorf("TASKFORGE_HTTP_AUTH_TOKEN: must contain at least 32 characters")
+	}
+	if strings.IndexFunc(token, unicode.IsSpace) >= 0 {
+		return fmt.Errorf("TASKFORGE_HTTP_AUTH_TOKEN: must not contain whitespace")
+	}
+	return nil
 }
 
 func getEnvBool(key string, fallback bool) (bool, error) {

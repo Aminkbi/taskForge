@@ -26,3 +26,6 @@ Security-sensitive areas include:
 - Admission control and replay paths.
 - Worker lease ownership and stale acknowledgement rejection.
 - Admin and metrics endpoints exposed in deployments.
+
+Deployment guidance for the shared-token HTTP boundary, reverse-proxy TLS, and
+its residual risks is in the [HTTP security guide](docs/operations/http-security.md).

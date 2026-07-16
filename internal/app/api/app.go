@@ -44,28 +44,28 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
 	_ = metrics.RegisterDependencyBudgetCollector(b)
 
-	server := httpserver.New(cfg.HTTPAddr, logger.With("component", "httpserver"), metrics.Handler(), nil, func(mux *http.ServeMux) {
-		mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+	server := httpserver.New(cfg.HTTPServerConfig(), logger.With("component", "httpserver"), metrics.Handler(), nil, func(mux *http.ServeMux) {
+		mux.Handle("/", httpserver.ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"service":"taskforge-api","status":"ok"}`))
-		})
-		mux.HandleFunc("/v1/admin/ping", func(w http.ResponseWriter, _ *http.Request) {
+		})))
+		mux.Handle("/v1/admin/ping", httpserver.ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"ok","time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`))
-		})
-		mux.HandleFunc("/v1/admin/admission", admissionHandler(b, queues))
-		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
-		mux.HandleFunc("/v1/admin/workers", workerLifecycleHandler(b))
-		mux.HandleFunc("/v1/tasks/", taskLookupHandler(b))
+		})))
+		mux.Handle("/v1/admin/admission", httpserver.ReadOnly(admissionHandler(b, queues)))
+		mux.Handle("/v1/admin/adaptive", httpserver.ReadOnly(adaptiveHandler(b, b, cfg.WorkerPools)))
+		mux.Handle("/v1/admin/workers", httpserver.ReadOnly(workerLifecycleHandler(b)))
+		mux.Handle("/v1/tasks/", httpserver.ReadOnly(taskLookupHandler(b)))
 
 		// Operator dashboard: a static config builder + live ops view backed
 		// by the /v1/admin endpoints above. Served from the embedded assets.
-		mux.Handle("/dashboard/", http.StripPrefix("/dashboard/", dashboard.Handler()))
-		mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		mux.Handle("/dashboard/", httpserver.ReadOnly(http.StripPrefix("/dashboard/", dashboard.Handler())))
+		mux.Handle("/dashboard", httpserver.ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
-		})
+		})))
 	})
 
 	return &App{server: server}
@@ -77,7 +77,7 @@ func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
 		Name           string `json:"name,omitempty"`
 		Queue          string `json:"queue,omitempty"`
 		State          string `json:"state"`
-		LastError      string `json:"last_error,omitempty"`
+		ErrorPresent   bool   `json:"error_present,omitempty"`
 		CreatedAt      string `json:"created_at,omitempty"`
 		StartedAt      string `json:"started_at,omitempty"`
 		CompletedAt    string `json:"completed_at,omitempty"`
@@ -85,28 +85,23 @@ func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
 		DeliveryCount  int    `json:"delivery_count,omitempty"`
 		LastDeliveryID string `json:"last_delivery_id,omitempty"`
 		LastLeaseOwner string `json:"last_lease_owner,omitempty"`
-		ResultPayload  []byte `json:"result_payload,omitempty"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		taskID := strings.TrimPrefix(r.URL.Path, "/v1/tasks/")
 		taskID = strings.Trim(taskID, "/")
 		if taskID == "" || strings.Contains(taskID, "/") {
-			http.Error(w, "task id is required", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "task id is required")
 			return
 		}
 
 		record, err := reader.Get(r.Context(), taskID)
 		if errors.Is(err, taskforge.ErrTaskNotFound) {
-			http.Error(w, "task not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -115,7 +110,7 @@ func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
 			Name:           record.Name,
 			Queue:          record.Queue,
 			State:          string(record.State),
-			LastError:      record.LastError,
+			ErrorPresent:   record.LastError != "",
 			CreatedAt:      formatOptionalTime(record.CreatedAt),
 			StartedAt:      formatOptionalTime(record.StartedAt),
 			CompletedAt:    formatOptionalTime(record.CompletedAt),
@@ -123,7 +118,6 @@ func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
 			DeliveryCount:  record.DeliveryCount,
 			LastDeliveryID: record.LastDeliveryID,
 			LastLeaseOwner: record.LastLeaseOwner,
-			ResultPayload:  record.ResultPayload,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -161,7 +155,7 @@ func workerLifecycleHandler(provider observability.WorkerLifecycleProvider) http
 	return func(w http.ResponseWriter, r *http.Request) {
 		snapshots, err := provider.WorkerLifecycleSnapshots(r.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -228,7 +222,7 @@ func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budget
 		for _, pool := range pools {
 			snapshot, err := statusProvider.AdaptiveStatusSnapshot(r.Context(), pool.Name)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				writeAPIError(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			lastAdjustedAt := ""
@@ -258,7 +252,7 @@ func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budget
 
 		budgets, err := budgetProvider.DependencyBudgetUsageSnapshots(r.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 		for _, budget := range budgets {
@@ -295,7 +289,7 @@ func admissionHandler(provider observability.AdmissionStatusProvider, queues []s
 		for _, queue := range queues {
 			snapshot, err := provider.AdmissionStatusSnapshot(r.Context(), queue, now)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				writeAPIError(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			response.Queues = append(response.Queues, queueStatus{
@@ -318,6 +312,14 @@ func admissionHandler(provider observability.AdmissionStatusProvider, queues []s
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(response)
 	}
+}
+
+func writeAPIError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(struct {
+		Error string `json:"error"`
+	}{Error: message})
 }
 
 func (a *App) Run(ctx context.Context) error {

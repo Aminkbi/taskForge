@@ -79,7 +79,7 @@ const state = {
   core: {
     TASKFORGE_SERVICE_NAME: "taskforge-api",
     TASKFORGE_LOG_LEVEL: "info",
-    TASKFORGE_HTTP_ADDR: ":8080",
+    TASKFORGE_HTTP_ADDR: "127.0.0.1:8080",
     TASKFORGE_REDIS_ADDR: "localhost:6379",
     TASKFORGE_REDIS_PASSWORD: "",
     TASKFORGE_REDIS_DB: 0,
@@ -124,7 +124,7 @@ function renderCore() {
   c.append(
     field(state.core, "TASKFORGE_SERVICE_NAME", "Service name", { desc: "identifies this process in logs/traces" }),
     field(state.core, "TASKFORGE_LOG_LEVEL", "Log level", { type: "select", options: ["debug", "info", "warn", "error"] }),
-    field(state.core, "TASKFORGE_HTTP_ADDR", "HTTP address", { placeholder: ":8080", desc: "health, metrics, admin & dashboard" }),
+    field(state.core, "TASKFORGE_HTTP_ADDR", "HTTP address", { placeholder: "127.0.0.1:8080", desc: "loopback by default; operator routes also require TASKFORGE_HTTP_AUTH_TOKEN" }),
     field(state.core, "TASKFORGE_REDIS_ADDR", "Redis address", { placeholder: "localhost:6379", desc: "host:port of the broker/store backend" }),
     field(state.core, "TASKFORGE_REDIS_PASSWORD", "Redis password", { placeholder: "(none)", desc: "leave blank if unauthenticated" }),
     field(state.core, "TASKFORGE_REDIS_DB", "Redis DB", { type: "number", min: 0, desc: "logical DB number" }),

@@ -1,6 +1,9 @@
 # Operator Runbooks
 
-These runbooks are intentionally short and tied to the current observability surface. They assume the Redis broker implementation and the metrics/readiness behavior added in Phase 07.
+These runbooks are intentionally short and tied to the current observability
+surface. Health and aggregate readiness need no credential; metrics and
+`/v1/admin/*` calls require the operator credential described in the
+[HTTP security guide](http-security.md).
 
 ## Stuck pending entries
 
@@ -74,8 +77,8 @@ Symptoms:
 
 Check first:
 
-- scheduler `/readyz` leadership status
-- scheduler `/v1/admin/leadership` local and Redis epoch view
+- scheduler `/readyz` aggregate status
+- authenticated scheduler `/v1/admin/leadership` local and Redis epoch view
 - Redis latency
 - scheduler logs around leadership and delayed release
 

@@ -15,6 +15,13 @@ import (
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_LOG_LEVEL", "")
 	t.Setenv("TASKFORGE_HTTP_ADDR", "")
+	t.Setenv("TASKFORGE_HTTP_AUTH_TOKEN", "")
+	t.Setenv("TASKFORGE_HTTP_READ_HEADER_TIMEOUT", "")
+	t.Setenv("TASKFORGE_HTTP_READ_TIMEOUT", "")
+	t.Setenv("TASKFORGE_HTTP_WRITE_TIMEOUT", "")
+	t.Setenv("TASKFORGE_HTTP_IDLE_TIMEOUT", "")
+	t.Setenv("TASKFORGE_HTTP_MAX_BODY_BYTES", "")
+	t.Setenv("TASKFORGE_HTTP_MAX_HEADER_BYTES", "")
 	t.Setenv("TASKFORGE_REDIS_ADDR", "")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
@@ -43,8 +50,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogLevel != defaultLogLevel {
 		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, defaultLogLevel)
 	}
-	if cfg.HTTPAddr != defaultHTTPAddr {
-		t.Fatalf("HTTPAddr = %q, want %q", cfg.HTTPAddr, defaultHTTPAddr)
+	if cfg.HTTPAddr != "127.0.0.1:8080" {
+		t.Fatalf("HTTPAddr = %q, want loopback default", cfg.HTTPAddr)
+	}
+	if cfg.HTTPAuthToken != "" {
+		t.Fatalf("HTTPAuthToken = %q, want disabled", cfg.HTTPAuthToken)
+	}
+	if cfg.HTTPReadHeaderTimeout != 5*time.Second || cfg.HTTPReadTimeout != 15*time.Second || cfg.HTTPWriteTimeout != 30*time.Second || cfg.HTTPIdleTimeout != 60*time.Second {
+		t.Fatalf("unexpected HTTP timeout defaults: %+v", cfg)
+	}
+	if cfg.HTTPMaxBodyBytes != 1<<20 || cfg.HTTPMaxHeaderBytes != 16<<10 {
+		t.Fatalf("unexpected HTTP size defaults: body=%d header=%d", cfg.HTTPMaxBodyBytes, cfg.HTTPMaxHeaderBytes)
 	}
 	if len(cfg.WorkerPools) != 1 {
 		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))
@@ -97,6 +113,13 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_LOG_LEVEL", "debug")
 	t.Setenv("TASKFORGE_HTTP_ADDR", ":9090")
+	t.Setenv("TASKFORGE_HTTP_AUTH_TOKEN", "0123456789abcdef0123456789abcdef")
+	t.Setenv("TASKFORGE_HTTP_READ_HEADER_TIMEOUT", "2s")
+	t.Setenv("TASKFORGE_HTTP_READ_TIMEOUT", "7s")
+	t.Setenv("TASKFORGE_HTTP_WRITE_TIMEOUT", "11s")
+	t.Setenv("TASKFORGE_HTTP_IDLE_TIMEOUT", "45s")
+	t.Setenv("TASKFORGE_HTTP_MAX_BODY_BYTES", "2048")
+	t.Setenv("TASKFORGE_HTTP_MAX_HEADER_BYTES", "8192")
 	t.Setenv("TASKFORGE_REDIS_ADDR", "redis.internal:6379")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "secret")
 	t.Setenv("TASKFORGE_REDIS_DB", "2")
@@ -174,6 +197,15 @@ func TestLoadOverrides(t *testing.T) {
 
 	if cfg.LogLevel != "debug" || cfg.HTTPAddr != ":9090" {
 		t.Fatalf("unexpected address/log fields: %+v", cfg)
+	}
+	if cfg.HTTPAuthToken != "0123456789abcdef0123456789abcdef" {
+		t.Fatal("HTTPAuthToken override was not loaded")
+	}
+	if cfg.HTTPReadHeaderTimeout != 2*time.Second || cfg.HTTPReadTimeout != 7*time.Second || cfg.HTTPWriteTimeout != 11*time.Second || cfg.HTTPIdleTimeout != 45*time.Second {
+		t.Fatalf("unexpected HTTP timeout overrides: %+v", cfg)
+	}
+	if cfg.HTTPMaxBodyBytes != 2048 || cfg.HTTPMaxHeaderBytes != 8192 {
+		t.Fatalf("unexpected HTTP size overrides: body=%d header=%d", cfg.HTTPMaxBodyBytes, cfg.HTTPMaxHeaderBytes)
 	}
 	if cfg.RedisAddr != "redis.internal:6379" || cfg.RedisPassword != "secret" || cfg.RedisDB != 2 {
 		t.Fatalf("unexpected redis fields: %+v", cfg)
@@ -374,6 +406,41 @@ func TestLoadInvalidDuration(t *testing.T) {
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadRejectsWeakHTTPAuthToken(t *testing.T) {
+	t.Setenv("TASKFORGE_HTTP_AUTH_TOKEN", "short-token")
+
+	_, err := LoadForRole("taskforge-test", ServiceRoleAPI)
+	if err == nil || !strings.Contains(err.Error(), "at least 32 characters") {
+		t.Fatalf("LoadForRole() error = %v, want token length error", err)
+	}
+}
+
+func TestLoadRejectsInvalidHTTPResourceLimits(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "read header timeout", key: "TASKFORGE_HTTP_READ_HEADER_TIMEOUT", value: "0s"},
+		{name: "read timeout", key: "TASKFORGE_HTTP_READ_TIMEOUT", value: "invalid"},
+		{name: "write timeout", key: "TASKFORGE_HTTP_WRITE_TIMEOUT", value: "-1s"},
+		{name: "idle timeout", key: "TASKFORGE_HTTP_IDLE_TIMEOUT", value: "0s"},
+		{name: "body bytes", key: "TASKFORGE_HTTP_MAX_BODY_BYTES", value: "0"},
+		{name: "header bytes", key: "TASKFORGE_HTTP_MAX_HEADER_BYTES", value: "-1"},
+		{name: "shutdown timeout", key: "TASKFORGE_SHUTDOWN_TIMEOUT", value: "0s"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			_, err := LoadForRole("taskforge-test", ServiceRoleAPI)
+			if err == nil || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("LoadForRole() error = %v, want error for %s", err, tc.key)
+			}
+		})
 	}
 }
 

@@ -59,7 +59,14 @@ Common deployment and global control settings:
 
 ```env
 TASKFORGE_LOG_LEVEL=info
-TASKFORGE_HTTP_ADDR=:8080
+TASKFORGE_HTTP_ADDR=127.0.0.1:8080
+TASKFORGE_HTTP_AUTH_TOKEN=
+TASKFORGE_HTTP_READ_HEADER_TIMEOUT=5s
+TASKFORGE_HTTP_READ_TIMEOUT=15s
+TASKFORGE_HTTP_WRITE_TIMEOUT=30s
+TASKFORGE_HTTP_IDLE_TIMEOUT=60s
+TASKFORGE_HTTP_MAX_BODY_BYTES=1048576
+TASKFORGE_HTTP_MAX_HEADER_BYTES=16384
 TASKFORGE_REDIS_ADDR=localhost:6379
 TASKFORGE_REDIS_PASSWORD=
 TASKFORGE_REDIS_DB=0
@@ -75,8 +82,18 @@ TASKFORGE_TASK_FAILURE_RETENTION=168h
 TASKFORGE_TASK_PAYLOAD_RETENTION=24h
 ```
 
-`/metrics` is served on `TASKFORGE_HTTP_ADDR`.
-`TASKFORGE_SHUTDOWN_TIMEOUT` is also the worker drain grace window.
+`/healthz` and the aggregate `/readyz` are public on `TASKFORGE_HTTP_ADDR`.
+Metrics, dashboard, task state, and admin routes are disabled when
+`TASKFORGE_HTTP_AUTH_TOKEN` is empty and authenticated when it is set. The
+token must have at least 32 non-whitespace characters. Generate a random token
+with a secret manager or a command such as `openssl rand -hex 32`; do not commit
+the generated value. See the [HTTP API reference](http-api.md) for credential
+formats.
+
+The four HTTP durations bound connection/request lifetime. The byte settings
+bound request bodies and headers. `TASKFORGE_SHUTDOWN_TIMEOUT` bounds HTTP
+graceful shutdown and tracing shutdown and is also the worker drain grace
+window.
 
 Worker policies use `TASKFORGE_WORKER_POOLS_JSON`:
 
@@ -200,7 +217,7 @@ TaskForge does not hot-reload configuration.
 
 | Setting or state | Lifecycle |
 | --- | --- |
-| Worker pools, fairness rules, admission thresholds/mode, dependency capacities/mappings, adaptive bounds/targets, retry defaults, pool task timeouts, retention, scheduler intervals/schedules, routing | Restart required |
+| HTTP address, operator token, HTTP timeouts/size limits, worker pools, fairness rules, admission thresholds/mode, dependency capacities/mappings, adaptive bounds/targets, retry defaults, pool task timeouts, retention, scheduler intervals/schedules, routing | Restart required |
 | Adaptive effective concurrency | Dynamic within the restart-configured bounds |
 | Admission signal/state and dependency tokens in use | Dynamic runtime state; policy/capacity is restart required |
 | Schedule next-run state | Dynamic runtime state; definitions are restart required |

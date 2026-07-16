@@ -43,7 +43,10 @@ func readinessHandler(evaluator ReadinessEvaluator) http.Handler {
 		if response.Status != "ready" {
 			statusCode = http.StatusServiceUnavailable
 		}
-		writeJSON(w, statusCode, response)
+		// Component names, dependency errors, leadership details, and timestamps
+		// are operator data. Orchestrators only need the aggregate state and
+		// status code.
+		writeJSON(w, statusCode, statusResponse{Status: response.Status})
 	})
 }
 
@@ -51,4 +54,10 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, struct {
+		Error string `json:"error"`
+	}{Error: message})
 }
