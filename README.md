@@ -22,10 +22,22 @@ Prerequisites:
 - Go 1.25+
 - Docker with Compose support
 
-Run the local stack:
+Run Redis and the five-minute adoption demo:
 
 ```bash
-cp .env.example .env
+docker compose up -d redis
+make run-demo
+```
+
+The command publishes a protected task and two noisy-tenant tasks, embeds the
+worker and handlers in the same process, then prints JSON showing completed
+task states, queue/fairness metrics, and the Prometheus metrics surface. It
+uses no external service beyond local Redis.
+
+The scheduler and read-only API are optional operator sidecars. Run the full
+operator stack when you need them:
+
+```bash
 docker compose up --build
 ```
 
@@ -41,9 +53,7 @@ Useful local commands:
 make test
 make lint
 make run-demo
-make run-example-email
-make run-example-media
-make run-example-external-api
+make test-demo
 ```
 
 ## Public Go API
@@ -118,7 +128,8 @@ Lease loss means local execution ownership is no longer authoritative, so cancel
 ## Project Layout
 
 ```text
-cmd/                  optional sidecars and runnable examples
+cmd/                  optional scheduler and API sidecars
+examples/overload/    public-API-only adoption demo
 redis/                Redis broker, state, DLQ, and policy implementation
 worker/               embeddable execution runtime
 deploy/docker/        Dockerfiles for scheduler and API

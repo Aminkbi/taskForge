@@ -21,6 +21,7 @@ make release-smoke     # build release binaries/images without publishing
 make compose-up        # docker compose up --build -d (Redis + scheduler/API + Prometheus)
 make compose-down
 make run-scheduler | run-api | run-demo
+make test-demo         # run the Redis-backed overload demo contract
 ```
 
 Run a single test: `go test ./worker -run TestName` (add `-race` for concurrency code). `GOCACHE` defaults to `/tmp/taskforge-gocache`.
@@ -44,7 +45,7 @@ Key package boundaries:
 - `internal/config` — all configuration is environment-driven (`TASKFORGE_*` prefix), parsed into typed structs incl. JSON-encoded pool/budget/limit/schedule definitions. Add new settings here rather than hardcoding.
 - `internal/observability`, `internal/httpserver`, `internal/logging`, `internal/healthcheck`, `internal/shutdown` — operational baseline (Prometheus metrics, OTEL tracing hooks, HTTP health/metrics, structured logging).
 - `internal/clock` — injectable clock for deterministic tests.
-- `cmd/example-*` + `internal/examples/*` — runnable handler examples using the root, `redis`, and `worker` APIs.
+- `examples/overload` — the public-API-only adoption demo; it verifies noisy-tenant protection and task state/metrics without a third-party handler dependency.
 
 ## Conventions
 

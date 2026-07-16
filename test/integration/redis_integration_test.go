@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +38,48 @@ const (
 	ciPostRenewWindow   = 700 * time.Millisecond
 	ciReserveTimeout    = 50 * time.Millisecond
 )
+
+func TestOverloadDemoExecutableContract(t *testing.T) {
+	ctx, _, _ := newIntegrationBroker(t, 30*time.Second)
+	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	command := exec.CommandContext(commandCtx, "go", "run", "./examples/overload")
+	command.Dir = filepath.Clean(filepath.Join("..", ".."))
+	command.Env = append(os.Environ(),
+		"TASKFORGE_DEMO_REDIS_ADDR=localhost:6379",
+		"TASKFORGE_DEMO_REDIS_DB=0",
+	)
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("go run ./examples/overload error = %v", err)
+	}
+
+	var result struct {
+		CompletedTaskIDs              []string                   `json:"completed_task_ids"`
+		MaxNoisyTenantConcurrency     int                        `json:"max_noisy_tenant_concurrency"`
+		ProtectedStartedWithNoisyWork bool                       `json:"protected_started_with_noisy_work"`
+		TaskStates                    map[string]taskforge.State `json:"task_states"`
+		PrometheusMetricsExposed      bool                       `json:"prometheus_metrics_exposed"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatalf("decode demo output %q: %v", output, err)
+	}
+	if len(result.CompletedTaskIDs) != 3 {
+		t.Fatalf("completed task IDs = %v, want three", result.CompletedTaskIDs)
+	}
+	if result.MaxNoisyTenantConcurrency != 1 {
+		t.Fatalf("max noisy tenant concurrency = %d, want 1", result.MaxNoisyTenantConcurrency)
+	}
+	if !result.ProtectedStartedWithNoisyWork || !result.PrometheusMetricsExposed {
+		t.Fatalf("demo result = %+v, want protected work and metrics", result)
+	}
+	for _, taskID := range result.CompletedTaskIDs {
+		if result.TaskStates[taskID] != taskforge.StateSucceeded {
+			t.Fatalf("task %s state = %q, want %q", taskID, result.TaskStates[taskID], taskforge.StateSucceeded)
+		}
+	}
+}
 
 func TestRedisPublishReserveAndAck(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
