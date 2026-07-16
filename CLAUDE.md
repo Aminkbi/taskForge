@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-TaskForge is a Go (1.25.0) distributed job system inspired by Celery. It ships three runtime binaries plus example/demo binaries, all backed by Redis. The system is intentionally early-stage: some areas are incomplete on purpose rather than hidden. The defining design commitment is an **at-least-once delivery contract** (see README "Execution contract") — handlers must be idempotent, duplicate deliveries are expected, and exactly-once is out of scope. Preserve these semantics; call out any reliability or lease-semantics change explicitly.
+TaskForge is a Go (1.25.0) embeddable worker runtime with a Redis transport and optional scheduler/API sidecars. The defining design commitment is an **at-least-once delivery contract** (see README "Execution contract") — handlers must be idempotent, duplicate deliveries are expected, and exactly-once is out of scope. Preserve these semantics; call out any reliability or delivery-semantics change explicitly.
 
 ## Common commands
 
@@ -18,35 +18,33 @@ make race-test         # go test -race
 make integration-test  # TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...  (needs Redis on :6379)
 make bench-smoke       # compile+run each benchmark once
 make release-smoke     # build release binaries/images without publishing
-make compose-up        # docker compose up --build -d (Redis + worker/scheduler/api + Prometheus)
+make compose-up        # docker compose up --build -d (Redis + scheduler/API + Prometheus)
 make compose-down
-make run-worker | run-scheduler | run-api | run-demo
+make run-scheduler | run-api | run-demo
 ```
 
-Run a single test: `go test ./internal/runtime -run TestName` (add `-race` for concurrency code). `GOCACHE` defaults to `/tmp/taskforge-gocache`.
+Run a single test: `go test ./worker -run TestName` (add `-race` for concurrency code). `GOCACHE` defaults to `/tmp/taskforge-gocache`.
 
 To match CI lint locally: `go install honnef.co/go/tools/cmd/staticcheck@2025.1.1`. CI tracks are separate jobs: `lint`, `unit`, `integration`, `race`, `benchmark-smoke`, `release-smoke` (see `.github/workflows/ci.yml`).
 
 ## Architecture
 
-Entrypoints in `cmd/` are thin; each binary is wired together in a matching `internal/app/<role>` package (`api`, `scheduler`, `worker`). The three core roles:
+Entrypoints in `cmd/` are thin; sidecars are wired in matching `internal/app/<role>` packages. The core roles are:
 
-- **worker** (`cmd/worker`): polls Redis, reserves deliveries, runs handlers, drives ack/retry/DLQ and lease renewal.
+- **worker** (`worker` package): embedded by applications that register Go handlers.
 - **scheduler** (`cmd/scheduler`): releases delayed work when its ETA is reached, schedules retries, runs recurring schedules; uses leader election.
 - **api** (`cmd/api`): health, readiness, metrics, and a small admin surface.
 
 Key package boundaries:
 
-- `internal/broker` — the central `Broker` interface (`Publish`/`Reserve`/`Ack`/`Nack`/`ExtendLease`) and message/result model. This is the queue contract; `internal/brokerredis` is the Redis Streams implementation (consumer groups, reclaim, leases) plus admission, budget, fairness, and adaptive-concurrency logic.
-- `internal/runtime` — worker execution engine. `Manager` supervises a set of `Worker`s and orchestrates the explicit drain→force shutdown sequence (stop reserving, keep renewing owned leases, force-cancel only after `TASKFORGE_SHUTDOWN_TIMEOUT`). The runtime separates the logical `task_id` from a per-attempt `delivery_id` so stale acks are rejected deterministically.
+- module root — canonical task, delivery, retry, state, DLQ, handler, and broker contracts.
+- `redis` — Redis Streams transport, state/DLQ persistence, routing, fairness, admission, and dependency budgets.
+- `worker` — embeddable execution engine. `Manager` supervises workers and orchestrates drain→force shutdown.
 - `internal/scheduler` — delayed release, retry scheduling, recurring schedules, and leadership (Redis-backed lock with TTL renewal).
-- `internal/store` + `internal/storeredis` — durable task state and result/retention storage.
-- `internal/tasks` — task model, state machine (`states.go`), and `RetryPolicy`.
-- `internal/routing` + `internal/fairness` — routing policy and per-tenant/queue fairness policy.
 - `internal/config` — all configuration is environment-driven (`TASKFORGE_*` prefix), parsed into typed structs incl. JSON-encoded pool/budget/limit/schedule definitions. Add new settings here rather than hardcoding.
 - `internal/observability`, `internal/httpserver`, `internal/logging`, `internal/healthcheck`, `internal/shutdown` — operational baseline (Prometheus metrics, OTEL tracing hooks, HTTP health/metrics, structured logging).
-- `internal/dlq` — dead-letter publishing. `internal/clock` — injectable clock for deterministic tests.
-- `cmd/example-*` + `internal/examples/*` — runnable handler examples (email, media, external API). `pkg/taskforge` is the intended public surface.
+- `internal/clock` — injectable clock for deterministic tests.
+- `cmd/example-*` + `internal/examples/*` — runnable handler examples using the root, `redis`, and `worker` APIs.
 
 ## Conventions
 

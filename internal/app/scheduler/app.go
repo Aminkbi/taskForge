@@ -11,15 +11,14 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/healthcheck"
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
-	"github.com/aminkbi/taskforge/internal/store"
-	"github.com/aminkbi/taskforge/internal/storeredis"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
 )
 
 type App struct {
@@ -34,20 +33,11 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		DB:       cfg.RedisDB,
 	})
 
-	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
-	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
 	leaseTTL := config.DefaultLeaseTTL()
 	if len(cfg.WorkerPools) > 0 {
 		leaseTTL = cfg.WorkerPools[0].LeaseTTL
 	}
-	taskStateStore := storeredis.New(client, taskRetentionPolicy(cfg))
-	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
-		FairnessPolicies:  fairnessPolicies,
-		AdmissionPolicies: admissionPolicies,
-		RoutingPolicy:     cfg.RoutingPolicy,
-		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
-		StateStore:        taskStateStore,
-	})
+	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis"), leaseTTL))
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
 		client,
@@ -189,45 +179,18 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	}
 }
 
-func taskRetentionPolicy(cfg config.Config) store.RetentionPolicy {
-	return store.RetentionPolicy{
-		SucceededState: cfg.TaskSuccessRetention,
-		FailedState:    cfg.TaskFailureRetention,
-		ResultPayload:  cfg.TaskPayloadRetention,
-	}
-}
-
 type schedulerLeadershipMetricsProvider struct {
 	elector *schedulerpkg.RedisLeaderElector
 }
 
-func (p schedulerLeadershipMetricsProvider) SchedulerLeadershipSnapshot(context.Context) (observability.SchedulerLeadershipSnapshot, error) {
+func (p schedulerLeadershipMetricsProvider) SchedulerLeadershipSnapshot(context.Context) (taskforge.SchedulerLeadershipSnapshot, error) {
 	snapshot := p.elector.Snapshot()
-	return observability.SchedulerLeadershipSnapshot{
+	return taskforge.SchedulerLeadershipSnapshot{
 		Leader:        snapshot.Leader,
 		Owner:         snapshot.Owner,
 		Epoch:         float64(snapshot.Epoch),
 		LastRenewedAt: snapshot.LastRenewedAt,
 	}, nil
-}
-
-func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
-	policies := make(map[string]brokerredis.AdmissionPolicy)
-	for queue, policy := range config.AdmissionPoliciesByQueue(pools) {
-		policies[queue] = brokerredis.AdmissionPolicy{
-			Mode:                     brokerredis.AdmissionMode(policy.Mode),
-			MaxPending:               policy.MaxPending,
-			MaxPendingPerFairnessKey: policy.MaxPendingPerFairnessKey,
-			MaxOldestReadyAge:        policy.MaxOldestReadyAge,
-			MaxRetryBacklog:          policy.MaxRetryBacklog,
-			MaxDeadLetterSize:        policy.MaxDeadLetterSize,
-			DeferInterval:            policy.DeferInterval,
-		}
-	}
-	if len(policies) == 0 {
-		return nil
-	}
-	return policies
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -255,15 +218,4 @@ func schedulerOwnerToken(serviceName string) string {
 		hostname = "unknown-host"
 	}
 	return fmt.Sprintf("%s:%s:%d", serviceName, hostname, os.Getpid())
-}
-
-func dependencyBudgetCapacities(cfg map[string]config.DependencyBudgetConfig) map[string]int {
-	if len(cfg) == 0 {
-		return nil
-	}
-	capacities := make(map[string]int, len(cfg))
-	for name, budget := range cfg {
-		capacities[name] = budget.Capacity
-	}
-	return capacities
 }

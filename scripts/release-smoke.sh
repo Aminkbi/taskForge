@@ -39,7 +39,6 @@ smoke_binary() {
   local port="$2"
   local log="/tmp/taskforge-release-smoke-$port.log"
   TASKFORGE_HTTP_ADDR="127.0.0.1:$port" \
-    TASKFORGE_METRICS_ADDR="127.0.0.1:$port" \
     TASKFORGE_REDIS_ADDR="${TASKFORGE_REDIS_ADDR:-127.0.0.1:6379}" \
     TASKFORGE_SCHEDULES_JSON="[]" \
     "$binary" >"$log" 2>&1 &
@@ -60,7 +59,6 @@ smoke_container() {
   local container
   container="$(docker run -d --network host \
     -e TASKFORGE_HTTP_ADDR="127.0.0.1:$port" \
-    -e TASKFORGE_METRICS_ADDR="127.0.0.1:$port" \
     -e TASKFORGE_REDIS_ADDR="${TASKFORGE_REDIS_ADDR:-127.0.0.1:6379}" \
     -e TASKFORGE_SCHEDULES_JSON="[]" \
     "$image")"
@@ -76,7 +74,6 @@ for binary in "$TASKFORGE_DIST_DIR"/taskforge-*-linux-amd64; do
 done
 
 if command -v curl >/dev/null 2>&1; then
-  smoke_binary "$TASKFORGE_DIST_DIR/taskforge-worker-linux-amd64" 18081
   smoke_binary "$TASKFORGE_DIST_DIR/taskforge-scheduler-linux-amd64" 18082
   smoke_binary "$TASKFORGE_DIST_DIR/taskforge-api-linux-amd64" 18083
 else
@@ -84,11 +81,9 @@ else
 fi
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  docker build -f deploy/docker/worker.Dockerfile -t taskforge/worker:smoke .
   docker build -f deploy/docker/scheduler.Dockerfile -t taskforge/scheduler:smoke .
   docker build -f deploy/docker/api.Dockerfile -t taskforge/api:smoke .
   if command -v curl >/dev/null 2>&1; then
-    smoke_container taskforge/worker:smoke 19081
     smoke_container taskforge/scheduler:smoke 19082
     smoke_container taskforge/api:smoke 19083
   else

@@ -29,9 +29,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
-That starts Redis, worker, scheduler, API/admin, and Prometheus:
+That starts Redis, the optional scheduler and API sidecars, and Prometheus:
 
-- worker admin: `http://localhost:8081`
 - scheduler admin: `http://localhost:8082`
 - API/admin: `http://localhost:8083`
 - Prometheus: `http://localhost:9090`
@@ -49,21 +48,22 @@ make run-example-external-api
 
 ## Public Go API
 
-Import the package:
+Import the canonical model plus the Redis and worker implementations:
 
 ```go
-import "github.com/aminkbi/taskforge/pkg/taskforge"
+import (
+	"github.com/aminkbi/taskforge"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	"github.com/aminkbi/taskforge/worker"
+)
 ```
 
 Publish a task:
 
 ```go
-broker, err := taskforge.NewRedisBroker(taskforge.RedisOptions{
+broker := taskforgeredis.New(taskforgeredis.Options{
 	Addr: "localhost:6379",
 })
-if err != nil {
-	return err
-}
 defer broker.Close()
 
 task := taskforge.NewTask(
@@ -73,7 +73,7 @@ task := taskforge.NewTask(
 	taskforge.WithIdempotencyKey("email:user@example.com:welcome"),
 )
 
-_, err = broker.Publish(ctx, task, taskforge.PublishOptions{})
+_, err := broker.Publish(ctx, task, taskforge.PublishOptions{})
 ```
 
 Embed a worker in your own Go process:
@@ -85,16 +85,20 @@ _ = registry.RegisterFunc("email.send", func(ctx context.Context, task taskforge
 	return nil
 })
 
-err := taskforge.RunWorker(ctx, taskforge.WorkerOptions{
+runtime, err := worker.New(worker.Options{
 	Broker:      broker,
 	Handler:     registry,
 	Queue:       "default",
 	Concurrency: 4,
 })
+if err != nil {
+	return err
+}
+err = runtime.Run(ctx)
 ```
 
-The `cmd/worker` binary is still a runtime harness with a placeholder handler.
-For real applications, the intended integration path is embedding the public Go API so your process owns task registration and handler code.
+There is intentionally no generic worker binary. Applications embed the worker
+package so their process owns task registration and handler code.
 
 ## Execution Contract
 
@@ -114,11 +118,13 @@ Lease loss means local execution ownership is no longer authoritative, so cancel
 ## Project Layout
 
 ```text
-cmd/                  runnable service and example entrypoints
-deploy/docker/        Dockerfiles for worker, scheduler, and API
+cmd/                  optional sidecars and runnable examples
+redis/                Redis broker, state, DLQ, and policy implementation
+worker/               embeddable execution runtime
+deploy/docker/        Dockerfiles for scheduler and API
 docs/                 reference, operations, and development notes
-internal/             runtime, broker, scheduler, config, HTTP, and observability internals
-pkg/taskforge/        public Go API
+internal/             scheduler, config, HTTP, and observability support
+*.go                  canonical public models and contracts
 scripts/              test, lint, benchmark, and release helpers
 test/integration/     opt-in Redis integration tests
 ```
@@ -131,6 +137,7 @@ test/integration/     opt-in Redis integration tests
 - [Operator runbooks](./docs/operations/runbooks.md)
 - [Benchmark guide](./docs/operations/benchmarks.md)
 - [Toolchain and CI policy](./docs/development/toolchain.md)
+- [Redis v2 development reset](./docs/development/redis-v2-development-migration.md)
 
 ## Validation
 
@@ -155,7 +162,6 @@ TASKFORGE_RUN_BENCHMARKS=1 make bench
 ## Current Gaps
 
 - The public API is intentionally small and Redis-first.
-- `cmd/worker` does not yet load user-defined handlers.
 - RabbitMQ and other broker backends are not implemented.
 - Admin operations for DLQ inspection and replay are still narrow.
 - Release publishing is being shaped around tagged binaries, checksums, and container images.

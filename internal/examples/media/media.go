@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 const TaskProcessMedia = "example.media.process"
@@ -24,7 +24,7 @@ type Handler struct {
 	Logger       *slog.Logger
 }
 
-func (h Handler) HandleTask(ctx context.Context, msg broker.TaskMessage) error {
+func (h Handler) HandleTask(ctx context.Context, msg taskforge.Task) error {
 	if msg.Name != TaskProcessMedia {
 		return fmt.Errorf("media example: unsupported task %q", msg.Name)
 	}

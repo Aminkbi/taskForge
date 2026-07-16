@@ -3,21 +3,22 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/fairness"
-	"github.com/aminkbi/taskforge/internal/routing"
+	"github.com/aminkbi/taskforge"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	"github.com/aminkbi/taskforge/redis"
+	"github.com/aminkbi/taskforge/worker"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 const (
 	defaultLogLevel         = "info"
 	defaultHTTPAddr         = ":8080"
-	defaultMetricsAddr      = ":8080"
 	defaultRedisAddr        = "localhost:6379"
 	defaultRedisDB          = 0
 	defaultWorkerConcurrent = 4
@@ -43,12 +44,11 @@ const (
 type Config struct {
 	LogLevel               string
 	HTTPAddr               string
-	MetricsAddr            string
 	RedisAddr              string
 	RedisPassword          string
 	RedisDB                int
 	WorkerPools            []WorkerPoolConfig
-	RoutingPolicy          *routing.Policy
+	RoutingPolicy          *redis.RoutingPolicy
 	DependencyBudgets      map[string]DependencyBudgetConfig
 	TaskBudgets            map[string]TaskBudgetConfig
 	TaskTypeLimits         map[string]int
@@ -70,11 +70,11 @@ type WorkerPoolConfig struct {
 	Concurrency    int
 	Prefetch       int
 	LeaseTTL       time.Duration
-	RetryPolicy    tasks.RetryPolicy
+	RetryPolicy    taskforge.RetryPolicy
 	TaskTypeLimits map[string]int
-	FairnessPolicy *fairness.Policy
-	Admission      AdmissionPolicy
-	Adaptive       AdaptiveConcurrencyConfig
+	FairnessPolicy *redis.FairnessPolicy
+	Admission      redis.AdmissionPolicy
+	Adaptive       worker.AdaptiveConfig
 }
 
 type DependencyBudgetConfig struct {
@@ -88,40 +88,7 @@ type TaskBudgetConfig struct {
 	Tokens   int
 }
 
-type AdaptiveConcurrencyConfig struct {
-	Enabled                bool
-	MinConcurrency         int
-	MaxConcurrency         int
-	ControlPeriod          time.Duration
-	Cooldown               time.Duration
-	ScaleUpStep            int
-	ScaleDownStep          int
-	LatencyThreshold       time.Duration
-	ErrorRateThreshold     float64
-	BacklogThreshold       int64
-	HealthyWindowsRequired int
-}
-
-type AdmissionMode string
-
-const (
-	AdmissionModeDisabled AdmissionMode = "disabled"
-	AdmissionModeDefer    AdmissionMode = "defer"
-	AdmissionModeReject   AdmissionMode = "reject"
-)
-
-type AdmissionPolicy struct {
-	Mode                     AdmissionMode
-	MaxPending               int64
-	MaxPendingPerFairnessKey int64
-	MaxOldestReadyAge        time.Duration
-	MaxRetryBacklog          int64
-	MaxDeadLetterSize        int64
-	DeferInterval            time.Duration
-}
-
 type rawRetryPolicy struct {
-	MaxAttempts    int     `json:"max_attempts"`
 	MaxDeliveries  int     `json:"max_deliveries"`
 	InitialBackoff string  `json:"initial_backoff"`
 	MaxBackoff     string  `json:"max_backoff"`
@@ -206,7 +173,6 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	cfg := Config{
 		LogLevel:               getEnv("TASKFORGE_LOG_LEVEL", defaultLogLevel),
 		HTTPAddr:               getEnv("TASKFORGE_HTTP_ADDR", defaultHTTPAddr),
-		MetricsAddr:            getEnv("TASKFORGE_METRICS_ADDR", defaultMetricsAddr),
 		RedisAddr:              getEnv("TASKFORGE_REDIS_ADDR", defaultRedisAddr),
 		RedisPassword:          getEnv("TASKFORGE_REDIS_PASSWORD", ""),
 		RedisDB:                defaultRedisDB,
@@ -292,8 +258,32 @@ func DefaultLeaseTTL() time.Duration {
 	return defaultLeaseTTL
 }
 
-func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*fairness.Policy {
-	policies := make(map[string]*fairness.Policy)
+func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger, leaseTTL time.Duration) redis.Options {
+	capacities := make(map[string]int, len(c.DependencyBudgets))
+	for name, budget := range c.DependencyBudgets {
+		capacities[name] = budget.Capacity
+	}
+	if len(capacities) == 0 {
+		capacities = nil
+	}
+	return redis.Options{
+		Client:            client,
+		Logger:            logger,
+		LeaseTTL:          leaseTTL,
+		FairnessPolicies:  FairnessPoliciesByQueue(c.WorkerPools),
+		AdmissionPolicies: AdmissionPoliciesByQueue(c.WorkerPools),
+		RoutingPolicy:     c.RoutingPolicy,
+		DependencyBudgets: capacities,
+		Retention: taskforge.RetentionPolicy{
+			SucceededState: c.TaskSuccessRetention,
+			FailedState:    c.TaskFailureRetention,
+			ResultPayload:  c.TaskPayloadRetention,
+		},
+	}
+}
+
+func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*redis.FairnessPolicy {
+	policies := make(map[string]*redis.FairnessPolicy)
 	for _, pool := range pools {
 		if pool.FairnessPolicy == nil {
 			continue
@@ -306,10 +296,10 @@ func FairnessPoliciesByQueue(pools []WorkerPoolConfig) map[string]*fairness.Poli
 	return policies
 }
 
-func AdmissionPoliciesByQueue(pools []WorkerPoolConfig) map[string]AdmissionPolicy {
-	policies := make(map[string]AdmissionPolicy)
+func AdmissionPoliciesByQueue(pools []WorkerPoolConfig) map[string]redis.AdmissionPolicy {
+	policies := make(map[string]redis.AdmissionPolicy)
 	for _, pool := range pools {
-		if pool.Admission.Mode == AdmissionModeDisabled {
+		if pool.Admission.Mode == redis.AdmissionModeDisabled {
 			continue
 		}
 		policies[normalizeQueue(pool.Queue)] = pool.Admission
@@ -379,7 +369,7 @@ func getWorkerPools(key string, role ServiceRole) ([]WorkerPoolConfig, error) {
 				Concurrency: defaultWorkerConcurrent,
 				Prefetch:    defaultWorkerPrefetch,
 				LeaseTTL:    defaultLeaseTTL,
-				RetryPolicy: tasks.DefaultRetryPolicy(3),
+				RetryPolicy: taskforge.DefaultRetryPolicy(3),
 			},
 		}, nil
 	}
@@ -591,44 +581,35 @@ func getTaskBudgets(key string, budgets map[string]DependencyBudgetConfig) (map[
 	return mappings, nil
 }
 
-func getRoutingPolicy(key string) (*routing.Policy, error) {
+func getRoutingPolicy(key string) (*redis.RoutingPolicy, error) {
 	value := getEnv(key, "")
 	if value == "" {
 		return nil, nil
 	}
-	policy, err := routing.ParseJSON([]byte(value))
+	policy, err := redis.ParseRoutingPolicyJSON([]byte(value))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", key, err)
 	}
 	return policy, nil
 }
 
-func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPolicy, error) {
-	policy := tasks.DefaultRetryPolicy(3)
-	if raw.MaxAttempts > 0 {
-		policy.MaxAttempts = raw.MaxAttempts
-		if raw.MaxDeliveries == 0 {
-			policy.MaxDeliveries = raw.MaxAttempts
-		}
-	}
+func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (taskforge.RetryPolicy, error) {
+	policy := taskforge.DefaultRetryPolicy(3)
 	if raw.MaxDeliveries > 0 {
 		policy.MaxDeliveries = raw.MaxDeliveries
-		if raw.MaxAttempts == 0 {
-			policy.MaxAttempts = raw.MaxDeliveries
-		}
 	}
 
 	var err error
 	if raw.InitialBackoff != "" {
 		policy.InitialBackoff, err = time.ParseDuration(raw.InitialBackoff)
 		if err != nil {
-			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.initial_backoff: %w", key, poolName, err)
+			return taskforge.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.initial_backoff: %w", key, poolName, err)
 		}
 	}
 	if raw.MaxBackoff != "" {
 		policy.MaxBackoff, err = time.ParseDuration(raw.MaxBackoff)
 		if err != nil {
-			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_backoff: %w", key, poolName, err)
+			return taskforge.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_backoff: %w", key, poolName, err)
 		}
 	}
 	if raw.Multiplier != 0 {
@@ -640,14 +621,14 @@ func parseRetryPolicy(key, poolName string, raw rawRetryPolicy) (tasks.RetryPoli
 	if raw.MaxTaskAge != "" {
 		policy.MaxTaskAge, err = time.ParseDuration(raw.MaxTaskAge)
 		if err != nil {
-			return tasks.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_task_age: %w", key, poolName, err)
+			return taskforge.RetryPolicy{}, fmt.Errorf("%s: worker pool %q retry.max_task_age: %w", key, poolName, err)
 		}
 	}
 
 	return policy, nil
 }
 
-func parseFairnessPolicy(key, poolName string, raw *rawFairness) (*fairness.Policy, error) {
+func parseFairnessPolicy(key, poolName string, raw *rawFairness) (*redis.FairnessPolicy, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -657,7 +638,7 @@ func parseFairnessPolicy(key, poolName string, raw *rawFairness) (*fairness.Poli
 		return nil, err
 	}
 
-	rules := make([]fairness.Rule, 0, len(raw.Rules))
+	rules := make([]redis.FairnessRule, 0, len(raw.Rules))
 	for i, entry := range raw.Rules {
 		rule, err := parseFairnessRule(key, poolName, fmt.Sprintf("rules[%d]", i), entry, false)
 		if err != nil {
@@ -666,15 +647,15 @@ func parseFairnessPolicy(key, poolName string, raw *rawFairness) (*fairness.Poli
 		rules = append(rules, rule)
 	}
 
-	policy, err := fairness.NewPolicy(defaultRule, rules)
+	policy, err := redis.NewFairnessPolicy(defaultRule, rules)
 	if err != nil {
 		return nil, fmt.Errorf("%s: worker pool %q fairness: %w", key, poolName, err)
 	}
 	return policy, nil
 }
 
-func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefault bool) (fairness.Rule, error) {
-	rule := fairness.Rule{
+func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefault bool) (redis.FairnessRule, error) {
+	rule := redis.FairnessRule{
 		Name:                strings.TrimSpace(raw.Name),
 		Weight:              raw.Weight,
 		ReservedConcurrency: raw.ReservedConcurrency,
@@ -685,13 +666,13 @@ func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefau
 
 	if !isDefault {
 		if len(raw.Keys) == 0 {
-			return fairness.Rule{}, fmt.Errorf("%s: worker pool %q fairness %s keys are required", key, poolName, scope)
+			return redis.FairnessRule{}, fmt.Errorf("%s: worker pool %q fairness %s keys are required", key, poolName, scope)
 		}
 		rule.Keys = make([]string, 0, len(raw.Keys))
 		for _, fairnessKey := range raw.Keys {
 			trimmed := strings.TrimSpace(fairnessKey)
 			if trimmed == "" {
-				return fairness.Rule{}, fmt.Errorf("%s: worker pool %q fairness %s keys must be non-empty", key, poolName, scope)
+				return redis.FairnessRule{}, fmt.Errorf("%s: worker pool %q fairness %s keys must be non-empty", key, poolName, scope)
 			}
 			rule.Keys = append(rule.Keys, trimmed)
 		}
@@ -700,24 +681,24 @@ func parseFairnessRule(key, poolName, scope string, raw rawFairnessRule, isDefau
 	return rule, nil
 }
 
-func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness bool) (AdmissionPolicy, error) {
-	policy := AdmissionPolicy{Mode: AdmissionModeDisabled}
+func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness bool) (redis.AdmissionPolicy, error) {
+	policy := redis.AdmissionPolicy{Mode: redis.AdmissionModeDisabled}
 	if raw == nil {
 		return policy, nil
 	}
 
-	mode := AdmissionMode(strings.TrimSpace(raw.Mode))
+	mode := redis.AdmissionMode(strings.TrimSpace(raw.Mode))
 	switch mode {
-	case "", AdmissionModeDisabled:
-		policy.Mode = AdmissionModeDisabled
-	case AdmissionModeDefer, AdmissionModeReject:
+	case "", redis.AdmissionModeDisabled:
+		policy.Mode = redis.AdmissionModeDisabled
+	case redis.AdmissionModeDefer, redis.AdmissionModeReject:
 		policy.Mode = mode
 	default:
-		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.mode must be one of disabled, defer, reject", key, poolName)
+		return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.mode must be one of disabled, defer, reject", key, poolName)
 	}
 
 	if raw.MaxPending < 0 || raw.MaxPendingPerFairnessKey < 0 || raw.MaxRetryBacklog < 0 || raw.MaxDeadLetterSize < 0 {
-		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission thresholds must be >= 0", key, poolName)
+		return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission thresholds must be >= 0", key, poolName)
 	}
 
 	policy.MaxPending = raw.MaxPending
@@ -728,10 +709,10 @@ func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness b
 	if raw.MaxOldestReadyAge != "" {
 		parsed, err := time.ParseDuration(strings.TrimSpace(raw.MaxOldestReadyAge))
 		if err != nil {
-			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age: %w", key, poolName, err)
+			return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age: %w", key, poolName, err)
 		}
 		if parsed < 0 {
-			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age must be >= 0", key, poolName)
+			return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_oldest_ready_age must be >= 0", key, poolName)
 		}
 		policy.MaxOldestReadyAge = parsed
 	}
@@ -739,40 +720,40 @@ func parseAdmissionPolicy(key, poolName string, raw *rawAdmission, hasFairness b
 	if raw.DeferInterval != "" {
 		parsed, err := time.ParseDuration(strings.TrimSpace(raw.DeferInterval))
 		if err != nil {
-			return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval: %w", key, poolName, err)
+			return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval: %w", key, poolName, err)
 		}
 		policy.DeferInterval = parsed
 	}
 
-	if policy.Mode != AdmissionModeDisabled && policy.DeferInterval <= 0 {
-		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval must be > 0 when admission is enabled", key, poolName)
+	if policy.Mode != redis.AdmissionModeDisabled && policy.DeferInterval <= 0 {
+		return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.defer_interval must be > 0 when admission is enabled", key, poolName)
 	}
 	if policy.MaxPendingPerFairnessKey > 0 && !hasFairness {
-		return AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_pending_per_fairness_key requires fairness", key, poolName)
+		return redis.AdmissionPolicy{}, fmt.Errorf("%s: worker pool %q admission.max_pending_per_fairness_key requires fairness", key, poolName)
 	}
 
 	return policy, nil
 }
 
-func parseAdaptivePolicy(key, poolName string, concurrency, prefetch int, raw *rawAdaptive) (AdaptiveConcurrencyConfig, error) {
+func parseAdaptivePolicy(key, poolName string, concurrency, prefetch int, raw *rawAdaptive) (worker.AdaptiveConfig, error) {
 	if raw == nil || !raw.Enabled {
-		return AdaptiveConcurrencyConfig{}, nil
+		return worker.AdaptiveConfig{}, nil
 	}
 
 	controlPeriod, err := time.ParseDuration(strings.TrimSpace(raw.ControlPeriod))
 	if err != nil {
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period: %w", key, poolName, err)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period: %w", key, poolName, err)
 	}
 	cooldown, err := time.ParseDuration(strings.TrimSpace(raw.Cooldown))
 	if err != nil {
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown: %w", key, poolName, err)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown: %w", key, poolName, err)
 	}
 	latencyThreshold, err := time.ParseDuration(strings.TrimSpace(raw.LatencyThreshold))
 	if err != nil {
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold: %w", key, poolName, err)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold: %w", key, poolName, err)
 	}
 
-	adaptive := AdaptiveConcurrencyConfig{
+	adaptive := worker.AdaptiveConfig{
 		Enabled:                true,
 		MinConcurrency:         raw.MinConcurrency,
 		MaxConcurrency:         raw.MaxConcurrency,
@@ -788,29 +769,29 @@ func parseAdaptivePolicy(key, poolName string, concurrency, prefetch int, raw *r
 
 	switch {
 	case adaptive.MinConcurrency < 1:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.min_concurrency must be >= 1", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.min_concurrency must be >= 1", key, poolName)
 	case adaptive.MaxConcurrency < adaptive.MinConcurrency:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.max_concurrency must be >= min_concurrency", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.max_concurrency must be >= min_concurrency", key, poolName)
 	case concurrency < adaptive.MinConcurrency || concurrency > adaptive.MaxConcurrency:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q concurrency must be between adaptive min_concurrency and max_concurrency", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q concurrency must be between adaptive min_concurrency and max_concurrency", key, poolName)
 	case prefetch < adaptive.MaxConcurrency:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q prefetch must be >= adaptive.max_concurrency", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q prefetch must be >= adaptive.max_concurrency", key, poolName)
 	case adaptive.ControlPeriod <= 0:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period must be > 0", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.control_period must be > 0", key, poolName)
 	case adaptive.Cooldown < 0:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown must be >= 0", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.cooldown must be >= 0", key, poolName)
 	case adaptive.ScaleUpStep < 1:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_up_step must be >= 1", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_up_step must be >= 1", key, poolName)
 	case adaptive.ScaleDownStep < 1:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_down_step must be >= 1", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.scale_down_step must be >= 1", key, poolName)
 	case adaptive.LatencyThreshold <= 0:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold must be > 0", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.latency_threshold must be > 0", key, poolName)
 	case adaptive.ErrorRateThreshold < 0:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.error_rate_threshold must be >= 0", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.error_rate_threshold must be >= 0", key, poolName)
 	case adaptive.BacklogThreshold < 0:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.backlog_threshold must be >= 0", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.backlog_threshold must be >= 0", key, poolName)
 	case adaptive.HealthyWindowsRequired < 1:
-		return AdaptiveConcurrencyConfig{}, fmt.Errorf("%s: worker pool %q adaptive.healthy_windows_required must be >= 1", key, poolName)
+		return worker.AdaptiveConfig{}, fmt.Errorf("%s: worker pool %q adaptive.healthy_windows_required must be >= 1", key, poolName)
 	}
 
 	return adaptive, nil

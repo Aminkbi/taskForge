@@ -18,7 +18,7 @@ sequenceDiagram
     participant API as Admin/API
 
     Note over P,R: 1. Logical task is published
-    P->>R: Publish(TaskMessage)
+    P->>R: Publish(Task)
     R-->>P: Accepted
 
     Note over RL,R: 2. Worker reserves a delivery when local capacity allows

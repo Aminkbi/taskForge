@@ -10,17 +10,15 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
-	"github.com/aminkbi/taskforge/internal/clock"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/examples/media"
 	"github.com/aminkbi/taskforge/internal/examples/shared"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	"github.com/aminkbi/taskforge/internal/shutdown"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 func main() {
@@ -63,37 +61,35 @@ func main() {
 	})
 	defer client.Close()
 
-	metrics := observability.NewMetrics()
 	leaseTTL := 200 * time.Millisecond
-	exampleBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
+	exampleBroker := taskforgeredis.New(taskforgeredis.Options{
+		Client: client, Logger: logger.With("component", "redis"), LeaseTTL: leaseTTL,
 		ReserveTimeout: 25 * time.Millisecond,
 	})
-	observerBroker := brokerredis.NewWithOptions(client, logger.With("component", "observer-broker"), leaseTTL, metrics, brokerredis.Options{
+	observerBroker := taskforgeredis.New(taskforgeredis.Options{
+		Client: client, Logger: logger.With("component", "observer-redis"), LeaseTTL: leaseTTL,
 		ReserveTimeout: 25 * time.Millisecond,
 	})
 	if err := exampleBroker.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
 	}
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		logger.Error("flush example redis db", "error", err)
-		os.Exit(1)
-	}
-
 	recorder := media.NewRecorder()
-	worker := &runtimepkg.Worker{
+	worker, err := runtimepkg.New(runtimepkg.Options{
 		Broker:      exampleBroker,
 		Handler:     media.Handler{StepDuration: 150 * time.Millisecond, Recorder: recorder, Logger: logger.With("component", "example-media-handler")},
 		Logger:      logger.With("component", "worker-runtime"),
-		Metrics:     metrics,
-		Clock:       clock.RealClock{},
-		RetryPolicy: tasks.DefaultRetryPolicy(1),
+		RetryPolicy: taskforge.DefaultRetryPolicy(1),
 		PoolName:    "example-media",
 		Queue:       "media",
 		ConsumerID:  cfg.ServiceName,
 		LeaseTTL:    leaseTTL,
 		Concurrency: 1,
 		Prefetch:    1,
+	})
+	if err != nil {
+		logger.Error("build worker", "error", err)
+		os.Exit(1)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
@@ -117,19 +113,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	if _, err := exampleBroker.Publish(runCtx, broker.TaskMessage{
+	if _, err := exampleBroker.Publish(runCtx, taskforge.Task{
 		ID:        "asset-42",
 		Name:      media.TaskProcessMedia,
 		Queue:     "media",
 		Payload:   payload,
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		logger.Error("publish media task", "error", err)
 		os.Exit(1)
 	}
 
 	time.Sleep(350 * time.Millisecond)
-	if _, err := observerBroker.Reserve(runCtx, "media", "observer"); !errors.Is(err, broker.ErrNoTask) {
+	if _, err := observerBroker.Reserve(runCtx, "media", "observer"); !errors.Is(err, taskforge.ErrNoTask) {
 		logger.Error("observer unexpectedly reclaimed media task", "error", err)
 		os.Exit(1)
 	}

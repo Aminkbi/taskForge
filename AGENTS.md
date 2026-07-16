@@ -1,19 +1,19 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-TaskForge is a Go module with three entrypoints under `cmd/`: `worker`, `scheduler`, and `api`. Core runtime code lives in `internal/`, with key packages including `internal/runtime` for worker execution, `internal/broker` and `internal/brokerredis` for queue contracts and Redis transport, `internal/scheduler` for delayed and retry flows, and `internal/config` for environment-driven settings. Shared public surface area belongs in `pkg/taskforge/`. Integration coverage sits in `test/integration/`, operational assets in `deploy/docker/`, and design notes in `docs/roadmap/`.
+TaskForge is a Go module with optional `scheduler` and `api` sidecars under `cmd/`. Canonical task and delivery contracts live in the module root, the Redis implementation in `redis/`, and the embeddable runtime in `worker/`. Internal support includes `internal/scheduler` for delayed and recurring flows and `internal/config` for environment-driven sidecar settings. Integration coverage sits in `test/integration/`, operational assets in `deploy/docker/`, and design notes in `docs/roadmap/`.
 
 ## Build, Test, and Development Commands
 Use the `Makefile` or scripts as the default interface:
 
-- `make run-worker`, `make run-scheduler`, `make run-api`: run individual services locally.
+- `make run-scheduler`, `make run-api`, `make run-demo`: run supported entrypoints locally.
 - `make test` or `./scripts/test.sh`: run the unit test suite with `go test ./...`.
 - `make lint` or `./scripts/lint.sh`: run `go vet`, check `gofmt`, and run `staticcheck` when installed.
 - `make fmt`: format the repo with `gofmt -w .`.
 - `make compose-up` / `make compose-down`: start or stop the local Docker stack.
 
 ## Coding Style & Naming Conventions
-Follow standard Go formatting and import ordering; `gofmt` is required. Use tabs for indentation, keep package names short and lowercase, and prefer descriptive exported identifiers such as `RetryPolicy` or `TaskMessage`. Name files by responsibility (`redis.go`, `worker_test.go`), keep command wiring in `internal/app/*`, and use environment variables with the `TASKFORGE_` prefix.
+Follow standard Go formatting and import ordering; `gofmt` is required. Use tabs for indentation, keep package names short and lowercase, and prefer descriptive exported identifiers such as `RetryPolicy` or `Task`. Name files by responsibility (`redis.go`, `worker_test.go`), keep sidecar wiring in `internal/app/*`, and use environment variables with the `TASKFORGE_` prefix.
 
 ## Testing Guidelines
 Write table-driven tests where practical and prefer `t.Parallel()` for independent unit tests. Keep unit tests next to the package they cover in `*_test.go` files. Integration tests live in `test/integration/` and are opt-in: run them with `TASKFORGE_RUN_INTEGRATION=1 go test ./test/integration/...` and a local Redis on `localhost:6379`.

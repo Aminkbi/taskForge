@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/aminkbi/taskforge"
 	"strconv"
 	"time"
 
@@ -22,7 +23,7 @@ func NewRedisScheduleStateStore(client *redis.Client) *RedisScheduleStateStore {
 	}
 }
 
-func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, fence LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
+func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, fence taskforge.LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
 	persistedIDs, err := s.client.SMembers(ctx, s.scheduleIDsKey()).Result()
 	if err != nil {
 		return fmt.Errorf("load recurring schedule ids: %w", err)
@@ -146,7 +147,7 @@ func (s *RedisScheduleStateStore) LoadStates(ctx context.Context, scheduleIDs []
 	return states, nil
 }
 
-func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, fence LeadershipFence, scheduleID string, state ScheduleState) error {
+func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string, state ScheduleState) error {
 	payload, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal schedule state: %w", err)
@@ -169,7 +170,7 @@ func (s *RedisScheduleStateStore) SaveIndexed(ctx context.Context, fence Leaders
 	})
 }
 
-func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, fence LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
 	stateKey := s.stateKey(scheduleID)
 	dueIndexKey := s.dueIndexKey()
 	expectedNextRunAt := expected.NextRunAt.UTC()
@@ -226,7 +227,7 @@ func (s *RedisScheduleStateStore) AdvanceIfUnchanged(ctx context.Context, fence 
 	}
 }
 
-func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, fence LeadershipFence, scheduleID string) error {
+func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string) error {
 	return s.execWithFence(ctx, fence, "remove_schedule", func(tx *redis.Tx) error {
 		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			pipe.Del(ctx, s.stateKey(scheduleID))
@@ -241,7 +242,7 @@ func (s *RedisScheduleStateStore) RemoveSchedule(ctx context.Context, fence Lead
 	})
 }
 
-func (s *RedisScheduleStateStore) RemoveFromDueIndex(ctx context.Context, fence LeadershipFence, scheduleID string) error {
+func (s *RedisScheduleStateStore) RemoveFromDueIndex(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string) error {
 	return s.execWithFence(ctx, fence, "remove_due_index", func(tx *redis.Tx) error {
 		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			pipe.ZRem(ctx, s.dueIndexKey(), scheduleID)
@@ -270,7 +271,7 @@ func (s *RedisScheduleStateStore) leadershipKey() string {
 	return fmt.Sprintf("%s:scheduler:leader", s.prefix)
 }
 
-func (s *RedisScheduleStateStore) execWithFence(ctx context.Context, fence LeadershipFence, operation string, fn func(tx *redis.Tx) error) error {
+func (s *RedisScheduleStateStore) execWithFence(ctx context.Context, fence taskforge.LeadershipFence, operation string, fn func(tx *redis.Tx) error) error {
 	for {
 		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
 			if err := s.validateFence(ctx, tx, fence, operation); err != nil {
@@ -288,19 +289,19 @@ func (s *RedisScheduleStateStore) execWithFence(ctx context.Context, fence Leade
 	}
 }
 
-func (s *RedisScheduleStateStore) validateFence(ctx context.Context, tx *redis.Tx, fence LeadershipFence, operation string) error {
+func (s *RedisScheduleStateStore) validateFence(ctx context.Context, tx *redis.Tx, fence taskforge.LeadershipFence, operation string) error {
 	if !fence.Valid() {
-		return NewStaleLeadershipError(operation)
+		return taskforge.NewStaleLeadershipError(operation)
 	}
 	value, err := tx.Get(ctx, s.leadershipKey()).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return NewStaleLeadershipError(operation)
+			return taskforge.NewStaleLeadershipError(operation)
 		}
 		return fmt.Errorf("load scheduler leadership: %w", err)
 	}
 	if value != fence.Token {
-		return NewStaleLeadershipError(operation)
+		return taskforge.NewStaleLeadershipError(operation)
 	}
 	return nil
 }

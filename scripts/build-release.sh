@@ -17,7 +17,7 @@ rm -f "$dist_dir/SHA256SUMS"
 for platform in $platforms; do
   os="${platform%/*}"
   arch="${platform#*/}"
-  for cmd in worker scheduler api; do
+  for cmd in scheduler api; do
     output="$dist_dir/taskforge-$cmd-$os-$arch"
     echo "building $output"
     GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build \

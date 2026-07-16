@@ -16,7 +16,6 @@ The release workflow uses the tag as `TASKFORGE_VERSION` and the commit SHA as `
 The release binaries expose this metadata through:
 
 ```bash
-taskforge-worker version
 taskforge-scheduler version
 taskforge-api version
 ```
@@ -41,7 +40,7 @@ The build writes binaries and `SHA256SUMS` under `dist/`.
 - `make release-smoke`
 - Review `CHANGELOG.md`
 - Confirm release artifacts include `SHA256SUMS`
-- Publish versioned container images for worker, scheduler, and API
+- Publish versioned container images for the scheduler and API sidecars
 
 ## Compatibility Notes
 

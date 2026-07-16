@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 func TestInitialScheduleStateWithoutStartAtStartsAfterOneInterval(t *testing.T) {
@@ -309,7 +309,7 @@ func newStubScheduleStateStore() *stubScheduleStateStore {
 	}
 }
 
-func (s *stubScheduleStateStore) ReconcileConfigured(_ context.Context, _ LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
+func (s *stubScheduleStateStore) ReconcileConfigured(_ context.Context, _ taskforge.LeadershipFence, schedules []ScheduleDefinition, now time.Time) error {
 	configured := make(map[string]ScheduleDefinition, len(schedules))
 	for _, schedule := range schedules {
 		configured[schedule.ID] = schedule
@@ -371,14 +371,14 @@ func (s *stubScheduleStateStore) LoadStates(_ context.Context, scheduleIDs []str
 	return states, nil
 }
 
-func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, _ LeadershipFence, scheduleID string, state ScheduleState) error {
+func (s *stubScheduleStateStore) SaveIndexed(_ context.Context, _ taskforge.LeadershipFence, scheduleID string, state ScheduleState) error {
 	s.states[scheduleID] = state
 	s.dueIndex[scheduleID] = state.NextRunAt
 	s.persistedIDs[scheduleID] = struct{}{}
 	return nil
 }
 
-func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, _ LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
+func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, _ taskforge.LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error) {
 	s.advanceCalls = append(s.advanceCalls, scheduleID)
 	if allowed, ok := s.advanceOK[scheduleID]; ok && !allowed {
 		return false, nil
@@ -398,20 +398,20 @@ func (s *stubScheduleStateStore) AdvanceIfUnchanged(_ context.Context, _ Leaders
 	return true, nil
 }
 
-func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, _ LeadershipFence, scheduleID string) error {
+func (s *stubScheduleStateStore) RemoveSchedule(_ context.Context, _ taskforge.LeadershipFence, scheduleID string) error {
 	delete(s.states, scheduleID)
 	delete(s.dueIndex, scheduleID)
 	delete(s.persistedIDs, scheduleID)
 	return nil
 }
 
-func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, _ LeadershipFence, scheduleID string) error {
+func (s *stubScheduleStateStore) RemoveFromDueIndex(_ context.Context, _ taskforge.LeadershipFence, scheduleID string) error {
 	delete(s.dueIndex, scheduleID)
 	return nil
 }
 
-func testLeadershipFence() LeadershipFence {
-	return LeadershipFence{
+func testLeadershipFence() taskforge.LeadershipFence {
+	return taskforge.LeadershipFence{
 		Owner: "test-scheduler",
 		Epoch: 1,
 		Token: "test-scheduler|1",
@@ -419,28 +419,28 @@ func testLeadershipFence() LeadershipFence {
 }
 
 type stubRecurringPublisher struct {
-	messages []broker.TaskMessage
-	options  []broker.PublishOptions
+	messages []taskforge.Task
+	options  []taskforge.PublishOptions
 }
 
-func (s *stubRecurringPublisher) Publish(_ context.Context, msg broker.TaskMessage, opts broker.PublishOptions) (broker.PublishResult, error) {
+func (s *stubRecurringPublisher) Publish(_ context.Context, msg taskforge.Task, opts taskforge.PublishOptions) (taskforge.PublishResult, error) {
 	s.messages = append(s.messages, msg)
 	s.options = append(s.options, opts)
-	return broker.PublishResult{Decision: broker.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
+	return taskforge.PublishResult{Decision: taskforge.AdmissionDecisionAccepted, Queue: msg.Queue}, nil
 }
 
-func (s *stubRecurringPublisher) Reserve(context.Context, string, string) (broker.Delivery, error) {
-	return broker.Delivery{}, nil
+func (s *stubRecurringPublisher) Reserve(context.Context, string, string) (taskforge.Delivery, error) {
+	return taskforge.Delivery{}, nil
 }
 
-func (s *stubRecurringPublisher) Ack(context.Context, broker.Delivery) error {
+func (s *stubRecurringPublisher) Ack(context.Context, taskforge.Delivery) error {
 	return nil
 }
 
-func (s *stubRecurringPublisher) Nack(context.Context, broker.Delivery, bool) error {
+func (s *stubRecurringPublisher) Nack(context.Context, taskforge.Delivery, bool) error {
 	return nil
 }
 
-func (s *stubRecurringPublisher) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
+func (s *stubRecurringPublisher) ExtendLease(context.Context, taskforge.Delivery, time.Duration) error {
 	return nil
 }

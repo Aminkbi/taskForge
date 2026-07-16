@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 const TaskAppendFile = "demo.append_file"
@@ -22,7 +22,7 @@ type Handler struct {
 	Logger *slog.Logger
 }
 
-func (h Handler) HandleTask(_ context.Context, msg broker.TaskMessage) error {
+func (h Handler) HandleTask(_ context.Context, msg taskforge.Task) error {
 	switch msg.Name {
 	case TaskAppendFile:
 		return h.appendFile(msg)
@@ -31,7 +31,7 @@ func (h Handler) HandleTask(_ context.Context, msg broker.TaskMessage) error {
 	}
 }
 
-func (h Handler) appendFile(msg broker.TaskMessage) error {
+func (h Handler) appendFile(msg taskforge.Task) error {
 	var payload AppendFilePayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		return fmt.Errorf("decode append_file payload: %w", err)

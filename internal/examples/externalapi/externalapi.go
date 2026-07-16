@@ -7,8 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
+	"github.com/aminkbi/taskforge"
 )
 
 const TaskSyncExternalResource = "example.external_api.sync"
@@ -26,7 +25,7 @@ type Handler struct {
 	Logger *slog.Logger
 }
 
-func (h Handler) HandleTask(ctx context.Context, msg broker.TaskMessage) error {
+func (h Handler) HandleTask(ctx context.Context, msg taskforge.Task) error {
 	if msg.Name != TaskSyncExternalResource {
 		return fmt.Errorf("external api example: unsupported task %q", msg.Name)
 	}
@@ -36,17 +35,17 @@ func (h Handler) HandleTask(ctx context.Context, msg broker.TaskMessage) error {
 
 	var payload SyncPayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		return runtimepkg.Decode(fmt.Errorf("external api example: decode payload: %w", err))
+		return taskforge.Decode(fmt.Errorf("external api example: decode payload: %w", err))
 	}
 	if payload.ResourceID == "" {
-		return runtimepkg.Validation(fmt.Errorf("external api example: resource_id is required"))
+		return taskforge.Validation(fmt.Errorf("external api example: resource_id is required"))
 	}
 
 	if err := h.Client.Call(ctx, payload); err != nil {
 		if h.Logger != nil {
 			h.Logger.Warn("external api call failed", "resource_id", payload.ResourceID, "error", err)
 		}
-		return runtimepkg.Retryable(err)
+		return taskforge.Retryable(err)
 	}
 
 	if h.Logger != nil {

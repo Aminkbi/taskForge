@@ -4,20 +4,6 @@ services:
     ports:
       - "6379:6379"
 
-  worker:
-    build:
-      context: .
-      dockerfile: deploy/docker/worker.Dockerfile
-    depends_on:
-      - redis
-    environment:
-      TASKFORGE_HTTP_ADDR: :8080
-      TASKFORGE_METRICS_ADDR: :8080
-      TASKFORGE_REDIS_ADDR: redis:6379
-      TASKFORGE_SERVICE_NAME: taskforge-worker
-    ports:
-      - "8081:8080"
-
   scheduler:
     build:
       context: .
@@ -26,7 +12,6 @@ services:
       - redis
     environment:
       TASKFORGE_HTTP_ADDR: :8080
-      TASKFORGE_METRICS_ADDR: :8080
       TASKFORGE_REDIS_ADDR: redis:6379
       TASKFORGE_SCHEDULER_LOCK_TTL: 15s
       TASKFORGE_SCHEDULER_RENEW_INTERVAL: 5s
@@ -43,7 +28,6 @@ services:
       - redis
     environment:
       TASKFORGE_HTTP_ADDR: :8080
-      TASKFORGE_METRICS_ADDR: :8080
       TASKFORGE_REDIS_ADDR: redis:6379
       TASKFORGE_SERVICE_NAME: taskforge-api
     ports:
@@ -52,7 +36,6 @@ services:
   prometheus:
     image: prom/prometheus:v3.2.1
     depends_on:
-      - worker
       - scheduler
       - api
     volumes:

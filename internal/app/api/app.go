@@ -12,13 +12,12 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/app/api/dashboard"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
-	"github.com/aminkbi/taskforge/internal/store"
-	"github.com/aminkbi/taskforge/internal/storeredis"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
 )
 
 type App struct {
@@ -31,20 +30,11 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})
-	taskStateStore := storeredis.New(client, taskRetentionPolicy(cfg))
-
-	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
-	admissionPolicies := admissionPoliciesByQueue(cfg.WorkerPools)
 	leaseTTL := config.DefaultLeaseTTL()
 	if len(cfg.WorkerPools) > 0 {
 		leaseTTL = cfg.WorkerPools[0].LeaseTTL
 	}
-	b := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
-		FairnessPolicies:  fairnessPolicies,
-		AdmissionPolicies: admissionPolicies,
-		RoutingPolicy:     cfg.RoutingPolicy,
-		DependencyBudgets: dependencyBudgetCapacities(cfg.DependencyBudgets),
-	})
+	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis"), leaseTTL))
 
 	queues := make([]string, 0, len(cfg.WorkerPools))
 	for _, pool := range cfg.WorkerPools {
@@ -72,7 +62,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		mux.HandleFunc("/v1/admin/admission", admissionHandler(b, queues))
 		mux.HandleFunc("/v1/admin/adaptive", adaptiveHandler(b, b, cfg.WorkerPools))
 		mux.HandleFunc("/v1/admin/workers", workerLifecycleHandler(b))
-		mux.HandleFunc("/v1/tasks/", taskLookupHandler(taskStateStore))
+		mux.HandleFunc("/v1/tasks/", taskLookupHandler(b))
 
 		// Operator dashboard: a static config builder + live ops view backed
 		// by the /v1/admin endpoints above. Served from the embedded assets.
@@ -85,15 +75,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	return &App{server: server}
 }
 
-func taskRetentionPolicy(cfg config.Config) store.RetentionPolicy {
-	return store.RetentionPolicy{
-		SucceededState: cfg.TaskSuccessRetention,
-		FailedState:    cfg.TaskFailureRetention,
-		ResultPayload:  cfg.TaskPayloadRetention,
-	}
-}
-
-func taskLookupHandler(reader store.StateStore) http.HandlerFunc {
+func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
 	type responseBody struct {
 		TaskID         string `json:"task_id"`
 		Name           string `json:"name,omitempty"`
@@ -123,7 +105,7 @@ func taskLookupHandler(reader store.StateStore) http.HandlerFunc {
 		}
 
 		record, err := reader.Get(r.Context(), taskID)
-		if errors.Is(err, store.ErrTaskNotFound) {
+		if errors.Is(err, taskforge.ErrTaskNotFound) {
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
 		}
@@ -297,25 +279,6 @@ func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budget
 	}
 }
 
-func admissionPoliciesByQueue(pools []config.WorkerPoolConfig) map[string]brokerredis.AdmissionPolicy {
-	policies := make(map[string]brokerredis.AdmissionPolicy)
-	for queue, policy := range config.AdmissionPoliciesByQueue(pools) {
-		policies[queue] = brokerredis.AdmissionPolicy{
-			Mode:                     brokerredis.AdmissionMode(policy.Mode),
-			MaxPending:               policy.MaxPending,
-			MaxPendingPerFairnessKey: policy.MaxPendingPerFairnessKey,
-			MaxOldestReadyAge:        policy.MaxOldestReadyAge,
-			MaxRetryBacklog:          policy.MaxRetryBacklog,
-			MaxDeadLetterSize:        policy.MaxDeadLetterSize,
-			DeferInterval:            policy.DeferInterval,
-		}
-	}
-	if len(policies) == 0 {
-		return nil
-	}
-	return policies
-}
-
 func admissionHandler(provider observability.AdmissionStatusProvider, queues []string) http.HandlerFunc {
 	type queueStatus struct {
 		Queue         string             `json:"queue"`
@@ -364,15 +327,4 @@ func admissionHandler(provider observability.AdmissionStatusProvider, queues []s
 func (a *App) Run(ctx context.Context) error {
 	a.server.SetReady(true)
 	return a.server.Run(ctx)
-}
-
-func dependencyBudgetCapacities(cfg map[string]config.DependencyBudgetConfig) map[string]int {
-	if len(cfg) == 0 {
-		return nil
-	}
-	capacities := make(map[string]int, len(cfg))
-	for name, budget := range cfg {
-		capacities[name] = budget.Capacity
-	}
-	return capacities
 }

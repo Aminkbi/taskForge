@@ -21,17 +21,12 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
-	"github.com/aminkbi/taskforge/internal/dlq"
-	"github.com/aminkbi/taskforge/internal/fairness"
 	"github.com/aminkbi/taskforge/internal/observability"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
-	"github.com/aminkbi/taskforge/internal/store"
-	"github.com/aminkbi/taskforge/internal/storeredis"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 const (
@@ -42,19 +37,19 @@ const (
 	ciReserveTimeout    = 50 * time.Millisecond
 )
 
-func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
+func TestRedisPublishReserveAndAck(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
-	message := broker.TaskMessage{
-		ID:          "integration-task-1",
-		Name:        "integration.echo",
-		Queue:       "default",
-		Payload:     []byte(`{"hello":"world"}`),
-		MaxAttempts: 3,
-		CreatedAt:   time.Now().UTC(),
+	message := taskforge.Task{
+		ID:            "integration-task-1",
+		Name:          "integration.echo",
+		Queue:         "default",
+		Payload:       []byte(`{"hello":"world"}`),
+		MaxDeliveries: 3,
+		CreatedAt:     time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -69,7 +64,7 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 		t.Fatalf("Reserve() delivery id is empty")
 	}
 
-	pendingBeforeAck, err := client.XPending(ctx, "taskforge:stream:default", "taskforge:default").Result()
+	pendingBeforeAck, err := client.XPending(ctx, "taskforge:v2:stream:default", "taskforge:v2:default").Result()
 	if err != nil {
 		t.Fatalf("XPending() before ack error = %v", err)
 	}
@@ -81,7 +76,7 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 		t.Fatalf("Ack() error = %v", err)
 	}
 
-	pendingAfterAck, err := client.XPending(ctx, "taskforge:stream:default", "taskforge:default").Result()
+	pendingAfterAck, err := client.XPending(ctx, "taskforge:v2:stream:default", "taskforge:v2:default").Result()
 	if err != nil {
 		t.Fatalf("XPending() after ack error = %v", err)
 	}
@@ -90,51 +85,79 @@ func TestRedisBrokerPublishReserveAndAck(t *testing.T) {
 	}
 }
 
+func TestRedisV2PrefixIgnoresPreRefactorOwnershipData(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+
+	legacy := taskforge.Task{ID: "legacy-task", Name: "legacy", Queue: "default", CreatedAt: time.Now().UTC()}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := client.XAdd(ctx, &redis.XAddArgs{
+		Stream: "taskforge:stream:default",
+		Values: map[string]any{"message": payload},
+	}).Err(); err != nil {
+		t.Fatalf("XAdd() legacy stream error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Del(context.Background(), "taskforge:stream:default").Err() })
+
+	if _, err := brokerInstance.Reserve(ctx, "default", "v2-worker"); !errors.Is(err, taskforge.ErrNoTask) {
+		t.Fatalf("Reserve() error = %v, want ErrNoTask", err)
+	}
+	length, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	if err != nil {
+		t.Fatalf("XLen() legacy stream error = %v", err)
+	}
+	if length != 1 {
+		t.Fatalf("legacy stream length = %d, want unchanged 1", length)
+	}
+}
+
 func TestRedisTaskStateTransitionsPersistAndExpire(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	stateStore := storeredis.New(client, store.RetentionPolicy{
-		SucceededState: time.Second,
-		FailedState:    time.Hour,
-		ResultPayload:  time.Hour,
-	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		StateStore:     stateStore,
+		Retention: taskforge.RetentionPolicy{
+			SucceededState: time.Second,
+			FailedState:    time.Hour,
+			ResultPayload:  time.Hour,
+		},
 	})
+	stateStore := brokerInstance
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "state-success",
 		Name:      "integration.state",
 		Queue:     "default",
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	record, err := stateStore.Get(ctx, message.ID)
 	if err != nil {
 		t.Fatalf("Get() queued error = %v", err)
 	}
-	if record.State != tasks.StateQueued {
-		t.Fatalf("queued state = %q, want %q", record.State, tasks.StateQueued)
+	if record.State != taskforge.StateQueued {
+		t.Fatalf("queued state = %q, want %q", record.State, taskforge.StateQueued)
 	}
 
-	worker := newIntegrationWorker(brokerInstance, nil, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
+	worker := newIntegrationWorker(brokerInstance, nil, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
 		return nil
-	}), tasks.DefaultRetryPolicy(1))
+	}), taskforge.DefaultRetryPolicy(1))
 	worker.StateStore = stateStore
 	runWorkerUntil(t, worker, func() (bool, error) {
 		record, err := stateStore.Get(ctx, message.ID)
 		if err != nil {
 			return false, err
 		}
-		return record.State == tasks.StateSucceeded && record.DeliveryCount == 1 && record.CompletedAt.After(record.CreatedAt), nil
+		return record.State == taskforge.StateSucceeded && record.DeliveryCount == 1 && record.CompletedAt.After(record.CreatedAt), nil
 	})
 
 	runUntil(t, 2*time.Second, func() (bool, error) {
 		_, err := stateStore.Get(ctx, message.ID)
-		if errors.Is(err, store.ErrTaskNotFound) {
+		if errors.Is(err, taskforge.ErrTaskNotFound) {
 			return true, nil
 		}
 		return false, err
@@ -145,11 +168,11 @@ func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
 	metrics := observability.NewMetrics()
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, metrics, brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, metrics, taskforgeredis.Options{
 		ReserveTimeout:    ciReserveTimeout,
 		DependencyBudgets: map[string]int{"downstream": 1},
 	})
-	for _, msg := range []broker.TaskMessage{
+	for _, msg := range []taskforge.Task{
 		{
 			ID:        "budgeted-1",
 			Name:      "integration.shared-budget",
@@ -163,14 +186,14 @@ func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		},
 	} {
-		if _, err := brokerInstance.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := brokerInstance.Publish(ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() error = %v", err)
 		}
 	}
 
 	started := make(chan string, 2)
 	release := make(chan struct{})
-	handler := runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+	handler := taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 		started <- msg.ID
 		select {
 		case <-release:
@@ -188,14 +211,14 @@ func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
 				Logger:        slog.Default(),
 				Metrics:       metrics,
 				Clock:         clock.RealClock{},
-				RetryPolicy:   tasks.DefaultRetryPolicy(1),
+				RetryPolicy:   taskforge.DefaultRetryPolicy(1),
 				PoolName:      "critical",
 				Queue:         "critical",
 				ConsumerID:    "integration-worker",
 				LeaseTTL:      30 * time.Second,
 				Concurrency:   1,
 				Prefetch:      1,
-				BudgetManager: brokerInstance.BudgetManager(),
+				BudgetManager: brokerInstance,
 				TaskBudgets: map[string]runtimepkg.TaskBudget{
 					"integration.shared-budget": {Budget: "downstream", Tokens: 1},
 				},
@@ -206,14 +229,14 @@ func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
 				Logger:        slog.Default(),
 				Metrics:       metrics,
 				Clock:         clock.RealClock{},
-				RetryPolicy:   tasks.DefaultRetryPolicy(1),
+				RetryPolicy:   taskforge.DefaultRetryPolicy(1),
 				PoolName:      "bulk",
 				Queue:         "bulk",
 				ConsumerID:    "integration-worker",
 				LeaseTTL:      30 * time.Second,
 				Concurrency:   1,
 				Prefetch:      1,
-				BudgetManager: brokerInstance.BudgetManager(),
+				BudgetManager: brokerInstance,
 				TaskBudgets: map[string]runtimepkg.TaskBudget{
 					"integration.shared-budget": {Budget: "downstream", Tokens: 1},
 				},
@@ -252,17 +275,17 @@ func TestDependencyBudgetCapacityIsSharedAcrossWorkerPools(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
+func TestRedisQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-metrics",
 		Name:      "integration.metrics",
 		Queue:     "critical",
 		Payload:   []byte(`{"hello":"metrics"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -291,7 +314,7 @@ func TestRedisBrokerQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
 		t.Fatalf("Ack() error = %v", err)
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:critical").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:critical").Result()
 	if err != nil && !strings.Contains(err.Error(), "no such key") {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -308,10 +331,10 @@ func TestRedisBrokerQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
+func TestRedisConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-2",
 		Name:      "integration.echo",
 		Queue:     "default",
@@ -319,7 +342,7 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -332,8 +355,8 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	defer cancel()
 
 	_, err = brokerInstance.Reserve(secondCtx, "default", "consumer-b")
-	if !errors.Is(err, broker.ErrNoTask) {
-		t.Fatalf("Reserve() second consumer error = %v, want %v", err, broker.ErrNoTask)
+	if !errors.Is(err, taskforge.ErrNoTask) {
+		t.Fatalf("Reserve() second consumer error = %v, want %v", err, taskforge.ErrNoTask)
 	}
 
 	if err := brokerInstance.Ack(ctx, firstDelivery); err != nil {
@@ -341,39 +364,39 @@ func TestRedisBrokerConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) {
+func TestRedisFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "tenant-a", Keys: []string{"tenant-a"}},
 		{Name: "tenant-b", Keys: []string{"tenant-b"}},
 	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
 	for i := 0; i < 6; i++ {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:          "tenant-a-" + strconv.Itoa(i),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: "tenant-a",
 			Payload:     []byte(`{"tenant":"a"}`),
 			CreatedAt:   time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() tenant-a error = %v", err)
 		}
 	}
 	for i := 0; i < 2; i++ {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:          "tenant-b-" + strconv.Itoa(i),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: "tenant-b",
 			Payload:     []byte(`{"tenant":"b"}`),
 			CreatedAt:   time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() tenant-b error = %v", err)
 		}
 	}
@@ -403,26 +426,26 @@ func TestRedisBrokerFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) 
 	}
 }
 
-func TestRedisBrokerFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
+func TestRedisFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{HardQuota: 1}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{HardQuota: 1}, []taskforgeredis.FairnessRule{
 		{Name: "vip", Keys: []string{"vip"}, ReservedConcurrency: 1, HardQuota: 1},
 	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
 	for i := 0; i < 3; i++ {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:          "noise-" + strconv.Itoa(i),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: "noise",
 			Payload:     []byte(`{"tenant":"noise"}`),
 			CreatedAt:   time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() noise error = %v", err)
 		}
 	}
@@ -435,14 +458,14 @@ func TestRedisBrokerFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
 		t.Fatalf("first fairness key = %q, want noise", first.Message.FairnessKey)
 	}
 
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:          "vip-1",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "vip",
 		Payload:     []byte(`{"tenant":"vip"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() vip error = %v", err)
 	}
 
@@ -462,28 +485,28 @@ func TestRedisBrokerFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
+func TestRedisFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "alpha", Keys: []string{"alpha"}, HardQuota: 1},
 		{Name: "beta", Keys: []string{"beta"}, HardQuota: 1},
 	})
 	metrics := observability.NewMetrics()
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, metrics, brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, metrics, taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
 	for _, fairnessKey := range []string{"alpha", "alpha", "beta"} {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:          fairnessKey + "-" + uuid.NewString(),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: fairnessKey,
 			Payload:     []byte(`{"tenant":"` + fairnessKey + `"}`),
 			CreatedAt:   time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() %s error = %v", fairnessKey, err)
 		}
 	}
@@ -504,7 +527,7 @@ func TestRedisBrokerFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
 		t.Fatalf("second fairness key = %q, want beta", second.Message.FairnessKey)
 	}
 
-	metricValue := metricCounterValue(t, metrics.Registry, "taskforge_fairness_quota_deferrals_total", map[string]string{
+	metricValue := metricCounterValue(t, brokerInstance.MetricsGatherer(), "taskforge_fairness_quota_deferrals_total", map[string]string{
 		"queue":           "default",
 		"fairness_bucket": "alpha",
 		"reason":          "hard_quota",
@@ -521,45 +544,45 @@ func TestRedisBrokerFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionDefersWhenPendingCapReached(t *testing.T) {
+func TestRedisAdmissionDefersWhenPendingCapReached(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:          brokerredis.AdmissionModeDefer,
+				Mode:          taskforgeredis.AdmissionModeDefer,
 				MaxPending:    1,
 				DeferInterval: 50 * time.Millisecond,
 			},
 		},
 	})
 
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "admission-ready",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"ready"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() first error = %v", err)
 	}
 
-	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	result, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "admission-deferred",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"deferred"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	if err != nil {
 		t.Fatalf("Publish() second error = %v", err)
 	}
-	if result.Decision != broker.AdmissionDecisionDeferred || result.DeferredUntil == nil || result.Reason != "queue_pending_cap" {
+	if result.Decision != taskforge.AdmissionDecisionDeferred || result.DeferredUntil == nil || result.Reason != "queue_pending_cap" {
 		t.Fatalf("second publish result = %+v, want deferred queue_pending_cap with deferred_until", result)
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -572,38 +595,38 @@ func TestRedisBrokerAdmissionDefersWhenPendingCapReached(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
+func TestRedisAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:          brokerredis.AdmissionModeReject,
+				Mode:          taskforgeredis.AdmissionModeReject,
 				MaxPending:    1,
 				DeferInterval: 50 * time.Millisecond,
 			},
 		},
 	})
 
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "admission-reject-1",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"ready"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() first error = %v", err)
 	}
 
-	_, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	_, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "admission-reject-2",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"blocked"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
-	var admissionErr *broker.AdmissionError
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
+	var admissionErr *taskforge.AdmissionError
 	if !errors.As(err, &admissionErr) {
 		t.Fatalf("Publish() error = %v, want admission error", err)
 	}
@@ -611,7 +634,7 @@ func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 		t.Fatalf("Admission reason = %q, want %q", admissionErr.Reason, "queue_pending_cap")
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -624,30 +647,30 @@ func TestRedisBrokerAdmissionRejectsWhenPendingCapReached(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T) {
+func TestRedisAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	setupBroker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 
 	oldCreatedAt := time.Now().UTC().Add(-time.Hour)
-	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, taskforge.Task{
 		ID:        "admission-old-pending",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"old"}`),
 		CreatedAt: oldCreatedAt,
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() old error = %v", err)
 	}
-	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, taskforge.Task{
 		ID:        "admission-fresh-ready",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"fresh"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() fresh error = %v", err)
 	}
 
@@ -655,88 +678,88 @@ func TestRedisBrokerAdmissionIgnoresOldPendingHeadForOldestReadyAge(t *testing.T
 		t.Fatalf("Reserve() old pending error = %v", err)
 	}
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:              brokerredis.AdmissionModeReject,
+				Mode:              taskforgeredis.AdmissionModeReject,
 				MaxOldestReadyAge: 100 * time.Millisecond,
 			},
 		},
 	})
 
-	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	result, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "admission-follow-up",
 		Name:      "integration.admission",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"follow-up"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	if err != nil {
 		t.Fatalf("Publish() follow-up error = %v", err)
 	}
-	if result.Decision != broker.AdmissionDecisionAccepted {
+	if result.Decision != taskforge.AdmissionDecisionAccepted {
 		t.Fatalf("follow-up result = %+v, want accepted", result)
 	}
 }
 
-func TestRedisBrokerAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
+func TestRedisAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "tenant-a", Keys: []string{"tenant-a"}},
 		{Name: "tenant-b", Keys: []string{"tenant-b"}},
 	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:                     brokerredis.AdmissionModeDefer,
+				Mode:                     taskforgeredis.AdmissionModeDefer,
 				MaxPendingPerFairnessKey: 1,
 				DeferInterval:            50 * time.Millisecond,
 			},
 		},
 	})
 
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:          "tenant-a-1",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-a",
 		Payload:     []byte(`{"tenant":"tenant-a"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() tenant-a first error = %v", err)
 	}
 
-	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	result, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:          "tenant-a-2",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-a",
 		Payload:     []byte(`{"tenant":"tenant-a"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	if err != nil {
 		t.Fatalf("Publish() tenant-a second error = %v", err)
 	}
-	if result.Decision != broker.AdmissionDecisionDeferred || result.Reason != "fairness_key_pending_cap" {
+	if result.Decision != taskforge.AdmissionDecisionDeferred || result.Reason != "fairness_key_pending_cap" {
 		t.Fatalf("tenant-a result = %+v, want deferred fairness_key_pending_cap", result)
 	}
 
-	result, err = brokerInstance.Publish(ctx, broker.TaskMessage{
+	result, err = brokerInstance.Publish(ctx, taskforge.Task{
 		ID:          "tenant-b-1",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-b",
 		Payload:     []byte(`{"tenant":"tenant-b"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	if err != nil {
 		t.Fatalf("Publish() tenant-b error = %v", err)
 	}
-	if result.Decision != broker.AdmissionDecisionAccepted {
+	if result.Decision != taskforge.AdmissionDecisionAccepted {
 		t.Fatalf("tenant-b result = %+v, want accepted", result)
 	}
 
@@ -746,35 +769,35 @@ func TestRedisBrokerAdmissionFairnessKeyCapDefersOnlyNoisyKey(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *testing.T) {
+func TestRedisAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "tenant-a", Keys: []string{"tenant-a"}},
 	})
-	setupBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	setupBroker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
-	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, taskforge.Task{
 		ID:          "fairness-old-pending",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-a",
 		Payload:     []byte(`{"tenant":"tenant-a"}`),
 		CreatedAt:   time.Now().UTC().Add(-time.Hour),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() old fairness error = %v", err)
 	}
-	if _, err := setupBroker.Publish(ctx, broker.TaskMessage{
+	if _, err := setupBroker.Publish(ctx, taskforge.Task{
 		ID:          "fairness-fresh-ready",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-a",
 		Payload:     []byte(`{"tenant":"tenant-a"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() fresh fairness error = %v", err)
 	}
 
@@ -782,58 +805,58 @@ func TestRedisBrokerAdmissionIgnoresOldPendingFairnessHeadForOldestReadyAge(t *t
 		t.Fatalf("Reserve() fairness pending error = %v", err)
 	}
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:              brokerredis.AdmissionModeReject,
+				Mode:              taskforgeredis.AdmissionModeReject,
 				MaxOldestReadyAge: 100 * time.Millisecond,
 			},
 		},
 	})
 
-	result, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	result, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:          "fairness-follow-up",
 		Name:        "integration.shared",
 		Queue:       "default",
 		FairnessKey: "tenant-a",
 		Payload:     []byte(`{"tenant":"tenant-a"}`),
 		CreatedAt:   time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	if err != nil {
 		t.Fatalf("Publish() fairness follow-up error = %v", err)
 	}
-	if result.Decision != broker.AdmissionDecisionAccepted {
+	if result.Decision != taskforge.AdmissionDecisionAccepted {
 		t.Fatalf("fairness follow-up result = %+v, want accepted", result)
 	}
 }
 
-func TestRedisBrokerFairnessWakeSignalStaysBounded(t *testing.T) {
+func TestRedisFairnessWakeSignalStaysBounded(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	policy := mustFairnessPolicy(t, fairness.Rule{}, []fairness.Rule{
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "tenant-a", Keys: []string{"tenant-a"}},
 	})
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout:   ciReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
 	for i := 0; i < 10; i++ {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:          "fairness-signal-" + strconv.Itoa(i),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: "tenant-a",
 			Payload:     []byte(`{"tenant":"tenant-a"}`),
 			CreatedAt:   time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() fairness signal %d error = %v", i, err)
 		}
 	}
 
-	length, err := client.LLen(ctx, "taskforge:fairness:default:ready").Result()
+	length, err := client.LLen(ctx, "taskforge:v2:fairness:default:ready").Result()
 	if err != nil {
 		t.Fatalf("LLen() error = %v", err)
 	}
@@ -842,13 +865,13 @@ func TestRedisBrokerFairnessWakeSignalStaysBounded(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
+func TestRedisAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:          brokerredis.AdmissionModeReject,
+				Mode:          taskforgeredis.AdmissionModeReject,
 				MaxPending:    1,
 				DeferInterval: 50 * time.Millisecond,
 			},
@@ -856,23 +879,23 @@ func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 	})
 
 	eta := time.Now().UTC().Add(20 * time.Millisecond)
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "due-work",
 		Name:      "integration.delayed",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"later"}`),
 		ETA:       &eta,
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() delayed error = %v", err)
 	}
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "blocking-work",
 		Name:      "integration.ready",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"now"}`),
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() blocking error = %v", err)
 	}
 
@@ -887,7 +910,7 @@ func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 		t.Fatalf("MoveDue() moved = %d, want 1", moved)
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -900,18 +923,18 @@ func TestRedisBrokerAdmissionRedefersDueWorkUnderRejectMode(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
+func TestRedisAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
-		AdmissionPolicies: map[string]brokerredis.AdmissionPolicy{
+		AdmissionPolicies: map[string]taskforgeredis.AdmissionPolicy{
 			"default": {
-				Mode:            brokerredis.AdmissionModeReject,
+				Mode:            taskforgeredis.AdmissionModeReject,
 				MaxRetryBacklog: 1,
 				DeferInterval:   50 * time.Millisecond,
 			},
 			"bulk": {
-				Mode:            brokerredis.AdmissionModeReject,
+				Mode:            taskforgeredis.AdmissionModeReject,
 				MaxRetryBacklog: 10,
 				DeferInterval:   50 * time.Millisecond,
 			},
@@ -919,12 +942,12 @@ func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
 	})
 
 	eta := time.Now().UTC().Add(time.Minute)
-	for _, msg := range []broker.TaskMessage{
+	for _, msg := range []taskforge.Task{
 		{
 			ID:        "retry-backlog-default",
 			Name:      "integration.retry",
 			Queue:     "default",
-			Headers:   map[string]string{tasks.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
+			Headers:   map[string]string{taskforge.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
 			ETA:       &eta,
 			CreatedAt: time.Now().UTC(),
 		},
@@ -932,12 +955,12 @@ func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
 			ID:        "retry-backlog-bulk",
 			Name:      "integration.retry",
 			Queue:     "bulk",
-			Headers:   map[string]string{tasks.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
+			Headers:   map[string]string{taskforge.HeaderRetryScheduledAt: eta.Format(time.RFC3339Nano)},
 			ETA:       &eta,
 			CreatedAt: time.Now().UTC(),
 		},
 	} {
-		if _, err := brokerInstance.Publish(ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := brokerInstance.Publish(ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() retry backlog seed %q error = %v", msg.ID, err)
 		}
 	}
@@ -950,13 +973,13 @@ func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
 		t.Fatalf("default admission snapshot = %+v, want one retry backlog and retry_backlog rejection", snapshot)
 	}
 
-	_, err = brokerInstance.Publish(ctx, broker.TaskMessage{
+	_, err = brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "retry-backlog-rejected",
 		Name:      "integration.retry",
 		Queue:     "default",
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
-	var admissionErr *broker.AdmissionError
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
+	var admissionErr *taskforge.AdmissionError
 	if !errors.As(err, &admissionErr) || admissionErr.Reason != "retry_backlog" {
 		t.Fatalf("Publish() error = %v, want retry_backlog admission error", err)
 	}
@@ -972,18 +995,18 @@ func TestRedisBrokerAdmissionRetryBacklogIsQueueScoped(t *testing.T) {
 func TestIntegrationWorkersIsolateQueuesByPool(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	criticalBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	criticalBroker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	bulkBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	bulkBroker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	publisher := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	publisher := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	deadLetters := dlq.NewService(client, publisher, slog.Default())
+	deadLetters := publisher
 
-	for _, message := range []broker.TaskMessage{
+	for _, message := range []taskforge.Task{
 		{
 			ID:        "integration-critical-1",
 			Name:      "integration.critical",
@@ -999,7 +1022,7 @@ func TestIntegrationWorkersIsolateQueuesByPool(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		},
 	} {
-		if _, err := publisher.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := publisher.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -1008,18 +1031,18 @@ func TestIntegrationWorkersIsolateQueuesByPool(t *testing.T) {
 	processedByQueue := map[string][]string{}
 	manager := &runtimepkg.Manager{
 		Workers: []*runtimepkg.Worker{
-			newIntegrationWorkerWithQueue(criticalBroker, deadLetters, "critical", runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+			newIntegrationWorkerWithQueue(criticalBroker, deadLetters, "critical", taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 				mu.Lock()
 				processedByQueue["critical"] = append(processedByQueue["critical"], msg.ID)
 				mu.Unlock()
 				return nil
-			}), tasks.DefaultRetryPolicy(1)),
-			newIntegrationWorkerWithQueue(bulkBroker, deadLetters, "bulk", runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+			}), taskforge.DefaultRetryPolicy(1)),
+			newIntegrationWorkerWithQueue(bulkBroker, deadLetters, "bulk", taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 				mu.Lock()
 				processedByQueue["bulk"] = append(processedByQueue["bulk"], msg.ID)
 				mu.Unlock()
 				return nil
-			}), tasks.DefaultRetryPolicy(1)),
+			}), taskforge.DefaultRetryPolicy(1)),
 		},
 	}
 
@@ -1039,10 +1062,10 @@ func TestIntegrationWorkersIsolateQueuesByPool(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
+func TestRedisReclaimsExpiredDelivery(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-reclaim",
 		Name:      "integration.reclaim",
 		Queue:     "default",
@@ -1050,7 +1073,7 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1080,24 +1103,24 @@ func TestRedisBrokerReclaimsExpiredDelivery(t *testing.T) {
 func TestWorkerLeaseRenewFailureAbandonsAndAllowsRedisRedelivery(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, 50*time.Millisecond)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-renew-failure",
 		Name:      "integration.lease_renew_failure",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"lease"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
 	failingBroker := &leaseRenewFailureBroker{
 		Broker: brokerInstance,
-		err:    broker.ErrDeliveryExpired,
+		err:    taskforge.ErrDeliveryExpired,
 	}
 	started := make(chan struct{}, 1)
 	canceled := make(chan struct{}, 1)
-	worker := newIntegrationWorker(failingBroker, nil, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+	worker := newIntegrationWorker(failingBroker, nil, taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 		if msg.ID != message.ID {
 			t.Fatalf("handler task id = %q, want %q", msg.ID, message.ID)
 		}
@@ -1105,7 +1128,7 @@ func TestWorkerLeaseRenewFailureAbandonsAndAllowsRedisRedelivery(t *testing.T) {
 		<-ctx.Done()
 		canceled <- struct{}{}
 		return ctx.Err()
-	}), tasks.DefaultRetryPolicy(1))
+	}), taskforge.DefaultRetryPolicy(1))
 	worker.LeaseTTL = 50 * time.Millisecond
 
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -1153,36 +1176,36 @@ func TestWorkerLeaseRenewFailureAbandonsAndAllowsRedisRedelivery(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
+func TestRedisReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 
 	for i := 0; i < 20; i++ {
 		longTTL := time.Hour
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:                "stable-" + strconv.Itoa(i),
 			Name:              "integration.reclaim",
 			Queue:             "default",
 			Payload:           []byte(`{"kind":"stable"}`),
 			VisibilityTimeout: longTTL,
 			CreatedAt:         time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() stable %d error = %v", i, err)
 		}
 	}
 	for i := 0; i < 5; i++ {
 		shortTTL := 50 * time.Millisecond
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:                "expired-" + strconv.Itoa(i),
 			Name:              "integration.reclaim",
 			Queue:             "default",
 			Payload:           []byte(`{"kind":"expired"}`),
 			VisibilityTimeout: shortTTL,
 			CreatedAt:         time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() expired %d error = %v", i, err)
 		}
 	}
@@ -1207,10 +1230,10 @@ func TestRedisBrokerReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing
 	}
 }
 
-func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
+func TestRedisRejectsStaleAckAfterReclaim(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-stale-ack",
 		Name:      "integration.stale_ack",
 		Queue:     "default",
@@ -1218,7 +1241,7 @@ func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1234,8 +1257,8 @@ func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
 		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
 	}
 
-	if err := brokerInstance.Ack(ctx, firstDelivery); !errors.Is(err, broker.ErrStaleDelivery) {
-		t.Fatalf("Ack() stale delivery error = %v, want %v", err, broker.ErrStaleDelivery)
+	if err := brokerInstance.Ack(ctx, firstDelivery); !errors.Is(err, taskforge.ErrStaleDelivery) {
+		t.Fatalf("Ack() stale delivery error = %v, want %v", err, taskforge.ErrStaleDelivery)
 	}
 
 	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
@@ -1243,10 +1266,10 @@ func TestRedisBrokerRejectsStaleAckAfterReclaim(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
+func TestRedisRejectsStaleNackAfterReclaim(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-stale-nack",
 		Name:      "integration.stale_nack",
 		Queue:     "default",
@@ -1254,7 +1277,7 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1270,8 +1293,8 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
 	}
 
-	if err := brokerInstance.Nack(ctx, firstDelivery, false); !errors.Is(err, broker.ErrStaleDelivery) {
-		t.Fatalf("Nack() stale delivery error = %v, want %v", err, broker.ErrStaleDelivery)
+	if err := brokerInstance.Nack(ctx, firstDelivery, false); !errors.Is(err, taskforge.ErrStaleDelivery) {
+		t.Fatalf("Nack() stale delivery error = %v, want %v", err, taskforge.ErrStaleDelivery)
 	}
 
 	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
@@ -1279,17 +1302,17 @@ func TestRedisBrokerRejectsStaleNackAfterReclaim(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerMoveDueRejectsMalformedDelayedEntryWithoutPublishing(t *testing.T) {
+func TestRedisMoveDueRejectsMalformedDelayedEntryWithoutPublishing(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
 	now := time.Now().UTC()
-	if err := client.ZAdd(ctx, "taskforge:delayed:queue:default", redis.Z{
+	if err := client.ZAdd(ctx, "taskforge:v2:delayed:queue:default", redis.Z{
 		Score:  float64(now.Add(-time.Second).UnixMilli()),
 		Member: `{"entry_id":`,
 	}).Err(); err != nil {
 		t.Fatalf("ZAdd() malformed delayed entry error = %v", err)
 	}
-	if err := client.ZAdd(ctx, "taskforge:delayed:queues", redis.Z{
+	if err := client.ZAdd(ctx, "taskforge:v2:delayed:queues", redis.Z{
 		Score:  float64(now.Add(-time.Second).UnixMilli()),
 		Member: "default",
 	}).Err(); err != nil {
@@ -1305,7 +1328,7 @@ func TestRedisBrokerMoveDueRejectsMalformedDelayedEntryWithoutPublishing(t *test
 	if moved != 0 {
 		t.Fatalf("MoveDue() moved = %d, want 0", moved)
 	}
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -1317,10 +1340,10 @@ func TestRedisBrokerMoveDueRejectsMalformedDelayedEntryWithoutPublishing(t *test
 	}
 }
 
-func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
+func TestRedisExpiresCurrentOwnerAck(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-expired-ack",
 		Name:      "integration.expired_ack",
 		Queue:     "default",
@@ -1328,7 +1351,7 @@ func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1339,15 +1362,15 @@ func TestRedisBrokerExpiresCurrentOwnerAck(t *testing.T) {
 
 	time.Sleep(ciWaitForExpiry)
 
-	if err := brokerInstance.Ack(ctx, delivery); !errors.Is(err, broker.ErrDeliveryExpired) {
-		t.Fatalf("Ack() expired delivery error = %v, want %v", err, broker.ErrDeliveryExpired)
+	if err := brokerInstance.Ack(ctx, delivery); !errors.Is(err, taskforge.ErrDeliveryExpired) {
+		t.Fatalf("Ack() expired delivery error = %v, want %v", err, taskforge.ErrDeliveryExpired)
 	}
 }
 
-func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
+func TestRedisExtendLeasePreventsReclaim(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, ciLeaseTTL)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-task-extend",
 		Name:      "integration.extend",
 		Queue:     "default",
@@ -1355,7 +1378,7 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1372,8 +1395,8 @@ func TestRedisBrokerExtendLeasePreventsReclaim(t *testing.T) {
 	time.Sleep(ciPostRenewWindow)
 
 	pending, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: "taskforge:stream:default",
-		Group:  "taskforge:default",
+		Stream: "taskforge:v2:stream:default",
+		Group:  "taskforge:v2:default",
 		Start:  delivery.Execution.DeliveryID,
 		End:    delivery.Execution.DeliveryID,
 		Count:  1,
@@ -1400,20 +1423,20 @@ func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
 
 	for _, id := range []string{"integration-pending-1", "integration-pending-2"} {
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:        id,
 			Name:      "integration.pending_blocked",
 			Queue:     "default",
 			Payload:   []byte(`{"hello":"pending"}`),
 			CreatedAt: time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() error = %v", err)
 		}
 	}
 
 	started := make(chan string, 2)
 	releaseFirst := make(chan struct{})
-	worker := newIntegrationWorker(brokerInstance, nil, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+	worker := newIntegrationWorker(brokerInstance, nil, taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 		started <- msg.ID
 		if msg.ID != "integration-pending-1" {
 			return nil
@@ -1424,7 +1447,7 @@ func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
 		case <-ctx.Done():
 			return nil
 		}
-	}), tasks.DefaultRetryPolicy(1))
+	}), taskforge.DefaultRetryPolicy(1))
 	worker.Concurrency = 2
 	worker.Prefetch = 2
 	worker.LeaseTTL = ciLeaseTTL
@@ -1445,8 +1468,8 @@ func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
 
 	reserveCtx, reserveCancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer reserveCancel()
-	if _, err := brokerInstance.Reserve(reserveCtx, "default", "consumer-b"); !errors.Is(err, broker.ErrNoTask) {
-		t.Fatalf("Reserve() while second delivery is locally pending error = %v, want %v", err, broker.ErrNoTask)
+	if _, err := brokerInstance.Reserve(reserveCtx, "default", "consumer-b"); !errors.Is(err, taskforge.ErrNoTask) {
+		t.Fatalf("Reserve() while second delivery is locally pending error = %v, want %v", err, taskforge.ErrNoTask)
 	}
 
 	close(releaseFirst)
@@ -1465,11 +1488,11 @@ func TestWorkerKeepsPendingDeliveryLeasedWhileLocallyBlocked(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
+func TestRedisMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
 	base := time.Now().UTC()
-	messages := []broker.TaskMessage{
+	messages := []taskforge.Task{
 		{
 			ID:        "integration-task-delayed-3",
 			Name:      "integration.delayed",
@@ -1500,7 +1523,7 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	messages[2].ETA = &eta2
 
 	for _, message := range messages {
-		if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() delayed error = %v", err)
 		}
 	}
@@ -1533,13 +1556,13 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 		if delivery.Message.ID != expected.id {
 			t.Fatalf("Reserve() moved task id = %q, want %q", delivery.Message.ID, expected.id)
 		}
-		if delivery.Message.Headers[schedulerpkg.HeaderScheduledFor] != expected.eta.Format(time.RFC3339Nano) {
-			t.Fatalf("scheduled_for = %q, want %q", delivery.Message.Headers[schedulerpkg.HeaderScheduledFor], expected.eta.Format(time.RFC3339Nano))
+		if delivery.Message.Headers[taskforge.HeaderScheduledFor] != expected.eta.Format(time.RFC3339Nano) {
+			t.Fatalf("scheduled_for = %q, want %q", delivery.Message.Headers[taskforge.HeaderScheduledFor], expected.eta.Format(time.RFC3339Nano))
 		}
-		if delivery.Message.Headers[schedulerpkg.HeaderReleasedAt] != releasedAt.Format(time.RFC3339Nano) {
-			t.Fatalf("released_at = %q, want %q", delivery.Message.Headers[schedulerpkg.HeaderReleasedAt], releasedAt.Format(time.RFC3339Nano))
+		if delivery.Message.Headers[taskforge.HeaderReleasedAt] != releasedAt.Format(time.RFC3339Nano) {
+			t.Fatalf("released_at = %q, want %q", delivery.Message.Headers[taskforge.HeaderReleasedAt], releasedAt.Format(time.RFC3339Nano))
 		}
-		lag, err := strconv.ParseInt(delivery.Message.Headers[schedulerpkg.HeaderReleaseLagMS], 10, 64)
+		lag, err := strconv.ParseInt(delivery.Message.Headers[taskforge.HeaderReleaseLagMS], 10, 64)
 		if err != nil {
 			t.Fatalf("parse release lag = %v", err)
 		}
@@ -1552,31 +1575,31 @@ func TestRedisBrokerMoveDueReleasesIntoStreamQueueInETAOrder(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerMoveDueUsesQueueIndexForRelevantDueWork(t *testing.T) {
+func TestRedisMoveDueUsesQueueIndexForRelevantDueWork(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
 	now := time.Now().UTC()
 	for i := 0; i < 100; i++ {
 		eta := now.Add(time.Hour).Add(time.Duration(i) * time.Millisecond)
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:        fmt.Sprintf("bulk-future-%d", i),
 			Name:      "integration.delayed",
 			Queue:     "bulk",
 			ETA:       &eta,
 			CreatedAt: now,
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			t.Fatalf("Publish() bulk future %d error = %v", i, err)
 		}
 	}
 
 	dueAt := time.Now().UTC().Add(time.Second)
-	if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        "critical-due",
 		Name:      "integration.delayed",
 		Queue:     "critical",
 		ETA:       &dueAt,
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() critical due error = %v", err)
 	}
 
@@ -1608,10 +1631,10 @@ func TestRedisBrokerMoveDueUsesQueueIndexForRelevantDueWork(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
+func TestRedisPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-dedup-publish",
 		Name:      "integration.dedup",
 		Queue:     "default",
@@ -1619,15 +1642,15 @@ func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	first, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{
-		Source:           broker.PublishSourceNew,
+	first, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{
+		Source:           taskforge.PublishSourceNew,
 		DeduplicationKey: "test:publish-once",
 	})
 	if err != nil {
 		t.Fatalf("first Publish() error = %v", err)
 	}
-	second, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{
-		Source:           broker.PublishSourceNew,
+	second, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{
+		Source:           taskforge.PublishSourceNew,
 		DeduplicationKey: "test:publish-once",
 	})
 	if err != nil {
@@ -1640,7 +1663,7 @@ func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 		t.Fatal("second Publish() should be marked deduplicated")
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -1649,18 +1672,18 @@ func TestRedisBrokerPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 	}
 }
 
-func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
+func TestRedisMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	brokerA := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerA := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	brokerB := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerB := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 
 	eta := time.Now().UTC().Add(-time.Second)
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-move-due-dedup",
 		Name:      "integration.delayed",
 		Queue:     "default",
@@ -1668,7 +1691,7 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 		ETA:       &eta,
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerA.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerA.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -1678,7 +1701,7 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 	start := make(chan struct{})
 	results := make(chan int, 2)
 	errs := make(chan error, 2)
-	move := func(b *brokerredis.RedisBroker) {
+	move := func(b *taskforgeredis.Broker) {
 		<-start
 		moved, err := b.MoveDue(ctx, fence, releasedAt, 10)
 		if err != nil {
@@ -1700,7 +1723,7 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 		}
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -1715,29 +1738,29 @@ func TestRedisBrokerMoveDueConcurrentReleasePublishesOnce(t *testing.T) {
 
 func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
-	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
-	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return runtimepkg.Retryable(errors.New("boom"))
-	}), tasks.RetryPolicy{
+	deadLetters := brokerInstance
+	worker := newIntegrationWorker(brokerInstance, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return taskforge.Retryable(errors.New("boom"))
+	}), taskforge.RetryPolicy{
 		MaxDeliveries:  3,
 		InitialBackoff: 2 * time.Second,
 		MaxBackoff:     2 * time.Second,
 		Multiplier:     1,
 	})
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-retry-worker",
 		Name:      "integration.retryable",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"retry"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
 	runWorkerUntil(t, worker, func() (bool, error) {
-		values, err := client.ZRange(ctx, "taskforge:delayed:queue:default", 0, -1).Result()
+		values, err := client.ZRange(ctx, "taskforge:v2:delayed:queue:default", 0, -1).Result()
 		if err != nil {
 			return false, err
 		}
@@ -1746,7 +1769,7 @@ func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 
 	values := delayedQueueEntries(t, ctx, client, "default")
 	var retried struct {
-		Message broker.TaskMessage `json:"message"`
+		Message taskforge.Task `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(values[0]), &retried); err != nil {
 		t.Fatalf("unmarshal retried delayed entry: %v", err)
@@ -1754,8 +1777,8 @@ func TestWorkerRetryableErrorSchedulesAnotherAttempt(t *testing.T) {
 	if retried.Message.Attempt != 1 {
 		t.Fatalf("retried attempt = %d, want 1", retried.Message.Attempt)
 	}
-	if retried.Message.Headers[tasks.HeaderRetryFailureClass] != string(dlq.FailureClassTransientRetryable) {
-		t.Fatalf("retry failure class = %q, want %q", retried.Message.Headers[tasks.HeaderRetryFailureClass], dlq.FailureClassTransientRetryable)
+	if retried.Message.Headers[taskforge.HeaderRetryFailureClass] != string(taskforge.FailureClassTransientRetryable) {
+		t.Fatalf("retry failure class = %q, want %q", retried.Message.Headers[taskforge.HeaderRetryFailureClass], taskforge.FailureClassTransientRetryable)
 	}
 }
 
@@ -1785,13 +1808,13 @@ func TestSchedulerLeaderElectionDispatchesRecurringOnce(t *testing.T) {
 	errChA := runScheduler(ctxA, schedulerA)
 	errChB := runScheduler(ctxB, schedulerB)
 
-	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 1)
 	cancelA()
 	cancelB()
 	waitForSchedulerStop(t, errChA)
 	waitForSchedulerStop(t, errChB)
 
-	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	messages := loadStreamTasks(t, ctx, client, "taskforge:v2:stream:default")
 	if len(messages) != 1 {
 		t.Fatalf("stream messages = %d, want 1", len(messages))
 	}
@@ -1834,7 +1857,7 @@ func TestSchedulerFastFailoverDoesNotDuplicateRecurringRun(t *testing.T) {
 	errChA := runScheduler(ctxA, schedulerA)
 	errChB := runScheduler(ctxB, schedulerB)
 
-	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 1)
 	leaderOwner := waitForSchedulerLeaderOwner(t, client)
 	switch {
 	case strings.HasPrefix(leaderOwner, "scheduler-a"):
@@ -1847,13 +1870,13 @@ func TestSchedulerFastFailoverDoesNotDuplicateRecurringRun(t *testing.T) {
 		t.Fatalf("unexpected scheduler leader owner %q", leaderOwner)
 	}
 
-	waitForStreamLength(t, client, "taskforge:stream:default", 2)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 2)
 	cancelA()
 	cancelB()
 	waitForSchedulerStopIfRunning(t, errChA)
 	waitForSchedulerStopIfRunning(t, errChB)
 
-	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	messages := loadStreamTasks(t, ctx, client, "taskforge:v2:stream:default")
 	if len(messages) != 2 {
 		t.Fatalf("stream messages = %d, want 2", len(messages))
 	}
@@ -1899,10 +1922,10 @@ func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) 
 		t.Fatalf("ReconcileConfigured() error = %v", err)
 	}
 
-	brokerA := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerA := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	brokerB := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerB := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 	serviceA := schedulerpkg.NewRecurringService(brokerA, store, []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
@@ -1937,7 +1960,7 @@ func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) 
 		}
 	}
 
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -1975,7 +1998,7 @@ func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
 
 	errChA := runScheduler(ctxA, schedulerA)
 
-	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 1)
 	cancelA()
 	waitForSchedulerStop(t, errChA)
 
@@ -1986,11 +2009,11 @@ func TestSchedulerFailoverCoalescesMissedRecurringRuns(t *testing.T) {
 	defer cancelB()
 
 	errChB := runScheduler(ctxB, schedulerB)
-	waitForStreamLength(t, client, "taskforge:stream:default", 2)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 2)
 	cancelB()
 	waitForSchedulerStop(t, errChB)
 
-	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	messages := loadStreamTasks(t, ctx, client, "taskforge:v2:stream:default")
 	if len(messages) != 2 {
 		t.Fatalf("stream messages = %d, want 2", len(messages))
 	}
@@ -2051,11 +2074,11 @@ func TestSchedulerRecurringDueIndexDispatchesSmallDueSet(t *testing.T) {
 	defer cancel()
 
 	errCh := runScheduler(ctxScheduler, scheduler)
-	waitForStreamLength(t, client, "taskforge:stream:default", 3)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 3)
 	cancel()
 	waitForSchedulerStop(t, errCh)
 
-	messages := loadStreamTaskMessages(t, ctx, client, "taskforge:stream:default")
+	messages := loadStreamTasks(t, ctx, client, "taskforge:v2:stream:default")
 	if len(messages) != 3 {
 		t.Fatalf("stream messages = %d, want 3", len(messages))
 	}
@@ -2065,7 +2088,7 @@ func TestSchedulerRecurringDueIndexDispatchesSmallDueSet(t *testing.T) {
 		}
 	}
 
-	indexCount, err := client.ZCard(ctx, "taskforge:scheduler:recurring:due").Result()
+	indexCount, err := client.ZCard(ctx, "taskforge:v2:scheduler:recurring:due").Result()
 	if err != nil {
 		t.Fatalf("ZCard() recurring due index error = %v", err)
 	}
@@ -2095,7 +2118,7 @@ func TestSchedulerRecurringRescheduleUpdatesDueIndex(t *testing.T) {
 	defer cancel()
 	errCh := runScheduler(ctxScheduler, scheduler)
 
-	waitForStreamLength(t, client, "taskforge:stream:default", 1)
+	waitForStreamLength(t, client, "taskforge:v2:stream:default", 1)
 	state := loadRecurringScheduleState(t, ctx, client, scheduleID)
 	if state.LastDispatchedAt.IsZero() {
 		t.Fatal("LastDispatchedAt is zero after recurring dispatch")
@@ -2107,7 +2130,7 @@ func TestSchedulerRecurringRescheduleUpdatesDueIndex(t *testing.T) {
 		t.Fatalf("MisfirePolicy = %q, want %q", state.MisfirePolicy, schedulerpkg.MisfirePolicyCoalesce)
 	}
 
-	score, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result()
+	score, err := client.ZScore(ctx, "taskforge:v2:scheduler:recurring:due", scheduleID).Result()
 	if err != nil {
 		t.Fatalf("ZScore() recurring due index error = %v", err)
 	}
@@ -2116,7 +2139,7 @@ func TestSchedulerRecurringRescheduleUpdatesDueIndex(t *testing.T) {
 	}
 
 	time.Sleep(150 * time.Millisecond)
-	streamLen, err := client.XLen(ctx, "taskforge:stream:default").Result()
+	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
 	if err != nil {
 		t.Fatalf("XLen() error = %v", err)
 	}
@@ -2149,11 +2172,11 @@ func TestRecurringRemoveFromDueIndexRejectsStaleLeadershipFence(t *testing.T) {
 	setIntegrationLeadership(t, ctx, client, newFence, time.Minute)
 
 	err := store.RemoveFromDueIndex(ctx, currentFence, scheduleID)
-	if !errors.Is(err, schedulerpkg.ErrLeadershipLost) {
+	if !errors.Is(err, taskforge.ErrLeadershipLost) {
 		t.Fatalf("RemoveFromDueIndex() error = %v, want ErrLeadershipLost", err)
 	}
 
-	score, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result()
+	score, err := client.ZScore(ctx, "taskforge:v2:scheduler:recurring:due", scheduleID).Result()
 	if err != nil {
 		t.Fatalf("ZScore() recurring due index error = %v", err)
 	}
@@ -2164,74 +2187,74 @@ func TestRecurringRemoveFromDueIndexRejectsStaleLeadershipFence(t *testing.T) {
 	if err := store.RemoveFromDueIndex(ctx, newFence, scheduleID); err != nil {
 		t.Fatalf("RemoveFromDueIndex() with current fence error = %v", err)
 	}
-	if _, err := client.ZScore(ctx, "taskforge:scheduler:recurring:due", scheduleID).Result(); err == nil {
+	if _, err := client.ZScore(ctx, "taskforge:v2:scheduler:recurring:due", scheduleID).Result(); err == nil {
 		t.Fatal("due index member still exists after current leader removal")
 	}
 }
 
 func TestWorkerPermanentErrorGoesDirectlyToDeadLetter(t *testing.T) {
-	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
-	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
-	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return runtimepkg.Permanent(errors.New("bad payload"))
-	}), tasks.DefaultRetryPolicy(3))
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := brokerInstance
+	worker := newIntegrationWorker(brokerInstance, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return taskforge.Permanent(errors.New("bad payload"))
+	}), taskforge.DefaultRetryPolicy(3))
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-permanent-worker",
 		Name:      "integration.permanent",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"permanent"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
 	runWorkerUntil(t, worker, func() (bool, error) {
-		entries, err := deadLetters.List(ctx, "default", 10)
+		entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 		if err != nil {
 			return false, err
 		}
 		return len(entries) == 1, nil
 	})
 
-	entries, err := deadLetters.List(ctx, "default", 10)
+	entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if entries[0].Envelope.FailureClass != dlq.FailureClassPermanent {
-		t.Fatalf("failure class = %q, want %q", entries[0].Envelope.FailureClass, dlq.FailureClassPermanent)
+	if entries[0].Envelope.FailureClass != taskforge.FailureClassPermanent {
+		t.Fatalf("failure class = %q, want %q", entries[0].Envelope.FailureClass, taskforge.FailureClassPermanent)
 	}
 }
 
 func TestWorkerMaxDeliveryExhaustionMovesTaskToDeadLetter(t *testing.T) {
-	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
-	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
-	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return runtimepkg.Retryable(errors.New("retry exhausted"))
-	}), tasks.DefaultRetryPolicy(3))
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := brokerInstance
+	worker := newIntegrationWorker(brokerInstance, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return taskforge.Retryable(errors.New("retry exhausted"))
+	}), taskforge.DefaultRetryPolicy(3))
 
-	message := broker.TaskMessage{
-		ID:          "integration-retry-exhausted",
-		Name:        "integration.exhausted",
-		Queue:       "default",
-		Payload:     []byte(`{"hello":"exhausted"}`),
-		MaxAttempts: 1,
-		CreatedAt:   time.Now().UTC(),
+	message := taskforge.Task{
+		ID:            "integration-retry-exhausted",
+		Name:          "integration.exhausted",
+		Queue:         "default",
+		Payload:       []byte(`{"hello":"exhausted"}`),
+		MaxDeliveries: 1,
+		CreatedAt:     time.Now().UTC(),
 	}
-	if _, err := brokerInstance.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
 	runWorkerUntil(t, worker, func() (bool, error) {
-		entries, err := deadLetters.List(ctx, "default", 10)
+		entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 		if err != nil {
 			return false, err
 		}
 		return len(entries) == 1, nil
 	})
 
-	entries, err := deadLetters.List(ctx, "default", 10)
+	entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -2241,19 +2264,19 @@ func TestWorkerMaxDeliveryExhaustionMovesTaskToDeadLetter(t *testing.T) {
 }
 
 func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
-	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
-	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := brokerInstance
 
-	original := broker.TaskMessage{
+	original := taskforge.Task{
 		ID:        "integration-replay",
 		Name:      "integration.replay",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"replay"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	envelope := dlq.Envelope{
+	envelope := taskforge.DeadLetterEnvelope{
 		OriginalTask:     original,
-		FailureClass:     dlq.FailureClassPermanent,
+		FailureClass:     taskforge.FailureClassPermanent,
 		LastError:        "failed permanently",
 		DeliveryCount:    1,
 		FirstEnqueuedAt:  original.CreatedAt,
@@ -2268,7 +2291,7 @@ func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
 		t.Fatalf("PublishDeadLetter() error = %v", err)
 	}
 
-	entries, err := deadLetters.List(ctx, "default", 10)
+	entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -2276,7 +2299,7 @@ func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
 		t.Fatalf("dead-letter entries = %d, want 1", len(entries))
 	}
 
-	if err := deadLetters.Replay(ctx, "default", entries[0].ID); err != nil {
+	if err := deadLetters.ReplayDeadLetter(ctx, "default", entries[0].ID); err != nil {
 		t.Fatalf("Replay() error = %v", err)
 	}
 
@@ -2290,8 +2313,8 @@ func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
 }
 
 func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
-	_, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
-	deadLetters := dlq.NewService(client, brokerInstance, slog.Default())
+	_, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+	deadLetters := brokerInstance
 
 	provider := sdktrace.NewTracerProvider()
 	defer func() {
@@ -2302,7 +2325,7 @@ func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
 
 	rootCtx, rootSpan := provider.Tracer("integration").Start(context.Background(), "publish")
 	rootTraceID := rootSpan.SpanContext().TraceID()
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-trace-context",
 		Name:      "integration.trace",
 		Queue:     "default",
@@ -2312,7 +2335,7 @@ func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
 	}
 	rootSpan.End()
 
-	if _, err := brokerInstance.Publish(rootCtx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := brokerInstance.Publish(rootCtx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -2320,12 +2343,12 @@ func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
 		mu          sync.Mutex
 		handlerSpan trace.SpanContext
 	)
-	worker := newIntegrationWorker(brokerInstance, deadLetters, runtimepkg.HandlerFunc(func(ctx context.Context, msg broker.TaskMessage) error {
+	worker := newIntegrationWorker(brokerInstance, deadLetters, taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
 		mu.Lock()
 		handlerSpan = trace.SpanContextFromContext(ctx)
 		mu.Unlock()
 		return nil
-	}), tasks.DefaultRetryPolicy(1))
+	}), taskforge.DefaultRetryPolicy(1))
 
 	runWorkerUntil(t, worker, func() (bool, error) {
 		mu.Lock()
@@ -2344,18 +2367,18 @@ func TestIntegrationReclaimAndDeadLetterMetrics(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, ciLeaseTTL)
 
 	metrics := observability.NewMetrics()
-	metricBroker := brokerredis.NewWithOptions(client, slog.Default(), ciLeaseTTL, metrics, brokerredis.Options{
+	metricBroker := newIntegrationBrokerWithOptions(client, slog.Default(), ciLeaseTTL, metrics, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:        "integration-metrics-reclaim",
 		Name:      "integration.metrics.reclaim",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"reclaim-metrics"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := metricBroker.Publish(ctx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := metricBroker.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	firstDelivery, err := metricBroker.Reserve(ctx, "default", "consumer-a")
@@ -2375,18 +2398,18 @@ func TestIntegrationReclaimAndDeadLetterMetrics(t *testing.T) {
 	}
 
 	deadLetterMetrics := observability.NewMetrics()
-	deadLetterBroker := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, deadLetterMetrics, brokerredis.Options{
+	deadLetterBroker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, deadLetterMetrics, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
-	deadLetters := dlq.NewService(client, deadLetterBroker, slog.Default())
+	deadLetters := deadLetterBroker
 	worker := &runtimepkg.Worker{
 		Broker:      deadLetterBroker,
 		DeadLetter:  deadLetters,
-		Handler:     runtimepkg.HandlerFunc(func(context.Context, broker.TaskMessage) error { return runtimepkg.Permanent(errors.New("boom")) }),
+		Handler:     taskforge.HandlerFunc(func(context.Context, taskforge.Task) error { return taskforge.Permanent(errors.New("boom")) }),
 		Logger:      slog.Default(),
 		Metrics:     deadLetterMetrics,
 		Clock:       clock.RealClock{},
-		RetryPolicy: tasks.DefaultRetryPolicy(1),
+		RetryPolicy: taskforge.DefaultRetryPolicy(1),
 		PoolName:    "default",
 		Queue:       "default",
 		ConsumerID:  "integration-worker",
@@ -2395,38 +2418,45 @@ func TestIntegrationReclaimAndDeadLetterMetrics(t *testing.T) {
 		Prefetch:    1,
 	}
 
-	deadLetterMessage := broker.TaskMessage{
+	deadLetterMessage := taskforge.Task{
 		ID:        "integration-metrics-dead-letter",
 		Name:      "integration.metrics.dead_letter",
 		Queue:     "default",
 		Payload:   []byte(`{"hello":"dead-letter-metrics"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if _, err := deadLetterBroker.Publish(ctx, deadLetterMessage, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := deadLetterBroker.Publish(ctx, deadLetterMessage, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		t.Fatalf("Publish() dead-letter message error = %v", err)
 	}
 
 	runWorkerUntil(t, worker, func() (bool, error) {
-		entries, err := deadLetters.List(ctx, "default", 10)
+		entries, err := deadLetters.ListDeadLetters(ctx, "default", 10)
 		if err != nil {
 			return false, err
 		}
 		return len(entries) == 1, nil
 	})
 
-	if got := metricCounterValue(t, metrics.Registry, "taskforge_tasks_reclaimed_total", map[string]string{"queue": "default"}); got != 1 {
+	if got := metricCounterValue(t, metricBroker.MetricsGatherer(), "taskforge_tasks_reclaimed_total", map[string]string{"queue": "default"}); got != 1 {
 		t.Fatalf("reclaim counter = %v, want 1", got)
 	}
-	if got := metricCounterValue(t, deadLetterMetrics.Registry, "taskforge_task_dead_letter_results_total", map[string]string{
+	if got := metricCounterValue(t, deadLetterBroker.MetricsGatherer(), "taskforge_task_dead_letter_results_total", map[string]string{
 		"queue":        "default",
 		"task_name":    "integration.metrics.dead_letter",
-		"result_class": string(dlq.FailureClassPermanent),
+		"result_class": string(taskforge.FailureClassPermanent),
 	}); got != 1 {
 		t.Fatalf("dead-letter result counter = %v, want 1", got)
 	}
 }
 
-func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context, *brokerredis.RedisBroker, *redis.Client) {
+func newIntegrationBrokerWithOptions(client *redis.Client, logger *slog.Logger, leaseTTL time.Duration, _ *observability.Metrics, options taskforgeredis.Options) *taskforgeredis.Broker {
+	options.Client = client
+	options.Logger = logger
+	options.LeaseTTL = leaseTTL
+	return taskforgeredis.New(options)
+}
+
+func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context, *taskforgeredis.Broker, *redis.Client) {
 	t.Helper()
 
 	if os.Getenv("TASKFORGE_RUN_INTEGRATION") != "1" {
@@ -2448,19 +2478,34 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 		t.Skipf("redis unavailable: %v", err)
 	}
 
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		t.Fatalf("FlushDB() error = %v", err)
-	}
+	clearIntegrationKeys(t, ctx, client)
 
-	return ctx, brokerredis.NewWithOptions(client, slog.Default(), leaseTTL, nil, brokerredis.Options{
+	return ctx, newIntegrationBrokerWithOptions(client, slog.Default(), leaseTTL, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	}), client
+}
+
+func clearIntegrationKeys(t *testing.T, ctx context.Context, client *redis.Client) {
+	t.Helper()
+	iterator := client.Scan(ctx, 0, "taskforge:v2:*", 500).Iterator()
+	keys := make([]string, 0)
+	for iterator.Next(ctx) {
+		keys = append(keys, iterator.Val())
+	}
+	if err := iterator.Err(); err != nil {
+		t.Fatalf("scan integration keys: %v", err)
+	}
+	if len(keys) > 0 {
+		if err := client.Unlink(ctx, keys...).Err(); err != nil {
+			t.Fatalf("delete integration keys: %v", err)
+		}
+	}
 }
 
 func delayedQueueCount(t *testing.T, ctx context.Context, client *redis.Client, queue string) int64 {
 	t.Helper()
 
-	count, err := client.ZCard(ctx, "taskforge:delayed:queue:"+queue).Result()
+	count, err := client.ZCard(ctx, "taskforge:v2:delayed:queue:"+queue).Result()
 	if err != nil {
 		t.Fatalf("ZCard() delayed queue %q error = %v", queue, err)
 	}
@@ -2470,28 +2515,28 @@ func delayedQueueCount(t *testing.T, ctx context.Context, client *redis.Client, 
 func delayedQueueEntries(t *testing.T, ctx context.Context, client *redis.Client, queue string) []string {
 	t.Helper()
 
-	values, err := client.ZRange(ctx, "taskforge:delayed:queue:"+queue, 0, -1).Result()
+	values, err := client.ZRange(ctx, "taskforge:v2:delayed:queue:"+queue, 0, -1).Result()
 	if err != nil {
 		t.Fatalf("ZRange() delayed queue %q error = %v", queue, err)
 	}
 	return values
 }
 
-func mustFairnessPolicy(t *testing.T, defaultRule fairness.Rule, rules []fairness.Rule) *fairness.Policy {
+func mustFairnessPolicy(t *testing.T, defaultRule taskforgeredis.FairnessRule, rules []taskforgeredis.FairnessRule) *taskforgeredis.FairnessPolicy {
 	t.Helper()
 
-	policy, err := fairness.NewPolicy(defaultRule, rules)
+	policy, err := taskforgeredis.NewFairnessPolicy(defaultRule, rules)
 	if err != nil {
 		t.Fatalf("NewPolicy() error = %v", err)
 	}
 	return policy
 }
 
-func newIntegrationWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {
+func newIntegrationWorker(b taskforge.Broker, deadLetters taskforge.DeadLetterPublisher, handler taskforge.Handler, policy taskforge.RetryPolicy) *runtimepkg.Worker {
 	return newIntegrationWorkerWithQueue(b, deadLetters, "default", handler, policy)
 }
 
-func newIntegrationWorkerWithQueue(b broker.Broker, deadLetters dlq.Publisher, queue string, handler runtimepkg.Handler, policy tasks.RetryPolicy) *runtimepkg.Worker {
+func newIntegrationWorkerWithQueue(b taskforge.Broker, deadLetters taskforge.DeadLetterPublisher, queue string, handler taskforge.Handler, policy taskforge.RetryPolicy) *runtimepkg.Worker {
 	return &runtimepkg.Worker{
 		Broker:      b,
 		DeadLetter:  deadLetters,
@@ -2510,18 +2555,18 @@ func newIntegrationWorkerWithQueue(b broker.Broker, deadLetters dlq.Publisher, q
 }
 
 type leaseRenewFailureBroker struct {
-	broker.Broker
+	taskforge.Broker
 	err error
 }
 
-func (b *leaseRenewFailureBroker) ExtendLease(context.Context, broker.Delivery, time.Duration) error {
+func (b *leaseRenewFailureBroker) ExtendLease(context.Context, taskforge.Delivery, time.Duration) error {
 	return b.err
 }
 
 func newIntegrationScheduler(t *testing.T, client *redis.Client, owner string, schedules []schedulerpkg.ScheduleDefinition) *schedulerpkg.Scheduler {
 	t.Helper()
 
-	brokerInstance := brokerredis.NewWithOptions(client, slog.Default(), 30*time.Second, nil, brokerredis.Options{
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	})
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -2618,7 +2663,7 @@ func waitForSchedulerLeaderOwner(t *testing.T, client *redis.Client) string {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		value, err := client.Get(context.Background(), "taskforge:scheduler:leader").Result()
+		value, err := client.Get(context.Background(), "taskforge:v2:scheduler:leader").Result()
 		if err == nil && value != "" {
 			return value
 		}
@@ -2629,7 +2674,7 @@ func waitForSchedulerLeaderOwner(t *testing.T, client *redis.Client) string {
 	return ""
 }
 
-func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Client, streamKey string) []broker.TaskMessage {
+func loadStreamTasks(t *testing.T, ctx context.Context, client *redis.Client, streamKey string) []taskforge.Task {
 	t.Helper()
 
 	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
@@ -2637,7 +2682,7 @@ func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Cli
 		t.Fatalf("XRange() error = %v", err)
 	}
 
-	messages := make([]broker.TaskMessage, 0, len(entries))
+	messages := make([]taskforge.Task, 0, len(entries))
 	for _, entry := range entries {
 		raw, ok := entry.Values["message"]
 		if !ok {
@@ -2647,7 +2692,7 @@ func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Cli
 		if !ok {
 			t.Fatalf("stream payload type = %T, want string", raw)
 		}
-		var msg broker.TaskMessage
+		var msg taskforge.Task
 		if err := json.Unmarshal([]byte(payload), &msg); err != nil {
 			t.Fatalf("unmarshal stream task: %v", err)
 		}
@@ -2659,7 +2704,7 @@ func loadStreamTaskMessages(t *testing.T, ctx context.Context, client *redis.Cli
 func loadRecurringScheduleState(t *testing.T, ctx context.Context, client *redis.Client, scheduleID string) schedulerpkg.ScheduleState {
 	t.Helper()
 
-	payload, err := client.Get(ctx, "taskforge:schedule:state:"+scheduleID).Bytes()
+	payload, err := client.Get(ctx, "taskforge:v2:schedule:state:"+scheduleID).Bytes()
 	if err != nil {
 		t.Fatalf("Get() recurring schedule state error = %v", err)
 	}
@@ -2671,20 +2716,20 @@ func loadRecurringScheduleState(t *testing.T, ctx context.Context, client *redis
 	return state
 }
 
-func integrationLeadershipFence(owner string, epoch int64) schedulerpkg.LeadershipFence {
-	return schedulerpkg.LeadershipFence{
+func integrationLeadershipFence(owner string, epoch int64) taskforge.LeadershipFence {
+	return taskforge.LeadershipFence{
 		Owner: owner,
 		Epoch: epoch,
 		Token: fmt.Sprintf("%s|%d", owner, epoch),
 	}
 }
 
-func setIntegrationLeadership(t *testing.T, ctx context.Context, client *redis.Client, fence schedulerpkg.LeadershipFence, ttl time.Duration) {
+func setIntegrationLeadership(t *testing.T, ctx context.Context, client *redis.Client, fence taskforge.LeadershipFence, ttl time.Duration) {
 	t.Helper()
-	if err := client.Set(ctx, "taskforge:scheduler:leader", fence.Token, ttl).Err(); err != nil {
+	if err := client.Set(ctx, "taskforge:v2:scheduler:leader", fence.Token, ttl).Err(); err != nil {
 		t.Fatalf("Set() scheduler leadership error = %v", err)
 	}
-	if err := client.Set(ctx, "taskforge:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+	if err := client.Set(ctx, "taskforge:v2:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
 		t.Fatalf("Set() scheduler leadership epoch error = %v", err)
 	}
 }

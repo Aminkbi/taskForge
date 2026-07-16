@@ -10,16 +10,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/demo"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/shutdown"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 func main() {
@@ -73,30 +73,29 @@ func main() {
 	metrics := observability.NewMetrics()
 	queueNames := make([]string, 0, len(cfg.WorkerPools))
 	workers := make([]*runtimepkg.Worker, 0, len(cfg.WorkerPools))
-	globalLimiter := runtimepkg.NewTaskTypeLimiter(cfg.TaskTypeLimits)
-	fairnessPolicies := config.FairnessPoliciesByQueue(cfg.WorkerPools)
 	for _, pool := range cfg.WorkerPools {
 		queueNames = append(queueNames, pool.Queue)
-		poolBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL, metrics, brokerredis.Options{
-			FairnessPolicies: fairnessPolicies,
-			RoutingPolicy:    cfg.RoutingPolicy,
+		options := cfg.RedisOptions(client, logger.With("component", "redis", "pool", pool.Name, "queue", pool.Queue), pool.LeaseTTL)
+		poolBroker := taskforgeredis.New(options)
+		worker, err := runtimepkg.New(runtimepkg.Options{
+			Broker:           poolBroker,
+			Handler:          demo.Handler{Logger: logger.With("component", "demo-handler", "pool", pool.Name, "queue", pool.Queue)},
+			Logger:           logger.With("component", "worker-runtime", "pool", pool.Name, "queue", pool.Queue),
+			RetryPolicy:      pool.RetryPolicy,
+			PoolName:         pool.Name,
+			Queue:            pool.Queue,
+			ConsumerID:       cfg.ServiceName,
+			LeaseTTL:         pool.LeaseTTL,
+			Concurrency:      pool.Concurrency,
+			Prefetch:         pool.Prefetch,
+			GlobalTaskLimits: cfg.TaskTypeLimits,
+			PoolTaskLimits:   pool.TaskTypeLimits,
 		})
-		workers = append(workers, &runtimepkg.Worker{
-			Broker:            poolBroker,
-			Handler:           demo.Handler{Logger: logger.With("component", "demo-handler", "pool", pool.Name, "queue", pool.Queue)},
-			Logger:            logger.With("component", "worker-runtime", "pool", pool.Name, "queue", pool.Queue),
-			Metrics:           metrics,
-			Clock:             clock.RealClock{},
-			RetryPolicy:       pool.RetryPolicy,
-			PoolName:          pool.Name,
-			Queue:             pool.Queue,
-			ConsumerID:        cfg.ServiceName,
-			LeaseTTL:          pool.LeaseTTL,
-			Concurrency:       pool.Concurrency,
-			Prefetch:          pool.Prefetch,
-			GlobalTaskLimiter: globalLimiter,
-			PoolTaskLimiter:   runtimepkg.NewTaskTypeLimiter(pool.TaskTypeLimits),
-		})
+		if err != nil {
+			logger.Error("build demo worker", "pool", pool.Name, "error", err)
+			os.Exit(1)
+		}
+		workers = append(workers, worker)
 	}
 
 	if len(cfg.WorkerPools) == 0 {
@@ -104,10 +103,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	brokerInstance := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), cfg.WorkerPools[0].LeaseTTL, metrics, brokerredis.Options{
-		FairnessPolicies: fairnessPolicies,
-		RoutingPolicy:    cfg.RoutingPolicy,
-	})
+	brokerInstance := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis"), cfg.WorkerPools[0].LeaseTTL))
 	if err := brokerInstance.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
@@ -149,11 +145,6 @@ func main() {
 		cfg.PollInterval,
 		cfg.SchedulerRenewInterval,
 	)
-
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		logger.Error("flush demo redis db", "error", err)
-		os.Exit(1)
-	}
 
 	if err := publishStartupTasks(ctx, brokerInstance, settings, cfg.WorkerPools); err != nil {
 		logger.Error("publish startup demo tasks", "error", err)
@@ -250,7 +241,7 @@ func parseDurationEnv(key string, fallback time.Duration) (time.Duration, error)
 	return parsed, nil
 }
 
-func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, queue string, settings demoSettings) error {
+func publishDelayedDemoTask(ctx context.Context, brokerInstance taskforge.Broker, queue string, settings demoSettings) error {
 	payload, err := json.Marshal(demo.AppendFilePayload{
 		Path: settings.OutputFile,
 		Line: "delayed hello from scheduler",
@@ -259,18 +250,18 @@ func publishDelayedDemoTask(ctx context.Context, brokerInstance broker.Broker, q
 		return err
 	}
 	eta := time.Now().UTC().Add(settings.DelayedAfter)
-	_, err = brokerInstance.Publish(ctx, broker.TaskMessage{
+	_, err = brokerInstance.Publish(ctx, taskforge.Task{
 		ID:        uuid.NewString(),
 		Name:      demo.TaskAppendFile,
 		Queue:     queue,
 		Payload:   payload,
 		ETA:       &eta,
 		CreatedAt: time.Now().UTC(),
-	}, broker.PublishOptions{Source: broker.PublishSourceNew})
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 	return err
 }
 
-func publishStartupTasks(ctx context.Context, brokerInstance broker.Broker, settings demoSettings, pools []config.WorkerPoolConfig) error {
+func publishStartupTasks(ctx context.Context, brokerInstance taskforge.Broker, settings demoSettings, pools []config.WorkerPoolConfig) error {
 	for _, pool := range pools {
 		payload, err := json.Marshal(demo.AppendFilePayload{
 			Path: settings.OutputFile,
@@ -279,13 +270,13 @@ func publishStartupTasks(ctx context.Context, brokerInstance broker.Broker, sett
 		if err != nil {
 			return err
 		}
-		if _, err := brokerInstance.Publish(ctx, broker.TaskMessage{
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
 			ID:        uuid.NewString(),
 			Name:      demo.TaskAppendFile,
 			Queue:     pool.Queue,
 			Payload:   payload,
 			CreatedAt: time.Now().UTC(),
-		}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			return err
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 func TestHandlerReturnsRetryableFailureUntilClientHealthy(t *testing.T) {
@@ -18,7 +18,7 @@ func TestHandlerReturnsRetryableFailureUntilClientHealthy(t *testing.T) {
 
 	client := NewFakeClient(0)
 	handler := Handler{Client: client}
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:      "task-1",
 		Name:    TaskSyncExternalResource,
 		Payload: payload,

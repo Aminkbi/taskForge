@@ -15,14 +15,11 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
-	"github.com/aminkbi/taskforge/internal/dlq"
-	"github.com/aminkbi/taskforge/internal/fairness"
-	"github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 const (
@@ -34,24 +31,24 @@ type benchEnv struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	client *redis.Client
-	broker *brokerredis.RedisBroker
+	broker *taskforgeredis.Broker
 	logger *slog.Logger
 }
 
-func benchLeadershipFence(owner string, epoch int64) schedulerpkg.LeadershipFence {
-	return schedulerpkg.LeadershipFence{
+func benchLeadershipFence(owner string, epoch int64) taskforge.LeadershipFence {
+	return taskforge.LeadershipFence{
 		Owner: owner,
 		Epoch: epoch,
 		Token: fmt.Sprintf("%s|%d", owner, epoch),
 	}
 }
 
-func setBenchLeadership(tb testing.TB, client *redis.Client, fence schedulerpkg.LeadershipFence, ttl time.Duration) {
+func setBenchLeadership(tb testing.TB, client *redis.Client, fence taskforge.LeadershipFence, ttl time.Duration) {
 	tb.Helper()
-	if err := client.Set(context.Background(), "taskforge:scheduler:leader", fence.Token, ttl).Err(); err != nil {
+	if err := client.Set(context.Background(), "taskforge:v2:scheduler:leader", fence.Token, ttl).Err(); err != nil {
 		tb.Fatalf("Set() scheduler leadership error = %v", err)
 	}
-	if err := client.Set(context.Background(), "taskforge:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+	if err := client.Set(context.Background(), "taskforge:v2:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
 		tb.Fatalf("Set() scheduler leadership epoch error = %v", err)
 	}
 }
@@ -61,7 +58,7 @@ func BenchmarkPublishThroughput(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("publish", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("publish", i), taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -70,7 +67,7 @@ func BenchmarkPublishThroughput(b *testing.B) {
 func BenchmarkReserveAckThroughput(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
 	for i := 0; i < b.N; i++ {
-		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reserve", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reserve", i), taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -90,7 +87,7 @@ func BenchmarkReserveAckThroughput(b *testing.B) {
 func BenchmarkEndToEndLatency(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
 	done := &sync.Map{}
-	worker := newBenchWorker(env.broker, nil, runtime.HandlerFunc(func(_ context.Context, msg broker.TaskMessage) error {
+	worker := newBenchWorker(env.broker, nil, taskforge.HandlerFunc(func(_ context.Context, msg taskforge.Task) error {
 		value, ok := done.Load(msg.ID)
 		if ok {
 			close(value.(chan struct{}))
@@ -102,7 +99,7 @@ func BenchmarkEndToEndLatency(b *testing.B) {
 	defer managerCancel()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- (&runtime.Manager{Workers: []*runtime.Worker{worker}}).Run(managerCtx)
+		errCh <- (&runtimepkg.Manager{Workers: []*runtimepkg.Worker{worker}}).Run(managerCtx)
 	}()
 
 	var total time.Duration
@@ -115,7 +112,7 @@ func BenchmarkEndToEndLatency(b *testing.B) {
 		msg := benchmarkMessage("e2e", i)
 		msg.ID = taskID
 		start := time.Now()
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 
@@ -142,7 +139,7 @@ func BenchmarkReclaimLatencyAfterWorkerDeath(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reclaim", i), broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reclaim", i), taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 		if _, err := env.broker.Reserve(env.ctx, "default", "bench-dead-worker"); err != nil {
@@ -191,7 +188,7 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 		eta := time.Now().UTC().Add(25 * time.Millisecond)
 		msg := benchmarkMessage("scheduler", i)
 		msg.ETA = &eta
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() delayed error = %v", err)
 		}
 
@@ -204,7 +201,7 @@ func BenchmarkSchedulerReleaseLag(b *testing.B) {
 				}
 				break
 			}
-			if !errors.Is(err, broker.ErrNoTask) {
+			if !errors.Is(err, taskforge.ErrNoTask) {
 				b.Fatalf("Reserve() error = %v", err)
 			}
 			time.Sleep(5 * time.Millisecond)
@@ -230,7 +227,7 @@ func BenchmarkDelayedQueueIndexSkipsUnrelatedBacklog(b *testing.B) {
 		msg := benchmarkMessage("unrelated-delayed", i)
 		msg.Queue = "bulk"
 		msg.ETA = &eta
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() unrelated delayed error = %v", err)
 		}
 	}
@@ -242,7 +239,7 @@ func BenchmarkDelayedQueueIndexSkipsUnrelatedBacklog(b *testing.B) {
 		msg := benchmarkMessage("critical-delayed", i)
 		msg.Queue = "critical"
 		msg.ETA = &eta
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() critical delayed error = %v", err)
 		}
 
@@ -274,7 +271,7 @@ func BenchmarkMultiQueuePublishReserveAck(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		msg := benchmarkMessage("multi-queue", i)
 		msg.Queue = queues[i%len(queues)]
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -293,7 +290,7 @@ func BenchmarkMultiQueuePublishReserveAck(b *testing.B) {
 }
 
 func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
-	policy, err := fairness.NewPolicy(fairness.Rule{}, []fairness.Rule{
+	policy, err := taskforgeredis.NewFairnessPolicy(taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
 		{Name: "tenant-hot", Keys: []string{"tenant-hot"}},
 		{Name: "tenant-warm", Keys: []string{"tenant-warm"}},
 		{Name: "tenant-cold", Keys: []string{"tenant-cold"}},
@@ -301,9 +298,9 @@ func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
 	if err != nil {
 		b.Fatalf("NewPolicy() error = %v", err)
 	}
-	env := newBenchEnvWithOptions(b, 30*time.Second, brokerredis.Options{
+	env := newBenchEnvWithOptions(b, 30*time.Second, taskforgeredis.Options{
 		ReserveTimeout:   benchReserveTimeout,
-		FairnessPolicies: map[string]*fairness.Policy{"default": policy},
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
 
 	for i := 0; i < b.N; i++ {
@@ -316,7 +313,7 @@ func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
 		default:
 			msg.FairnessKey = "tenant-hot"
 		}
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -347,9 +344,7 @@ func BenchmarkSchedulerCatchUpAfterDowntime(b *testing.B) {
 			b.ResetTimer()
 			for run := 0; run < b.N; run++ {
 				b.StopTimer()
-				if err := env.client.FlushDB(env.ctx).Err(); err != nil {
-					b.Fatalf("FlushDB() error = %v", err)
-				}
+				clearBenchKeys(b, env.ctx, env.client)
 				setBenchLeadership(b, env.client, fence, time.Minute)
 
 				base := time.Now().UTC().Add(time.Hour)
@@ -358,7 +353,7 @@ func BenchmarkSchedulerCatchUpAfterDowntime(b *testing.B) {
 					msg.Queue = "default"
 					eta := base.Add(time.Duration(i) * time.Millisecond)
 					msg.ETA = &eta
-					if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+					if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 						b.Fatalf("Publish() delayed error = %v", err)
 					}
 				}
@@ -398,9 +393,7 @@ func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
 
 			b.StopTimer()
 			for i := 0; i < b.N; i++ {
-				if err := env.client.FlushDB(env.ctx).Err(); err != nil {
-					b.Fatalf("FlushDB() error = %v", err)
-				}
+				clearBenchKeys(b, env.ctx, env.client)
 
 				recurring := schedulerpkg.NewRecurringService(
 					env.broker,
@@ -433,11 +426,11 @@ func BenchmarkRecurringSchedulerTickScaling(b *testing.B) {
 
 func BenchmarkRetryStormThroughput(b *testing.B) {
 	env := newBenchEnv(b, 30*time.Second)
-	deadLetters := dlq.NewService(env.client, env.broker, env.logger)
-	worker := newBenchWorker(env.broker, deadLetters, runtime.HandlerFunc(func(context.Context, broker.TaskMessage) error {
-		return runtime.Retryable(errors.New("upstream unavailable"))
+	deadLetters := env.broker
+	worker := newBenchWorker(env.broker, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return taskforge.Retryable(errors.New("upstream unavailable"))
 	}), 30*time.Second)
-	worker.RetryPolicy = tasks.DefaultRetryPolicy(2)
+	worker.RetryPolicy = taskforge.DefaultRetryPolicy(2)
 
 	scheduler := schedulerpkg.New(
 		env.broker,
@@ -454,7 +447,7 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 	defer cancel()
 	workerErrCh := make(chan error, 1)
 	go func() {
-		workerErrCh <- (&runtime.Manager{Workers: []*runtime.Worker{worker}}).Run(runCtx)
+		workerErrCh <- (&runtimepkg.Manager{Workers: []*runtimepkg.Worker{worker}}).Run(runCtx)
 	}()
 	schedulerErrCh := make(chan error, 1)
 	go func() {
@@ -466,12 +459,12 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		msg := benchmarkMessage("retry-storm", i)
 		msg.Headers = map[string]string{
-			tasks.HeaderRetryMaxDeliveries:  "2",
-			tasks.HeaderRetryInitialBackoff: "5ms",
-			tasks.HeaderRetryMaxBackoff:     "5ms",
-			tasks.HeaderRetryMultiplier:     "1",
+			taskforge.HeaderRetryMaxDeliveries:  "2",
+			taskforge.HeaderRetryInitialBackoff: "5ms",
+			taskforge.HeaderRetryMaxBackoff:     "5ms",
+			taskforge.HeaderRetryMultiplier:     "1",
 		}
-		if _, err := env.broker.Publish(env.ctx, msg, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+		if _, err := env.broker.Publish(env.ctx, msg, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
 		}
 	}
@@ -479,7 +472,7 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 	waitCtx, waitCancel := context.WithTimeout(env.ctx, 5*time.Second)
 	defer waitCancel()
 	for {
-		entries, err := deadLetters.List(waitCtx, "default", int64(b.N))
+		entries, err := deadLetters.ListDeadLetters(waitCtx, "default", int64(b.N))
 		if err != nil {
 			b.Fatalf("List() error = %v", err)
 		}
@@ -503,12 +496,12 @@ func BenchmarkRetryStormThroughput(b *testing.B) {
 
 func newBenchEnv(b *testing.B, leaseTTL time.Duration) *benchEnv {
 	b.Helper()
-	return newBenchEnvWithOptions(b, leaseTTL, brokerredis.Options{
+	return newBenchEnvWithOptions(b, leaseTTL, taskforgeredis.Options{
 		ReserveTimeout: benchReserveTimeout,
 	})
 }
 
-func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options brokerredis.Options) *benchEnv {
+func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options taskforgeredis.Options) *benchEnv {
 	b.Helper()
 
 	if os.Getenv("TASKFORGE_RUN_BENCHMARKS") != "1" {
@@ -537,25 +530,26 @@ func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options broker
 	if err := client.Ping(ctx).Err(); err != nil {
 		b.Skipf("redis unavailable: %v", err)
 	}
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		b.Fatalf("FlushDB() error = %v", err)
-	}
+	clearBenchKeys(b, ctx, client)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	options.Client = client
+	options.Logger = logger
+	options.LeaseTTL = leaseTTL
 	return &benchEnv{
 		ctx:    ctx,
 		cancel: cancel,
 		client: client,
-		broker: brokerredis.NewWithOptions(client, logger, leaseTTL, nil, options),
+		broker: taskforgeredis.New(options),
 		logger: logger,
 	}
 }
 
-func benchmarkMessage(prefix string, i int) broker.TaskMessage {
+func benchmarkMessage(prefix string, i int) taskforge.Task {
 	payload, _ := json.Marshal(map[string]any{
 		"index": i,
 	})
-	return broker.TaskMessage{
+	return taskforge.Task{
 		ID:        fmt.Sprintf("%s-%d", prefix, i),
 		Name:      "benchmark.task",
 		Queue:     "default",
@@ -602,15 +596,15 @@ func delayedBacklogSizes() []int {
 	return sizes
 }
 
-func newBenchWorker(b broker.Broker, deadLetters dlq.Publisher, handler runtime.Handler, leaseTTL time.Duration) *runtime.Worker {
-	return &runtime.Worker{
+func newBenchWorker(b taskforge.Broker, deadLetters taskforge.DeadLetterPublisher, handler taskforge.Handler, leaseTTL time.Duration) *runtimepkg.Worker {
+	return &runtimepkg.Worker{
 		Broker:      b,
 		DeadLetter:  deadLetters,
 		Handler:     handler,
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Clock:       clock.RealClock{},
 		Metrics:     nil,
-		RetryPolicy: tasks.DefaultRetryPolicy(1),
+		RetryPolicy: taskforge.DefaultRetryPolicy(1),
 		PoolName:    "bench",
 		Queue:       "default",
 		ConsumerID:  "bench-worker",
@@ -625,4 +619,21 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func clearBenchKeys(b *testing.B, ctx context.Context, client *redis.Client) {
+	b.Helper()
+	iterator := client.Scan(ctx, 0, "taskforge:v2:*", 500).Iterator()
+	keys := make([]string, 0)
+	for iterator.Next(ctx) {
+		keys = append(keys, iterator.Val())
+	}
+	if err := iterator.Err(); err != nil {
+		b.Fatalf("scan benchmark keys: %v", err)
+	}
+	if len(keys) > 0 {
+		if err := client.Unlink(ctx, keys...).Err(); err != nil {
+			b.Fatalf("delete benchmark keys: %v", err)
+		}
+	}
 }

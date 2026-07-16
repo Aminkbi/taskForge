@@ -5,16 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/fairness"
-	"github.com/aminkbi/taskforge/internal/routing"
+	"github.com/aminkbi/taskforge"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
 )
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_LOG_LEVEL", "")
 	t.Setenv("TASKFORGE_HTTP_ADDR", "")
-	t.Setenv("TASKFORGE_METRICS_ADDR", "")
 	t.Setenv("TASKFORGE_REDIS_ADDR", "")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
@@ -93,7 +91,6 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_LOG_LEVEL", "debug")
 	t.Setenv("TASKFORGE_HTTP_ADDR", ":9090")
-	t.Setenv("TASKFORGE_METRICS_ADDR", ":9091")
 	t.Setenv("TASKFORGE_REDIS_ADDR", "redis.internal:6379")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "secret")
 	t.Setenv("TASKFORGE_REDIS_DB", "2")
@@ -173,7 +170,7 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.LogLevel != "debug" || cfg.HTTPAddr != ":9090" || cfg.MetricsAddr != ":9091" {
+	if cfg.LogLevel != "debug" || cfg.HTTPAddr != ":9090" {
 		t.Fatalf("unexpected address/log fields: %+v", cfg)
 	}
 	if cfg.RedisAddr != "redis.internal:6379" || cfg.RedisPassword != "secret" || cfg.RedisDB != 2 {
@@ -198,7 +195,7 @@ func TestLoadOverrides(t *testing.T) {
 	if pool.FairnessPolicy == nil {
 		t.Fatalf("expected worker pool fairness policy")
 	}
-	if pool.Admission.Mode != AdmissionModeDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
+	if pool.Admission.Mode != taskforgeredis.AdmissionModeDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
 		t.Fatalf("unexpected worker pool admission policy: %+v", pool.Admission)
 	}
 	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.MaxDeadLetterSize != 2 || pool.Admission.DeferInterval != 5*time.Second {
@@ -217,7 +214,7 @@ func TestLoadOverrides(t *testing.T) {
 	if protected.Bucket != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 {
 		t.Fatalf("unexpected fairness rule resolution: %+v", protected)
 	}
-	defaultRule := pool.FairnessPolicy.Resolve(fairness.DefaultKey)
+	defaultRule := pool.FairnessPolicy.Resolve(taskforgeredis.DefaultKey)
 	if defaultRule.Bucket != "default" || defaultRule.SoftQuota != 1 || defaultRule.HardQuota != 2 {
 		t.Fatalf("unexpected default fairness rule: %+v", defaultRule)
 	}
@@ -473,13 +470,13 @@ func TestLoadRejectsFairnessAdmissionWithoutFairnessPolicy(t *testing.T) {
 }
 
 func TestLoadNormalizesRetryDefaults(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":1,"lease_ttl":"30s","retry":{"max_attempts":7}}]`)
+	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[{"name":"default","queue":"default","concurrency":1,"lease_ttl":"30s","retry":{"max_deliveries":7}}]`)
 
 	cfg, err := Load("taskforge-test")
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.WorkerPools[0].RetryPolicy.MaxAttempts != 7 || cfg.WorkerPools[0].RetryPolicy.MaxDeliveries != 7 {
+	if cfg.WorkerPools[0].RetryPolicy.MaxDeliveries != 7 {
 		t.Fatalf("unexpected normalized retry policy: %+v", cfg.WorkerPools[0].RetryPolicy)
 	}
 }
@@ -534,11 +531,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func brokerTask(name, fairnessKey, trafficClass string) broker.TaskMessage {
-	return broker.TaskMessage{
+func brokerTask(name, fairnessKey, trafficClass string) taskforge.Task {
+	return taskforge.Task{
 		ID:          "task-1",
 		Name:        name,
 		FairnessKey: fairnessKey,
-		Headers:     map[string]string{routing.HeaderTrafficClass: trafficClass},
+		Headers:     map[string]string{taskforgeredis.HeaderTrafficClass: trafficClass},
 	}
 }

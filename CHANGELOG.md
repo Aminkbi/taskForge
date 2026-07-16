@@ -8,7 +8,7 @@ This project has not published a stable release yet.
 
 ### Added
 
-- Public Go API under `pkg/taskforge` for task creation, Redis publishing, handler registration, worker embedding, task-state lookup, and DLQ operations.
+- Public root, `redis`, and `worker` packages for canonical task models, Redis publishing, handler registration, worker embedding, task-state lookup, and DLQ operations.
 - Short OSS contributor, security, code-of-conduct, license, and release process documentation.
 
 ### Changed

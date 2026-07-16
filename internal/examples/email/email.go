@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 const TaskSendEmail = "example.email.send"
@@ -28,7 +28,7 @@ type Handler struct {
 	Logger *slog.Logger
 }
 
-func (h Handler) HandleTask(ctx context.Context, msg broker.TaskMessage) error {
+func (h Handler) HandleTask(ctx context.Context, msg taskforge.Task) error {
 	if msg.Name != TaskSendEmail {
 		return fmt.Errorf("email example: unsupported task %q", msg.Name)
 	}

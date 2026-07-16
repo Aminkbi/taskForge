@@ -9,17 +9,15 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
-	"github.com/aminkbi/taskforge/internal/clock"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/examples/email"
 	"github.com/aminkbi/taskforge/internal/examples/shared"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	"github.com/aminkbi/taskforge/internal/shutdown"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 func main() {
@@ -62,34 +60,31 @@ func main() {
 	})
 	defer client.Close()
 
-	metrics := observability.NewMetrics()
-	exampleBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), 5*time.Second, metrics, brokerredis.Options{
+	exampleBroker := taskforgeredis.New(taskforgeredis.Options{
+		Client: client, Logger: logger.With("component", "redis"), LeaseTTL: 5 * time.Second,
 		ReserveTimeout: 25 * time.Millisecond,
 	})
 	if err := exampleBroker.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
 	}
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		logger.Error("flush example redis db", "error", err)
-		os.Exit(1)
-	}
-
 	store := email.NewIdempotencyStore()
 	mailer := &email.CaptureMailer{}
-	worker := &runtimepkg.Worker{
+	worker, err := runtimepkg.New(runtimepkg.Options{
 		Broker:      exampleBroker,
 		Handler:     email.Handler{Mailer: mailer, Store: store, Logger: logger.With("component", "example-email-handler")},
 		Logger:      logger.With("component", "worker-runtime"),
-		Metrics:     metrics,
-		Clock:       clock.RealClock{},
-		RetryPolicy: tasks.DefaultRetryPolicy(1),
+		RetryPolicy: taskforge.DefaultRetryPolicy(1),
 		PoolName:    "example-email",
 		Queue:       "email",
 		ConsumerID:  cfg.ServiceName,
 		LeaseTTL:    5 * time.Second,
 		Concurrency: 1,
 		Prefetch:    1,
+	})
+	if err != nil {
+		logger.Error("build worker", "error", err)
+		os.Exit(1)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -114,7 +109,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:             "invoice-42",
 		IdempotencyKey: "email:billing@example.com:invoice-42",
 		Name:           email.TaskSendEmail,
@@ -122,11 +117,11 @@ func main() {
 		Payload:        payload,
 		CreatedAt:      time.Now().UTC(),
 	}
-	if _, err := exampleBroker.Publish(runCtx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := exampleBroker.Publish(runCtx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		logger.Error("publish email task", "error", err)
 		os.Exit(1)
 	}
-	if _, err := exampleBroker.Publish(runCtx, message, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	if _, err := exampleBroker.Publish(runCtx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		logger.Error("publish duplicate email task", "error", err)
 		os.Exit(1)
 	}

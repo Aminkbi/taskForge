@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"github.com/aminkbi/taskforge"
 	"io"
 	"log/slog"
 	"testing"
@@ -19,14 +20,14 @@ func TestSchedulerStaleMoveDueDemotesAndSkipsRecurringMutation(t *testing.T) {
 			Leader: true,
 			Owner:  "scheduler-a",
 			Epoch:  1,
-			Fence: LeadershipFence{
+			Fence: taskforge.LeadershipFence{
 				Owner: "scheduler-a",
 				Epoch: 1,
 				Token: "scheduler-a|1",
 			},
 		},
 	}
-	mover := &staleDueMover{err: NewStaleLeadershipError("move_due")}
+	mover := &staleDueMover{err: taskforge.NewStaleLeadershipError("move_due")}
 	recurring := &countingRecurringDispatcher{}
 	scheduler := New(
 		mover,
@@ -99,7 +100,7 @@ type staleDueMover struct {
 	err error
 }
 
-func (m *staleDueMover) MoveDue(context.Context, LeadershipFence, time.Time, int64) (int, error) {
+func (m *staleDueMover) MoveDue(context.Context, taskforge.LeadershipFence, time.Time, int64) (int, error) {
 	if m.err == nil {
 		return 0, errors.New("unexpected MoveDue call")
 	}
@@ -110,7 +111,7 @@ type countingRecurringDispatcher struct {
 	calls int
 }
 
-func (d *countingRecurringDispatcher) SyncDue(context.Context, LeadershipFence, time.Time) (int, error) {
+func (d *countingRecurringDispatcher) SyncDue(context.Context, taskforge.LeadershipFence, time.Time) (int, error) {
 	d.calls++
 	return 0, nil
 }

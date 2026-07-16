@@ -10,17 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/observability"
-	"github.com/aminkbi/taskforge/internal/store"
-	"github.com/aminkbi/taskforge/internal/tasks"
 )
 
 type stubAdmissionProvider struct{}
 
-func (stubAdmissionProvider) AdmissionStatusSnapshot(context.Context, string, time.Time) (observability.AdmissionStatusSnapshot, error) {
-	return observability.AdmissionStatusSnapshot{
+func (stubAdmissionProvider) AdmissionStatusSnapshot(context.Context, string, time.Time) (taskforge.AdmissionStatusSnapshot, error) {
+	return taskforge.AdmissionStatusSnapshot{
 		Queue:              "critical",
 		Mode:               "defer",
 		State:              "degraded",
@@ -37,8 +35,8 @@ func (stubAdmissionProvider) AdmissionStatusSnapshot(context.Context, string, ti
 
 type stubAdaptiveProvider struct{}
 
-func (stubAdaptiveProvider) AdaptiveStatusSnapshot(context.Context, string) (observability.AdaptivePoolSnapshot, error) {
-	return observability.AdaptivePoolSnapshot{
+func (stubAdaptiveProvider) AdaptiveStatusSnapshot(context.Context, string) (taskforge.AdaptivePoolSnapshot, error) {
+	return taskforge.AdaptivePoolSnapshot{
 		Pool:                  "critical",
 		Queue:                 "critical",
 		AdaptiveEnabled:       true,
@@ -59,16 +57,16 @@ func (stubAdaptiveProvider) AdaptiveStatusSnapshot(context.Context, string) (obs
 
 type stubBudgetUsageProvider struct{}
 
-func (stubBudgetUsageProvider) DependencyBudgetUsageSnapshots(context.Context) ([]observability.DependencyBudgetUsageSnapshot, error) {
-	return []observability.DependencyBudgetUsageSnapshot{
+func (stubBudgetUsageProvider) DependencyBudgetUsageSnapshots(context.Context) ([]taskforge.DependencyBudgetUsageSnapshot, error) {
+	return []taskforge.DependencyBudgetUsageSnapshot{
 		{Budget: "downstream", Capacity: 5, InUse: 2},
 	}, nil
 }
 
 type stubWorkerLifecycleProvider struct{}
 
-func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]observability.WorkerLifecycleSnapshot, error) {
-	return []observability.WorkerLifecycleSnapshot{
+func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]taskforge.WorkerLifecycleSnapshot, error) {
+	return []taskforge.WorkerLifecycleSnapshot{
 		{
 			WorkerID:            "worker-a",
 			Pool:                "critical",
@@ -87,19 +85,19 @@ func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]
 }
 
 type stubTaskStateStore struct {
-	record store.TaskRecord
+	record taskforge.TaskRecord
 	err    error
 }
 
-func (s stubTaskStateStore) RecordQueued(context.Context, broker.TaskMessage) error {
+func (s stubTaskStateStore) RecordQueued(context.Context, taskforge.Task) error {
 	return nil
 }
 
-func (s stubTaskStateStore) RecordDelivery(context.Context, broker.Delivery, tasks.State, []byte) error {
+func (s stubTaskStateStore) RecordDelivery(context.Context, taskforge.Delivery, taskforge.State, []byte) error {
 	return nil
 }
 
-func (s stubTaskStateStore) Get(context.Context, string) (store.TaskRecord, error) {
+func (s stubTaskStateStore) Get(context.Context, string) (taskforge.TaskRecord, error) {
 	return s.record, s.err
 }
 
@@ -200,11 +198,11 @@ func TestTaskLookupHandlerReturnsTaskRecord(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/tasks/task-1", nil)
 
-	taskLookupHandler(stubTaskStateStore{record: store.TaskRecord{
+	taskLookupHandler(stubTaskStateStore{record: taskforge.TaskRecord{
 		TaskID:         "task-1",
 		Name:           "demo.echo",
 		Queue:          "default",
-		State:          tasks.StateSucceeded,
+		State:          taskforge.StateSucceeded,
 		UpdatedAt:      time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC),
 		DeliveryCount:  2,
 		LastDeliveryID: "delivery-2",
@@ -223,7 +221,7 @@ func TestTaskLookupHandlerReturnsTaskRecord(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if payload.TaskID != "task-1" || payload.State != string(tasks.StateSucceeded) || payload.DeliveryCount != 2 || payload.LastDeliveryID != "delivery-2" {
+	if payload.TaskID != "task-1" || payload.State != string(taskforge.StateSucceeded) || payload.DeliveryCount != 2 || payload.LastDeliveryID != "delivery-2" {
 		t.Fatalf("task lookup payload = %+v", payload)
 	}
 }
@@ -234,7 +232,7 @@ func TestTaskLookupHandlerReturnsNotFound(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/tasks/missing", nil)
 
-	taskLookupHandler(stubTaskStateStore{err: store.ErrTaskNotFound}).ServeHTTP(recorder, request)
+	taskLookupHandler(stubTaskStateStore{err: taskforge.ErrTaskNotFound}).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusNotFound)

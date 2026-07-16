@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/aminkbi/taskforge"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -16,12 +17,10 @@ import (
 )
 
 const (
-	defaultSchedulerPrefix = "taskforge"
+	defaultSchedulerPrefix = "taskforge:v2"
 )
 
 var (
-	ErrLeadershipLost = errors.New("scheduler: leadership lost")
-
 	acquireLeadershipScript = redis.NewScript(`
 local current = redis.call("GET", KEYS[1])
 if current then
@@ -48,21 +47,11 @@ return 1
 `)
 )
 
-type LeadershipFence struct {
-	Owner string
-	Epoch int64
-	Token string
-}
-
-func (f LeadershipFence) Valid() bool {
-	return f.Token != "" && f.Owner != "" && f.Epoch > 0
-}
-
 type LeadershipSnapshot struct {
 	Leader         bool
 	Owner          string
 	Epoch          int64
-	Fence          LeadershipFence
+	Fence          taskforge.LeadershipFence
 	AcquiredAt     time.Time
 	LastRenewedAt  time.Time
 	LastLostAt     time.Time
@@ -76,25 +65,6 @@ type LeadershipRecord struct {
 	Token        string
 	TTLRemaining time.Duration
 	ObservedAt   time.Time
-}
-
-type StaleLeadershipError struct {
-	Operation string
-}
-
-func (e *StaleLeadershipError) Error() string {
-	if e == nil || e.Operation == "" {
-		return ErrLeadershipLost.Error()
-	}
-	return fmt.Sprintf("%s during %s", ErrLeadershipLost, e.Operation)
-}
-
-func (e *StaleLeadershipError) Unwrap() error {
-	return ErrLeadershipLost
-}
-
-func NewStaleLeadershipError(operation string) error {
-	return &StaleLeadershipError{Operation: operation}
 }
 
 type RedisLeaderElector struct {
@@ -260,7 +230,7 @@ func (e *RedisLeaderElector) acquire(ctx context.Context, now time.Time) error {
 		Leader: true,
 		Owner:  e.owner,
 		Epoch:  epoch,
-		Fence: LeadershipFence{
+		Fence: taskforge.LeadershipFence{
 			Owner: e.owner,
 			Epoch: epoch,
 			Token: token,
@@ -314,7 +284,7 @@ func (e *RedisLeaderElector) demote(now time.Time, reason string) {
 		return
 	}
 	e.snapshot.Leader = false
-	e.snapshot.Fence = LeadershipFence{}
+	e.snapshot.Fence = taskforge.LeadershipFence{}
 	e.snapshot.LastRenewedAt = time.Time{}
 	e.snapshot.AcquiredAt = time.Time{}
 	e.snapshot.LastLostAt = now
@@ -329,16 +299,16 @@ func (e *RedisLeaderElector) epochKey() string {
 	return fmt.Sprintf("%s:scheduler:leader:epoch", e.prefix)
 }
 
-func parseLeadershipFence(token string) (LeadershipFence, error) {
+func parseLeadershipFence(token string) (taskforge.LeadershipFence, error) {
 	idx := strings.LastIndex(token, "|")
 	if idx <= 0 || idx == len(token)-1 {
-		return LeadershipFence{}, fmt.Errorf("invalid leadership token")
+		return taskforge.LeadershipFence{}, fmt.Errorf("invalid leadership token")
 	}
 	epoch, err := strconv.ParseInt(token[idx+1:], 10, 64)
 	if err != nil {
-		return LeadershipFence{}, fmt.Errorf("parse leadership epoch: %w", err)
+		return taskforge.LeadershipFence{}, fmt.Errorf("parse leadership epoch: %w", err)
 	}
-	return LeadershipFence{
+	return taskforge.LeadershipFence{
 		Owner: token[:idx],
 		Epoch: epoch,
 		Token: token,

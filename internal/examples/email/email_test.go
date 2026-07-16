@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 func TestHandlerSkipsDuplicateEmailSend(t *testing.T) {
@@ -24,7 +24,7 @@ func TestHandlerSkipsDuplicateEmailSend(t *testing.T) {
 	store := NewIdempotencyStore()
 	mailer := &CaptureMailer{}
 	handler := Handler{Mailer: mailer, Store: store}
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:             "task-1",
 		IdempotencyKey: "email:ops@example.com",
 		Name:           TaskSendEmail,
@@ -64,7 +64,7 @@ func TestHandlerReleasesIdempotencySlotOnFailure(t *testing.T) {
 		}),
 		Store: store,
 	}
-	message := broker.TaskMessage{
+	message := taskforge.Task{
 		ID:             "task-1",
 		IdempotencyKey: "email:ops@example.com",
 		Name:           TaskSendEmail,

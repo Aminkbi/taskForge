@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 func TestHandlerAppendFile(t *testing.T) {
@@ -18,7 +18,7 @@ func TestHandlerAppendFile(t *testing.T) {
 	path := filepath.Join(dir, "demo.log")
 	handler := Handler{Logger: slog.Default()}
 
-	err := handler.HandleTask(context.Background(), broker.TaskMessage{
+	err := handler.HandleTask(context.Background(), taskforge.Task{
 		ID:      "demo-task-1",
 		Name:    TaskAppendFile,
 		Payload: []byte(`{"path":"` + path + `","line":"hello scheduler"}`),

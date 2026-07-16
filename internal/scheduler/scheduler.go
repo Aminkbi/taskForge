@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"github.com/aminkbi/taskforge"
 	"log/slog"
 	"sync"
 	"time"
@@ -13,11 +14,11 @@ import (
 )
 
 type DueMover interface {
-	MoveDue(ctx context.Context, fence LeadershipFence, now time.Time, limit int64) (int, error)
+	MoveDue(ctx context.Context, fence taskforge.LeadershipFence, now time.Time, limit int64) (int, error)
 }
 
 type RecurringDispatcher interface {
-	SyncDue(ctx context.Context, fence LeadershipFence, now time.Time) (int, error)
+	SyncDue(ctx context.Context, fence taskforge.LeadershipFence, now time.Time) (int, error)
 }
 
 type LeaderElector interface {
@@ -196,7 +197,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 }
 
 func (s *Scheduler) handleControlPlaneError(err error) bool {
-	var staleErr *StaleLeadershipError
+	var staleErr *taskforge.StaleLeadershipError
 	if !errors.As(err, &staleErr) {
 		return false
 	}

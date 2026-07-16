@@ -7,31 +7,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aminkbi/taskforge"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type QueueMetricsSnapshot struct {
-	Depth     float64
-	Reserved  float64
-	Consumers float64
-}
-
 type QueueMetricsProvider interface {
-	QueueMetricsSnapshot(ctx context.Context, queue string) (QueueMetricsSnapshot, error)
-}
-
-type FairnessMetricsSnapshot struct {
-	Bucket         string
-	Depth          float64
-	Reserved       float64
-	OldestReadyAge float64
-	Weight         float64
+	QueueMetricsSnapshot(ctx context.Context, queue string) (taskforge.QueueMetricsSnapshot, error)
 }
 
 type FairnessMetricsProvider interface {
-	FairnessMetricsSnapshot(ctx context.Context, queue string, now time.Time) ([]FairnessMetricsSnapshot, error)
+	FairnessMetricsSnapshot(ctx context.Context, queue string, now time.Time) ([]taskforge.FairnessMetricsSnapshot, error)
 }
 
 type DeadLetterMetricsProvider interface {
@@ -42,84 +29,24 @@ type SchedulerLagMetricsProvider interface {
 	SchedulerLag(ctx context.Context, now time.Time, queue string) (float64, error)
 }
 
-type AdmissionStatusSnapshot struct {
-	Queue              string
-	Mode               string
-	State              string
-	Reason             string
-	QueuePending       float64
-	FairnessKeyPending float64
-	OldestReadyAge     float64
-	RetryBacklog       float64
-	DeadLetterSize     float64
-	DeferInterval      time.Duration
-	UpdatedAt          time.Time
-}
-
 type AdmissionStatusProvider interface {
-	AdmissionStatusSnapshot(ctx context.Context, queue string, now time.Time) (AdmissionStatusSnapshot, error)
-}
-
-type DependencyBudgetUsageSnapshot struct {
-	Budget   string
-	Capacity float64
-	InUse    float64
+	AdmissionStatusSnapshot(ctx context.Context, queue string, now time.Time) (taskforge.AdmissionStatusSnapshot, error)
 }
 
 type DependencyBudgetUsageProvider interface {
-	DependencyBudgetUsageSnapshots(ctx context.Context) ([]DependencyBudgetUsageSnapshot, error)
-}
-
-type AdaptivePoolSnapshot struct {
-	Pool                  string
-	Queue                 string
-	AdaptiveEnabled       bool
-	ConfiguredConcurrency float64
-	EffectiveConcurrency  float64
-	MinConcurrency        float64
-	MaxConcurrency        float64
-	AvgLatencySeconds     float64
-	ErrorRate             float64
-	BudgetBlocked         float64
-	Backlog               float64
-	HealthyWindows        float64
-	LastAdjustmentAction  string
-	LastAdjustmentReason  string
-	LastAdjustedAt        time.Time
+	DependencyBudgetUsageSnapshots(ctx context.Context) ([]taskforge.DependencyBudgetUsageSnapshot, error)
 }
 
 type AdaptiveStatusProvider interface {
-	AdaptiveStatusSnapshot(ctx context.Context, pool string) (AdaptivePoolSnapshot, error)
-}
-
-type WorkerLifecycleSnapshot struct {
-	WorkerID            string
-	Pool                string
-	Queue               string
-	State               string
-	Pending             float64
-	Running             float64
-	DrainStartedAt      time.Time
-	DrainDeadline       time.Time
-	LastShutdownOutcome string
-	AbandonedDeliveries float64
-	DrainLeaseLosses    float64
-	UpdatedAt           time.Time
+	AdaptiveStatusSnapshot(ctx context.Context, pool string) (taskforge.AdaptivePoolSnapshot, error)
 }
 
 type WorkerLifecycleProvider interface {
-	WorkerLifecycleSnapshots(ctx context.Context) ([]WorkerLifecycleSnapshot, error)
-}
-
-type SchedulerLeadershipSnapshot struct {
-	Leader        bool
-	Owner         string
-	Epoch         float64
-	LastRenewedAt time.Time
+	WorkerLifecycleSnapshots(ctx context.Context) ([]taskforge.WorkerLifecycleSnapshot, error)
 }
 
 type SchedulerLeadershipProvider interface {
-	SchedulerLeadershipSnapshot(ctx context.Context) (SchedulerLeadershipSnapshot, error)
+	SchedulerLeadershipSnapshot(ctx context.Context) (taskforge.SchedulerLeadershipSnapshot, error)
 }
 
 type Metrics struct {

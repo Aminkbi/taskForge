@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 func TestHandlerProcessesAllMediaSteps(t *testing.T) {
@@ -26,7 +26,7 @@ func TestHandlerProcessesAllMediaSteps(t *testing.T) {
 		Recorder:     recorder,
 	}
 
-	if err := handler.HandleTask(context.Background(), broker.TaskMessage{
+	if err := handler.HandleTask(context.Background(), taskforge.Task{
 		ID:      "task-1",
 		Name:    TaskProcessMedia,
 		Payload: payload,

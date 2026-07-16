@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +10,7 @@ import (
 func TestHandlerServesIndex(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.StripPrefix("/dashboard/", Handler()))
-	defer srv.Close()
+	handler := http.StripPrefix("/dashboard/", Handler())
 
 	cases := []struct {
 		name     string
@@ -26,20 +24,13 @@ func TestHandlerServesIndex(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Get(srv.URL + tc.path)
-			if err != nil {
-				t.Fatalf("GET %s: %v", tc.path, err)
-			}
-			defer resp.Body.Close()
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tc.path, nil))
 
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("GET %s: status = %d, want 200", tc.path, resp.StatusCode)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("GET %s: status = %d, want 200", tc.path, recorder.Code)
 			}
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("GET %s: read body: %v", tc.path, err)
-			}
-			if !strings.Contains(string(body), tc.wantBody) {
+			if !strings.Contains(recorder.Body.String(), tc.wantBody) {
 				t.Errorf("GET %s: body does not contain %q", tc.path, tc.wantBody)
 			}
 		})

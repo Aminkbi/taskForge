@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"github.com/aminkbi/taskforge"
 	"slices"
 	"testing"
 	"time"
@@ -11,8 +12,8 @@ import (
 
 type stubQueueMetricsProvider struct{}
 
-func (stubQueueMetricsProvider) QueueMetricsSnapshot(context.Context, string) (QueueMetricsSnapshot, error) {
-	return QueueMetricsSnapshot{
+func (stubQueueMetricsProvider) QueueMetricsSnapshot(context.Context, string) (taskforge.QueueMetricsSnapshot, error) {
+	return taskforge.QueueMetricsSnapshot{
 		Depth:     3,
 		Reserved:  1,
 		Consumers: 2,
@@ -33,8 +34,8 @@ func (stubSchedulerLagMetricsProvider) SchedulerLag(context.Context, time.Time, 
 
 type stubFairnessMetricsProvider struct{}
 
-func (stubFairnessMetricsProvider) FairnessMetricsSnapshot(context.Context, string, time.Time) ([]FairnessMetricsSnapshot, error) {
-	return []FairnessMetricsSnapshot{
+func (stubFairnessMetricsProvider) FairnessMetricsSnapshot(context.Context, string, time.Time) ([]taskforge.FairnessMetricsSnapshot, error) {
+	return []taskforge.FairnessMetricsSnapshot{
 		{
 			Bucket:         "protected",
 			Depth:          2,
@@ -47,8 +48,8 @@ func (stubFairnessMetricsProvider) FairnessMetricsSnapshot(context.Context, stri
 
 type stubAdmissionStatusProvider struct{}
 
-func (stubAdmissionStatusProvider) AdmissionStatusSnapshot(context.Context, string, time.Time) (AdmissionStatusSnapshot, error) {
-	return AdmissionStatusSnapshot{
+func (stubAdmissionStatusProvider) AdmissionStatusSnapshot(context.Context, string, time.Time) (taskforge.AdmissionStatusSnapshot, error) {
+	return taskforge.AdmissionStatusSnapshot{
 		Queue:              "critical",
 		Mode:               "defer",
 		State:              "degraded",
@@ -65,16 +66,16 @@ func (stubAdmissionStatusProvider) AdmissionStatusSnapshot(context.Context, stri
 
 type stubDependencyBudgetProvider struct{}
 
-func (stubDependencyBudgetProvider) DependencyBudgetUsageSnapshots(context.Context) ([]DependencyBudgetUsageSnapshot, error) {
-	return []DependencyBudgetUsageSnapshot{
+func (stubDependencyBudgetProvider) DependencyBudgetUsageSnapshots(context.Context) ([]taskforge.DependencyBudgetUsageSnapshot, error) {
+	return []taskforge.DependencyBudgetUsageSnapshot{
 		{Budget: "downstream", Capacity: 5, InUse: 2},
 	}, nil
 }
 
 type stubWorkerLifecycleProvider struct{}
 
-func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]WorkerLifecycleSnapshot, error) {
-	return []WorkerLifecycleSnapshot{
+func (stubWorkerLifecycleProvider) WorkerLifecycleSnapshots(context.Context) ([]taskforge.WorkerLifecycleSnapshot, error) {
+	return []taskforge.WorkerLifecycleSnapshot{
 		{
 			WorkerID:            "worker-a",
 			Pool:                "critical",

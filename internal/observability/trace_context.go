@@ -8,8 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	"github.com/aminkbi/taskforge"
 )
 
 const (
@@ -81,9 +80,9 @@ func TraceIDFromContext(ctx context.Context) string {
 	return spanCtx.TraceID().String()
 }
 
-func StartQueueSpan(ctx context.Context, component, name string, msg broker.TaskMessage, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+func StartQueueSpan(ctx context.Context, component, name string, msg taskforge.Task, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	baseAttrs := []attribute.KeyValue{
-		attribute.String("taskforge.queue", tasks.EffectiveQueue(msg)),
+		attribute.String("taskforge.queue", taskforge.EffectiveQueue(msg)),
 		attribute.String("taskforge.task_name", msg.Name),
 		attribute.String("taskforge.task_id", msg.ID),
 		attribute.Int("taskforge.attempt", msg.Attempt),

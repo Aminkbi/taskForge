@@ -8,7 +8,6 @@ Use `TASKFORGE_`-prefixed variables for service settings and JSON variables for 
 ```env
 TASKFORGE_LOG_LEVEL=info
 TASKFORGE_HTTP_ADDR=:8080
-TASKFORGE_METRICS_ADDR=:8080
 TASKFORGE_REDIS_ADDR=localhost:6379
 TASKFORGE_REDIS_PASSWORD=
 TASKFORGE_REDIS_DB=0
@@ -23,7 +22,7 @@ TASKFORGE_OTEL_ENABLED=false
 TASKFORGE_SERVICE_NAME=taskforge
 ```
 
-`TASKFORGE_METRICS_ADDR` is part of the config surface, but `/metrics` is currently served on the main HTTP listener.
+`/metrics` is served on `TASKFORGE_HTTP_ADDR`.
 `TASKFORGE_SHUTDOWN_TIMEOUT` is also the worker drain grace window.
 
 ## Worker Pools

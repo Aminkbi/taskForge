@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/aminkbi/taskforge/internal/broker"
+	"github.com/aminkbi/taskforge"
 )
 
 type MisfirePolicy string
@@ -22,9 +22,6 @@ const (
 )
 
 const (
-	HeaderScheduledFor          = "taskforge_scheduled_for"
-	HeaderReleasedAt            = "taskforge_released_at"
-	HeaderReleaseLagMS          = "taskforge_release_lag_ms"
 	HeaderScheduleID            = "taskforge_schedule_id"
 	HeaderScheduleNominalAt     = "taskforge_schedule_nominal_at"
 	HeaderScheduleDispatchedAt  = "taskforge_schedule_dispatched_at"
@@ -53,17 +50,17 @@ type ScheduleState struct {
 }
 
 type ScheduleStateStore interface {
-	ReconcileConfigured(ctx context.Context, fence LeadershipFence, schedules []ScheduleDefinition, now time.Time) error
+	ReconcileConfigured(ctx context.Context, fence taskforge.LeadershipFence, schedules []ScheduleDefinition, now time.Time) error
 	DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error)
 	LoadStates(ctx context.Context, scheduleIDs []string) (map[string]ScheduleState, error)
-	SaveIndexed(ctx context.Context, fence LeadershipFence, scheduleID string, state ScheduleState) error
-	AdvanceIfUnchanged(ctx context.Context, fence LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error)
-	RemoveSchedule(ctx context.Context, fence LeadershipFence, scheduleID string) error
-	RemoveFromDueIndex(ctx context.Context, fence LeadershipFence, scheduleID string) error
+	SaveIndexed(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string, state ScheduleState) error
+	AdvanceIfUnchanged(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string, expected ScheduleState, next ScheduleState) (bool, error)
+	RemoveSchedule(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string) error
+	RemoveFromDueIndex(ctx context.Context, fence taskforge.LeadershipFence, scheduleID string) error
 }
 
 type RecurringService struct {
-	publisher           broker.Broker
+	publisher           taskforge.Broker
 	store               ScheduleStateStore
 	schedules           []ScheduleDefinition
 	scheduleByID        map[string]ScheduleDefinition
@@ -75,7 +72,7 @@ type RecurringService struct {
 const recurringDueBatchLimit int64 = 100
 
 func NewRecurringService(
-	publisher broker.Broker,
+	publisher taskforge.Broker,
 	store ScheduleStateStore,
 	schedules []ScheduleDefinition,
 	logger *slog.Logger,
@@ -97,7 +94,7 @@ func NewRecurringService(
 	}
 }
 
-func (s *RecurringService) SyncDue(ctx context.Context, fence LeadershipFence, now time.Time) (int, error) {
+func (s *RecurringService) SyncDue(ctx context.Context, fence taskforge.LeadershipFence, now time.Time) (int, error) {
 	if s.lastReconciledEpoch != fence.Epoch {
 		if err := s.store.ReconcileConfigured(ctx, fence, s.schedules, now); err != nil {
 			return 0, fmt.Errorf("reconcile recurring schedules: %w", err)
@@ -151,7 +148,7 @@ func (s *RecurringService) SyncDue(ctx context.Context, fence LeadershipFence, n
 
 			expectedState := state
 			nominalAt, nextRunAt, missedRuns := coalesceNextRun(state.NextRunAt, schedule.Interval, now)
-			task := broker.TaskMessage{
+			task := taskforge.Task{
 				ID:          s.idFunc(),
 				Name:        schedule.TaskName,
 				Queue:       schedule.Queue,
@@ -166,8 +163,8 @@ func (s *RecurringService) SyncDue(ctx context.Context, fence LeadershipFence, n
 			task.Headers[HeaderScheduleMisfirePolicy] = string(schedule.MisfirePolicy)
 			task.Headers[HeaderScheduleMissedRuns] = fmt.Sprintf("%d", missedRuns)
 
-			if _, err := s.publisher.Publish(ctx, task, broker.PublishOptions{
-				Source:           broker.PublishSourceRecurring,
+			if _, err := s.publisher.Publish(ctx, task, taskforge.PublishOptions{
+				Source:           taskforge.PublishSourceRecurring,
 				DeduplicationKey: fmt.Sprintf("recurring:%s:%s", schedule.ID, nominalAt.UTC().Format(time.RFC3339Nano)),
 			}); err != nil {
 				return dispatched, fmt.Errorf("publish recurring task for %s: %w", schedule.ID, err)

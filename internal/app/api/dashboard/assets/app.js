@@ -80,7 +80,6 @@ const state = {
     TASKFORGE_SERVICE_NAME: "taskforge-api",
     TASKFORGE_LOG_LEVEL: "info",
     TASKFORGE_HTTP_ADDR: ":8080",
-    TASKFORGE_METRICS_ADDR: ":9090",
     TASKFORGE_REDIS_ADDR: "localhost:6379",
     TASKFORGE_REDIS_PASSWORD: "",
     TASKFORGE_REDIS_DB: 0,
@@ -107,7 +106,7 @@ function newPool() {
   return {
     _open: true,
     name: "", queue: "", concurrency: 4, prefetch: 8, lease_ttl: "30s",
-    retry: { max_attempts: 3, max_deliveries: "", initial_backoff: "1s", max_backoff: "1m", multiplier: 2, jitter: 0.1, max_task_age: "" },
+    retry: { max_deliveries: 3, initial_backoff: "1s", max_backoff: "1m", multiplier: 2, jitter: 0.1, max_task_age: "" },
     taskLimits: [],
     fairness: { enabled: false, defaultRule: { weight: 1, reserved_concurrency: 0, soft_quota: 0, hard_quota: 0, burst: 0 }, rules: [] },
     admission: { enabled: false, mode: "defer", max_pending: 0, max_pending_per_fairness_key: 0, max_oldest_ready_age: "", max_retry_backlog: 0, max_dead_letter_size: 0, defer_interval: "1s" },
@@ -126,7 +125,6 @@ function renderCore() {
     field(state.core, "TASKFORGE_SERVICE_NAME", "Service name", { desc: "identifies this process in logs/traces" }),
     field(state.core, "TASKFORGE_LOG_LEVEL", "Log level", { type: "select", options: ["debug", "info", "warn", "error"] }),
     field(state.core, "TASKFORGE_HTTP_ADDR", "HTTP address", { placeholder: ":8080", desc: "health, metrics, admin & dashboard" }),
-    field(state.core, "TASKFORGE_METRICS_ADDR", "Metrics address", { placeholder: ":9090", desc: "reserved; /metrics is on the HTTP addr today" }),
     field(state.core, "TASKFORGE_REDIS_ADDR", "Redis address", { placeholder: "localhost:6379", desc: "host:port of the broker/store backend" }),
     field(state.core, "TASKFORGE_REDIS_PASSWORD", "Redis password", { placeholder: "(none)", desc: "leave blank if unauthenticated" }),
     field(state.core, "TASKFORGE_REDIS_DB", "Redis DB", { type: "number", min: 0, desc: "logical DB number" }),
@@ -184,8 +182,7 @@ function renderPools() {
       const rg = el("div", { class: "grid three" });
       const r = p.retry;
       rg.append(
-        field(r, "max_attempts", "Max attempts", { type: "number", min: 0, desc: "tries before dead-lettering" }),
-        field(r, "max_deliveries", "Max deliveries", { type: "number", min: 0, desc: "redelivery cap; blank = max attempts" }),
+        field(r, "max_deliveries", "Max deliveries", { type: "number", min: 0, desc: "broker delivery cap" }),
         field(r, "multiplier", "Backoff multiplier", { type: "number", desc: "growth factor per retry, e.g. 2" }),
         field(r, "initial_backoff", "Initial backoff", { placeholder: "1s", desc: "wait before first retry" }),
         field(r, "max_backoff", "Max backoff", { placeholder: "1m", desc: "cap on retry wait" }),
@@ -574,7 +571,6 @@ function buildConfig() {
 
 function compactRetry(r) {
   const out = {};
-  if (num(r.max_attempts) > 0) out.max_attempts = num(r.max_attempts);
   if (num(r.max_deliveries) > 0) out.max_deliveries = num(r.max_deliveries);
   if (r.initial_backoff) out.initial_backoff = r.initial_backoff;
   if (r.max_backoff) out.max_backoff = r.max_backoff;

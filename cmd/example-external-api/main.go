@@ -9,19 +9,17 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/aminkbi/taskforge/internal/broker"
-	"github.com/aminkbi/taskforge/internal/brokerredis"
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/config"
-	"github.com/aminkbi/taskforge/internal/dlq"
 	"github.com/aminkbi/taskforge/internal/examples/externalapi"
 	"github.com/aminkbi/taskforge/internal/examples/shared"
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
-	runtimepkg "github.com/aminkbi/taskforge/internal/runtime"
 	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/internal/shutdown"
-	"github.com/aminkbi/taskforge/internal/tasks"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
 func main() {
@@ -64,36 +62,32 @@ func main() {
 	})
 	defer client.Close()
 
-	metrics := observability.NewMetrics()
 	leaseTTL := time.Second
-	exampleBroker := brokerredis.NewWithOptions(client, logger.With("component", "brokerredis"), leaseTTL, metrics, brokerredis.Options{
+	exampleBroker := taskforgeredis.New(taskforgeredis.Options{
+		Client: client, Logger: logger.With("component", "redis"), LeaseTTL: leaseTTL,
 		ReserveTimeout: 25 * time.Millisecond,
 	})
 	if err := exampleBroker.Ping(ctx); err != nil {
 		logger.Error("ping redis", "error", err)
 		os.Exit(1)
 	}
-	if err := client.FlushDB(ctx).Err(); err != nil {
-		logger.Error("flush example redis db", "error", err)
-		os.Exit(1)
-	}
-
 	fakeClient := externalapi.NewFakeClient(0)
-	deadLetters := dlq.NewService(client, exampleBroker, logger.With("component", "dlq"))
-	worker := &runtimepkg.Worker{
+	worker, err := runtimepkg.New(runtimepkg.Options{
 		Broker:      exampleBroker,
-		DeadLetter:  deadLetters,
+		DeadLetter:  exampleBroker,
 		Handler:     externalapi.Handler{Client: fakeClient, Logger: logger.With("component", "example-external-api-handler")},
 		Logger:      logger.With("component", "worker-runtime"),
-		Metrics:     metrics,
-		Clock:       clock.RealClock{},
-		RetryPolicy: tasks.DefaultRetryPolicy(2),
+		RetryPolicy: taskforge.DefaultRetryPolicy(2),
 		PoolName:    "example-external-api",
 		Queue:       "external",
 		ConsumerID:  cfg.ServiceName,
 		LeaseTTL:    leaseTTL,
 		Concurrency: 1,
 		Prefetch:    1,
+	})
+	if err != nil {
+		logger.Error("build worker", "error", err)
+		os.Exit(1)
 	}
 
 	elector := schedulerpkg.NewRedisLeaderElector(
@@ -136,26 +130,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	if _, err := exampleBroker.Publish(runCtx, broker.TaskMessage{
+	if _, err := exampleBroker.Publish(runCtx, taskforge.Task{
 		ID:        "tenant-42",
 		Name:      externalapi.TaskSyncExternalResource,
 		Queue:     "external",
 		Payload:   payload,
 		CreatedAt: time.Now().UTC(),
 		Headers: map[string]string{
-			tasks.HeaderRetryMaxDeliveries:  "2",
-			tasks.HeaderRetryInitialBackoff: "50ms",
-			tasks.HeaderRetryMaxBackoff:     "50ms",
-			tasks.HeaderRetryMultiplier:     "1",
+			taskforge.HeaderRetryMaxDeliveries:  "2",
+			taskforge.HeaderRetryInitialBackoff: "50ms",
+			taskforge.HeaderRetryMaxBackoff:     "50ms",
+			taskforge.HeaderRetryMultiplier:     "1",
 		},
-	}, broker.PublishOptions{Source: broker.PublishSourceNew}); err != nil {
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 		logger.Error("publish external api task", "error", err)
 		os.Exit(1)
 	}
 
-	var deadLetterEntry dlq.Entry
+	var deadLetterEntry taskforge.DeadLetterEntry
 	if err := shared.WaitFor(runCtx, 25*time.Millisecond, func() (bool, error) {
-		entries, err := deadLetters.List(runCtx, "external", 10)
+		entries, err := exampleBroker.ListDeadLetters(runCtx, "external", 10)
 		if err != nil {
 			return false, err
 		}
@@ -170,7 +164,7 @@ func main() {
 	}
 
 	fakeClient.SetAvailable(true)
-	if err := deadLetters.Replay(runCtx, "external", deadLetterEntry.ID); err != nil {
+	if err := exampleBroker.ReplayDeadLetter(runCtx, "external", deadLetterEntry.ID); err != nil {
 		logger.Error("replay dead-letter entry", "error", err)
 		os.Exit(1)
 	}
