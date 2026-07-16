@@ -12,7 +12,7 @@ dist_dir="${TASKFORGE_DIST_DIR:-dist}"
 platforms="${TASKFORGE_PLATFORMS:-linux/amd64}"
 
 mkdir -p "$dist_dir"
-rm -f "$dist_dir/SHA256SUMS"
+rm -f "$dist_dir/SHA256SUMS" "$dist_dir/taskforge-binaries.spdx.json" "$dist_dir/provenance.json"
 
 for platform in $platforms; do
   os="${platform%/*}"
@@ -30,5 +30,14 @@ done
 
 (
   cd "$dist_dir"
-  sha256sum taskforge-* > SHA256SUMS
+  sha256sum taskforge-scheduler-* taskforge-api-* > SHA256SUMS
 )
+
+go run ./scripts/generate-sbom.go \
+  --output "$dist_dir/taskforge-binaries.spdx.json" \
+  --version "$version" \
+  --commit "$commit"
+
+cat >"$dist_dir/provenance.json" <<EOF
+{"buildType":"https://taskforge.dev/release/v1","builder":"local-or-github-actions","commit":"$commit","version":"$version","subjects":"SHA256SUMS","sbom":"taskforge-binaries.spdx.json"}
+EOF

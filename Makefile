@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test integration-test race-test bench bench-smoke lint fmt docs-check release-smoke compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test integration-test race-test bench bench-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -43,6 +43,12 @@ docs-check:
 
 release-smoke:
 	$(SHELL) ./scripts/release-smoke.sh
+
+release-validate:
+	$(SHELL) ./scripts/release-validate.sh
+
+vuln-check:
+	$(SHELL) ./scripts/vuln-check.sh
 
 compose-up:
 	docker compose up --build -d
