@@ -186,9 +186,12 @@ func TestAdaptiveHandlerReturnsPoolAndBudgetSnapshots(t *testing.T) {
 func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 	t.Parallel()
 
-	app := New(config.Config{
+	app, err := New(config.Config{
 		RedisAddr: ":6379",
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	if app == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -197,7 +200,10 @@ func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 func TestAppSafeDefaultExposure(t *testing.T) {
 	t.Parallel()
 
-	app := New(config.Config{RedisAddr: ":6379"}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	app, err := New(config.Config{RedisAddr: ":6379"}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	for _, tc := range []struct {
 		path string
 		want int
@@ -220,7 +226,10 @@ func TestAppOperatorRouteRequiresAuthenticationAndRestrictsMethod(t *testing.T) 
 	t.Parallel()
 
 	const token = "0123456789abcdef0123456789abcdef"
-	app := New(config.Config{RedisAddr: ":6379", HTTPAuthToken: token}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	app, err := New(config.Config{RedisAddr: ":6379", HTTPAuthToken: token}, slog.New(slog.NewTextHandler(io.Discard, nil)), observability.NewMetrics())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
 	unauthorized := httptest.NewRecorder()
 	app.server.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/v1/admin/ping", nil))

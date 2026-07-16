@@ -1,4 +1,4 @@
-# Cluster Routing and Sharding Operations
+# Logical Routing and Sharding Operations
 
 This page owns placement operations. The routing-policy schema and examples
 belong to the [configuration reference](../reference/configuration.md).
@@ -7,6 +7,10 @@ TaskForge chooses placement before a new task enters Redis. Retries, delayed
 releases, recurrence, DLQ flows, and requeues retain the task's existing queue.
 Logical shard metadata identifies placement for operators; current Redis keys
 remain queue-scoped.
+
+This is application-level placement, not Redis Cluster support. TaskForge
+supports only a direct connection to standalone Redis; see the [Redis operating
+model](redis.md).
 
 ## Boundaries
 

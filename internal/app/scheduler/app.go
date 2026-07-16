@@ -22,18 +22,20 @@ import (
 )
 
 type App struct {
-	server    *httpserver.Server
-	scheduler *schedulerpkg.Scheduler
+	server         *httpserver.Server
+	scheduler      *schedulerpkg.Scheduler
+	client         *redis.Client
+	connectTimeout time.Duration
 }
 
-func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) *App {
-	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
-
-	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis")))
+func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) (*App, error) {
+	options, err := cfg.RedisOptions(nil, logger.With("component", "redis"))
+	if err != nil {
+		return nil, fmt.Errorf("configure Redis: %w", err)
+	}
+	client := taskforgeredis.NewClient(options)
+	options.Client = client
+	b := taskforgeredis.New(options)
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
 		client,
@@ -172,9 +174,11 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	})
 
 	return &App{
-		server:    server,
-		scheduler: schedulerRuntime,
-	}
+		server:         server,
+		scheduler:      schedulerRuntime,
+		client:         client,
+		connectTimeout: cfg.RedisConnectTimeout,
+	}, nil
 }
 
 type schedulerLeadershipMetricsProvider struct {
@@ -192,6 +196,12 @@ func (p schedulerLeadershipMetricsProvider) SchedulerLeadershipSnapshot(context.
 }
 
 func (a *App) Run(ctx context.Context) error {
+	defer a.client.Close()
+	connectCtx, cancel := context.WithTimeout(ctx, a.connectTimeout)
+	defer cancel()
+	if err := taskforgeredis.ValidateClient(connectCtx, a.client); err != nil {
+		return fmt.Errorf("validate Redis connection: %w", err)
+	}
 	a.server.SetReady(true)
 
 	errCh := make(chan error, 2)

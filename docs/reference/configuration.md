@@ -70,6 +70,12 @@ TASKFORGE_HTTP_MAX_HEADER_BYTES=16384
 TASKFORGE_REDIS_ADDR=localhost:6379
 TASKFORGE_REDIS_PASSWORD=
 TASKFORGE_REDIS_DB=0
+TASKFORGE_REDIS_CONNECT_TIMEOUT=5s
+TASKFORGE_REDIS_TLS_ENABLED=false
+TASKFORGE_REDIS_TLS_CA_FILE=
+TASKFORGE_REDIS_TLS_CERT_FILE=
+TASKFORGE_REDIS_TLS_KEY_FILE=
+TASKFORGE_REDIS_TLS_SERVER_NAME=
 TASKFORGE_SERVICE_NAME=taskforge
 TASKFORGE_OTEL_ENABLED=false
 TASKFORGE_SHUTDOWN_TIMEOUT=10s
@@ -94,6 +100,26 @@ The four HTTP durations bound connection/request lifetime. The byte settings
 bound request bodies and headers. `TASKFORGE_SHUTDOWN_TIMEOUT` bounds HTTP
 graceful shutdown and tracing shutdown and is also the worker drain grace
 window.
+
+## Redis connectivity
+
+TaskForge supports a direct connection to a writable **standalone Redis
+primary**. Scheduler and API sidecars validate that endpoint during startup;
+they reject Redis Cluster, Sentinel, and replica endpoints. Sentinel and Redis
+Cluster are out of scope. The broker uses multi-key Lua scripts and its keys
+are not designed or tested for Redis Cluster hash-slot rules.
+
+Set `TASKFORGE_REDIS_TLS_ENABLED=true` for `rediss`-style TLS. TLS 1.2 is the
+minimum. `TASKFORGE_REDIS_TLS_CA_FILE` replaces the system trust pool for this
+connection; leave it empty to use the host trust store. Set certificate and key
+files together only when the Redis server requires mutual TLS. Set
+`TASKFORGE_REDIS_TLS_SERVER_NAME` when the certificate name differs from the
+address. TLS verification cannot be disabled.
+
+`TASKFORGE_REDIS_CONNECT_TIMEOUT` bounds the sidecars' startup validation.
+Embedded applications should use `redis.OpenFromConfig`, which performs the
+same validation before returning a broker. See the [Redis operating
+model](../operations/redis.md) for persistence and recovery requirements.
 
 Worker policies use `TASKFORGE_WORKER_POOLS_JSON`:
 

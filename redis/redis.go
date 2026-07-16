@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,6 +181,7 @@ type Options struct {
 	Addr              string
 	Password          string
 	DB                int
+	TLSConfig         *tls.Config
 	Client            *redis.Client
 	Logger            *slog.Logger
 	LeaseTTL          time.Duration
@@ -212,11 +214,7 @@ func New(options Options) *Broker {
 	client := options.Client
 	ownedClient := false
 	if client == nil {
-		addr := options.Addr
-		if addr == "" {
-			addr = defaultAddr
-		}
-		client = redis.NewClient(&redis.Options{Addr: addr, Password: options.Password, DB: options.DB})
+		client = NewClient(options)
 		ownedClient = true
 	}
 	metrics := observability.NewMetrics()

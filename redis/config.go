@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/aminkbi/taskforge"
@@ -67,6 +68,16 @@ func NewFromConfig(config taskforge.Config, base Options) (*Broker, error) {
 		return nil, err
 	}
 	return New(options), nil
+}
+
+// OpenFromConfig validates product configuration and the Redis connection
+// before returning a broker. Prefer it during application startup.
+func OpenFromConfig(ctx context.Context, config taskforge.Config, base Options) (*Broker, error) {
+	options, err := OptionsFromConfig(base, config)
+	if err != nil {
+		return nil, err
+	}
+	return Open(ctx, options)
 }
 
 func redisFairnessRule(rule taskforge.FairnessRule) FairnessRule {

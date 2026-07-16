@@ -54,7 +54,11 @@ func main() {
 	}()
 
 	metrics := observability.NewMetrics()
-	app := apiapp.New(cfg, logger, metrics)
+	app, err := apiapp.New(cfg, logger, metrics)
+	if err != nil {
+		logger.Error("configure API", "error", err)
+		os.Exit(1)
+	}
 	if err := app.Run(ctx); err != nil {
 		logger.Error("api exited with error", "error", err)
 		os.Exit(1)

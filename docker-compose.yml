@@ -1,15 +1,27 @@
 services:
   redis:
     image: redis:7.4-alpine
+    command: >-
+      redis-server --appendonly yes --appendfsync everysec --save 60 1
+      --maxmemory-policy noeviction
     ports:
       - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   scheduler:
     build:
       context: .
       dockerfile: deploy/docker/scheduler.Dockerfile
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       TASKFORGE_HTTP_ADDR: :8080
       TASKFORGE_HTTP_AUTH_TOKEN: taskforge-compose-development-only-0000000000000000
@@ -26,7 +38,8 @@ services:
       context: .
       dockerfile: deploy/docker/api.Dockerfile
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       TASKFORGE_HTTP_ADDR: :8080
       TASKFORGE_HTTP_AUTH_TOKEN: taskforge-compose-development-only-0000000000000000
@@ -38,9 +51,14 @@ services:
   prometheus:
     image: prom/prometheus:v3.2.1
     depends_on:
-      - scheduler
-      - api
+      scheduler:
+        condition: service_started
+      api:
+        condition: service_started
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "127.0.0.1:9090:9090"
+
+volumes:
+  redis-data:

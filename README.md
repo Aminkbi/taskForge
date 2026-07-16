@@ -72,7 +72,7 @@ cfg := taskforge.Config{
 		TaskTimeout: 30 * time.Second,
 	}},
 }
-broker, err := taskforgeredis.NewFromConfig(cfg, taskforgeredis.Options{
+broker, err := taskforgeredis.OpenFromConfig(ctx, cfg, taskforgeredis.Options{
 	Addr: "localhost:6379",
 })
 if err != nil {
@@ -153,8 +153,9 @@ test/integration/     opt-in Redis integration tests
 - [Configuration reference](./docs/reference/configuration.md)
 - [HTTP and operations API reference](./docs/reference/http-api.md)
 - [Operator runbooks](./docs/operations/runbooks.md)
+- [Redis operating model](./docs/operations/redis.md)
 - [Benchmark guide](./docs/operations/benchmarks.md)
-- [Cluster-routing guide](./docs/operations/cluster-routing.md)
+- [Logical routing guide](./docs/operations/cluster-routing.md)
 - [Toolchain and CI policy](./docs/development/toolchain.md)
 - [Redis v2 development reset](./docs/development/redis-v2-development-migration.md)
 - [Architecture map for contributors and agents](./docs/development/agent-context.md)
@@ -162,4 +163,5 @@ test/integration/     opt-in Redis integration tests
 ## Current Gaps
 
 - Redis is the only broker backend.
+- Redis Cluster and Sentinel are not supported; use a direct standalone Redis primary.
 - The operator API is intentionally read-only and narrow.

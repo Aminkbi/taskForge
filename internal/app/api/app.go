@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -21,16 +22,19 @@ import (
 )
 
 type App struct {
-	server *httpserver.Server
+	server         *httpserver.Server
+	client         *redis.Client
+	connectTimeout time.Duration
 }
 
-func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) *App {
-	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
-	b := taskforgeredis.New(cfg.RedisOptions(client, logger.With("component", "redis")))
+func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) (*App, error) {
+	options, err := cfg.RedisOptions(nil, logger.With("component", "redis"))
+	if err != nil {
+		return nil, fmt.Errorf("configure Redis: %w", err)
+	}
+	client := taskforgeredis.NewClient(options)
+	options.Client = client
+	b := taskforgeredis.New(options)
 
 	queues := make([]string, 0, len(cfg.WorkerPools))
 	for _, pool := range cfg.WorkerPools {
@@ -68,7 +72,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		})))
 	})
 
-	return &App{server: server}
+	return &App{server: server, client: client, connectTimeout: cfg.RedisConnectTimeout}, nil
 }
 
 func taskLookupHandler(reader taskforge.StateStore) http.HandlerFunc {
@@ -323,6 +327,12 @@ func writeAPIError(w http.ResponseWriter, status int, message string) {
 }
 
 func (a *App) Run(ctx context.Context) error {
+	defer a.client.Close()
+	connectCtx, cancel := context.WithTimeout(ctx, a.connectTimeout)
+	defer cancel()
+	if err := taskforgeredis.ValidateClient(connectCtx, a.client); err != nil {
+		return fmt.Errorf("validate Redis connection: %w", err)
+	}
 	a.server.SetReady(true)
 	return a.server.Run(ctx)
 }

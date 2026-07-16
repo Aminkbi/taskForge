@@ -25,6 +25,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_ADDR", "")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
+	t.Setenv("TASKFORGE_REDIS_CONNECT_TIMEOUT", "")
+	t.Setenv("TASKFORGE_REDIS_TLS_ENABLED", "")
+	t.Setenv("TASKFORGE_REDIS_TLS_CA_FILE", "")
+	t.Setenv("TASKFORGE_REDIS_TLS_CERT_FILE", "")
+	t.Setenv("TASKFORGE_REDIS_TLS_KEY_FILE", "")
+	t.Setenv("TASKFORGE_REDIS_TLS_SERVER_NAME", "")
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", "")
 	t.Setenv("TASKFORGE_LEASE_TTL", "")
 	t.Setenv("TASKFORGE_ROUTING_POLICY_JSON", "")
@@ -84,6 +90,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RoutingPolicy != nil {
 		t.Fatalf("RoutingPolicy = %+v, want nil", cfg.RoutingPolicy)
 	}
+	if cfg.RedisTLS.Enabled || cfg.RedisConnectTimeout != defaultRedisConnectTimeout {
+		t.Fatalf("unexpected default Redis connectivity: %+v timeout=%v", cfg.RedisTLS, cfg.RedisConnectTimeout)
+	}
 	if len(cfg.DependencyBudgets) != 0 {
 		t.Fatalf("DependencyBudgets length = %d, want 0", len(cfg.DependencyBudgets))
 	}
@@ -123,6 +132,9 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_ADDR", "redis.internal:6379")
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "secret")
 	t.Setenv("TASKFORGE_REDIS_DB", "2")
+	t.Setenv("TASKFORGE_REDIS_CONNECT_TIMEOUT", "3s")
+	t.Setenv("TASKFORGE_REDIS_TLS_ENABLED", "true")
+	t.Setenv("TASKFORGE_REDIS_TLS_SERVER_NAME", "redis.internal")
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[
 		{
 			"name":"critical",
@@ -209,6 +221,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.RedisAddr != "redis.internal:6379" || cfg.RedisPassword != "secret" || cfg.RedisDB != 2 {
 		t.Fatalf("unexpected redis fields: %+v", cfg)
+	}
+	if !cfg.RedisTLS.Enabled || cfg.RedisTLS.ServerName != "redis.internal" || cfg.RedisConnectTimeout != 3*time.Second {
+		t.Fatalf("unexpected Redis connectivity fields: %+v", cfg)
 	}
 	if len(cfg.WorkerPools) != 1 {
 		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))

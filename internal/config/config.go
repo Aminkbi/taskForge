@@ -21,21 +21,22 @@ import (
 )
 
 const (
-	defaultLogLevel         = "info"
-	defaultHTTPAddr         = "127.0.0.1:8080"
-	defaultRedisAddr        = "localhost:6379"
-	defaultRedisDB          = 0
-	defaultWorkerConcurrent = 4
-	defaultWorkerPrefetch   = 4
-	defaultPollInterval     = time.Second
-	defaultLeaseTTL         = 30 * time.Second
-	defaultTaskTimeout      = 30 * time.Second
-	defaultShutdownTimeout  = 10 * time.Second
-	defaultSchedulerLockTTL = 15 * time.Second
-	defaultSchedulerRenew   = 5 * time.Second
-	defaultTaskSuccessTTL   = 24 * time.Hour
-	defaultTaskFailureTTL   = 7 * 24 * time.Hour
-	defaultTaskPayloadTTL   = 24 * time.Hour
+	defaultLogLevel            = "info"
+	defaultHTTPAddr            = "127.0.0.1:8080"
+	defaultRedisAddr           = "localhost:6379"
+	defaultRedisDB             = 0
+	defaultRedisConnectTimeout = 5 * time.Second
+	defaultWorkerConcurrent    = 4
+	defaultWorkerPrefetch      = 4
+	defaultPollInterval        = time.Second
+	defaultLeaseTTL            = 30 * time.Second
+	defaultTaskTimeout         = 30 * time.Second
+	defaultShutdownTimeout     = 10 * time.Second
+	defaultSchedulerLockTTL    = 15 * time.Second
+	defaultSchedulerRenew      = 5 * time.Second
+	defaultTaskSuccessTTL      = 24 * time.Hour
+	defaultTaskFailureTTL      = 7 * 24 * time.Hour
+	defaultTaskPayloadTTL      = 24 * time.Hour
 )
 
 type ServiceRole string
@@ -62,6 +63,8 @@ type Config struct {
 	RedisAddr             string
 	RedisPassword         string
 	RedisDB               int
+	RedisTLS              redis.TLSOptions
+	RedisConnectTimeout   time.Duration
 	RoutingPolicy         *redis.RoutingPolicy
 	Control               taskforge.Config
 
@@ -232,6 +235,19 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.RedisDB, err = getEnvInt("TASKFORGE_REDIS_DB", defaultRedisDB); err != nil {
+		return Config{}, err
+	}
+	if cfg.RedisTLS.Enabled, err = getEnvBool("TASKFORGE_REDIS_TLS_ENABLED", false); err != nil {
+		return Config{}, err
+	}
+	cfg.RedisTLS.CAFile = getEnv("TASKFORGE_REDIS_TLS_CA_FILE", "")
+	cfg.RedisTLS.CertFile = getEnv("TASKFORGE_REDIS_TLS_CERT_FILE", "")
+	cfg.RedisTLS.KeyFile = getEnv("TASKFORGE_REDIS_TLS_KEY_FILE", "")
+	cfg.RedisTLS.ServerName = getEnv("TASKFORGE_REDIS_TLS_SERVER_NAME", "")
+	if _, err := cfg.RedisTLS.Config(); err != nil {
+		return Config{}, fmt.Errorf("redis TLS configuration: %w", err)
+	}
+	if cfg.RedisConnectTimeout, err = getEnvPositiveDuration("TASKFORGE_REDIS_CONNECT_TIMEOUT", defaultRedisConnectTimeout); err != nil {
 		return Config{}, err
 	}
 	if cfg.ShutdownTimeout, err = getEnvPositiveDuration("TASKFORGE_SHUTDOWN_TIMEOUT", defaultShutdownTimeout); err != nil {
@@ -492,14 +508,19 @@ func (c *Config) compileControl() error {
 	return nil
 }
 
-func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) redis.Options {
+func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) (redis.Options, error) {
+	tlsConfig, err := c.RedisTLS.Config()
+	if err != nil {
+		return redis.Options{}, err
+	}
 	options, err := redis.OptionsFromConfig(redis.Options{
+		Addr: c.RedisAddr, Password: c.RedisPassword, DB: c.RedisDB, TLSConfig: tlsConfig,
 		Client: client, Logger: logger, RoutingPolicy: c.RoutingPolicy,
 	}, c.Control)
 	if err != nil {
-		panic(fmt.Sprintf("invalid validated configuration: %v", err))
+		return redis.Options{}, fmt.Errorf("invalid validated configuration: %w", err)
 	}
-	return options
+	return options, nil
 }
 
 func (c Config) HTTPServerConfig() httpserver.Config {

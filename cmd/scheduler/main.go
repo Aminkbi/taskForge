@@ -54,7 +54,11 @@ func main() {
 	}()
 
 	metrics := observability.NewMetrics()
-	app := schedulerapp.New(cfg, logger, metrics)
+	app, err := schedulerapp.New(cfg, logger, metrics)
+	if err != nil {
+		logger.Error("configure scheduler", "error", err)
+		os.Exit(1)
+	}
 	if err := app.Run(ctx); err != nil {
 		logger.Error("scheduler exited with error", "error", err)
 		os.Exit(1)

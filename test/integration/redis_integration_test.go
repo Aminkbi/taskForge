@@ -39,6 +39,13 @@ const (
 	ciReserveTimeout    = 50 * time.Millisecond
 )
 
+func TestRedisStandaloneConnectionValidation(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	if err := taskforgeredis.ValidateClient(ctx, client); err != nil {
+		t.Fatalf("ValidateClient() error = %v", err)
+	}
+}
+
 func TestOverloadDemoExecutableContract(t *testing.T) {
 	ctx, _, _ := newIntegrationBroker(t, 30*time.Second)
 	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -2510,17 +2517,16 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 
-	client := redis.NewClient(&redis.Options{
+	client, err := taskforgeredis.Connect(ctx, taskforgeredis.Options{
 		Addr: "localhost:6379",
 		DB:   0,
 	})
+	if err != nil {
+		t.Skipf("Redis unavailable or unsupported: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = client.Close()
 	})
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skipf("redis unavailable: %v", err)
-	}
 
 	clearIntegrationKeys(t, ctx, client)
 

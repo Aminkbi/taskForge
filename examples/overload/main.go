@@ -100,7 +100,7 @@ func run(parent context.Context, output io.Writer, options options) (runErr erro
 		}},
 		Retention: &taskforge.RetentionPolicy{SucceededState: time.Minute},
 	}
-	broker, err := taskforgeredis.NewFromConfig(control, taskforgeredis.Options{
+	broker, err := taskforgeredis.OpenFromConfig(ctx, control, taskforgeredis.Options{
 		Addr:           options.RedisAddr,
 		Password:       options.RedisPassword,
 		DB:             options.RedisDB,
@@ -110,9 +110,6 @@ func run(parent context.Context, output io.Writer, options options) (runErr erro
 		return fmt.Errorf("configure Redis broker: %w", err)
 	}
 	defer broker.Close()
-	if err := broker.Ping(ctx); err != nil {
-		return fmt.Errorf("connect to Redis at %s: %w", options.RedisAddr, err)
-	}
 
 	handler := newGateHandler()
 	runtime, err := worker.NewFromConfig(control, "overload-demo", worker.Options{

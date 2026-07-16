@@ -518,18 +518,17 @@ func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options taskfo
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	client := redis.NewClient(&redis.Options{
+	client, err := taskforgeredis.Connect(ctx, taskforgeredis.Options{
 		Addr: envOrDefault("TASKFORGE_REDIS_ADDR", "localhost:6379"),
 		DB:   db,
 	})
+	if err != nil {
+		b.Skipf("Redis unavailable or unsupported: %v", err)
+	}
 	b.Cleanup(func() {
 		cancel()
 		_ = client.Close()
 	})
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		b.Skipf("redis unavailable: %v", err)
-	}
 	clearBenchKeys(b, ctx, client)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
