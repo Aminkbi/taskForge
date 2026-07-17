@@ -1,0 +1,1 @@
+{"name":"noisy-neighbor","description":"A dominant neighbor competes with a protected tenant.","tasks":24,"tenants":[{"name":"noisy","weight":12},{"name":"protected","weight":1}],"service_time":2000000,"slo":100000000,"retry_fraction":0,"delayed_fraction":0,"crash_after_starts":0}

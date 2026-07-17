@@ -1,0 +1,1 @@
+{"name":"tenant-skew","description":"One tenant produces most work while smaller tenants retain SLO visibility.","tasks":24,"tenants":[{"name":"hot","weight":8},{"name":"warm","weight":2},{"name":"cold","weight":1}],"service_time":1000000,"slo":100000000,"retry_fraction":0,"delayed_fraction":0,"crash_after_starts":0}

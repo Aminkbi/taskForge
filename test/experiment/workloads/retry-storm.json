@@ -1,0 +1,1 @@
+{"name":"retry-storm","description":"A bounded fraction of tasks is retried once before success.","tasks":20,"tenants":[{"name":"a","weight":1},{"name":"b","weight":1}],"service_time":1000000,"slo":200000000,"retry_fraction":0.25,"delayed_fraction":0,"crash_after_starts":0}
