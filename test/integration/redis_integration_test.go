@@ -1281,75 +1281,133 @@ func TestRedisReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
 	}
 }
 
-func TestRedisRejectsStaleAckAfterReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
-
-	message := taskforge.Task{
-		ID:        "integration-task-stale-ack",
-		Name:      "integration.stale_ack",
-		Queue:     "default",
-		Payload:   []byte(`{"hello":"stale"}`),
-		CreatedAt: time.Now().UTC(),
+func TestRedisRejectsStaleOwnerOperationsAfterReclaim(t *testing.T) {
+	operations := []struct {
+		name  string
+		apply func(context.Context, *taskforgeredis.Broker, taskforge.Delivery) error
+	}{
+		{name: "ack", apply: func(ctx context.Context, broker *taskforgeredis.Broker, delivery taskforge.Delivery) error {
+			return broker.Ack(ctx, delivery)
+		}},
+		{name: "nack", apply: func(ctx context.Context, broker *taskforgeredis.Broker, delivery taskforge.Delivery) error {
+			return broker.Nack(ctx, delivery, false)
+		}},
+		{name: "extend lease", apply: func(ctx context.Context, broker *taskforgeredis.Broker, delivery taskforge.Delivery) error {
+			return broker.ExtendLease(ctx, delivery, ciLeaseTTL)
+		}},
 	}
 
-	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
+			message := taskforge.Task{
+				ID:        "integration-task-stale-" + strings.ReplaceAll(operation.name, " ", "-"),
+				Name:      "integration.stale_owner",
+				Queue:     "default",
+				Payload:   []byte(`{"hello":"stale"}`),
+				CreatedAt: time.Now().UTC(),
+			}
+			if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+				t.Fatalf("Publish() error = %v", err)
+			}
 
-	firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
-	if err != nil {
-		t.Fatalf("Reserve() first consumer error = %v", err)
-	}
+			firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
+			if err != nil {
+				t.Fatalf("Reserve() first consumer error = %v", err)
+			}
+			time.Sleep(ciWaitForExpiry)
+			reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
+			if err != nil {
+				t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+			}
 
-	time.Sleep(ciWaitForExpiry)
-
-	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
-	if err != nil {
-		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
-	}
-
-	if err := brokerInstance.Ack(ctx, firstDelivery); !errors.Is(err, taskforge.ErrStaleDelivery) {
-		t.Fatalf("Ack() stale delivery error = %v, want %v", err, taskforge.ErrStaleDelivery)
-	}
-
-	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
-		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+			if err := operation.apply(ctx, brokerInstance, firstDelivery); !errors.Is(err, taskforge.ErrStaleDelivery) {
+				t.Fatalf("stale %s error = %v, want %v", operation.name, err, taskforge.ErrStaleDelivery)
+			}
+			if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
+				t.Fatalf("Ack() reclaimed delivery error = %v", err)
+			}
+		})
 	}
 }
 
-func TestRedisRejectsStaleNackAfterReclaim(t *testing.T) {
-	ctx, brokerInstance, _ := newIntegrationBroker(t, ciLeaseTTL)
-
+func TestRedisMoveDueRejectsStaleFenceWithoutMutatingDelayedTask(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	now := time.Now().UTC()
+	eta := now.Add(-time.Second)
 	message := taskforge.Task{
-		ID:        "integration-task-stale-nack",
-		Name:      "integration.stale_nack",
+		ID:        "integration-stale-fence",
+		Name:      "integration.stale_fence",
 		Queue:     "default",
-		Payload:   []byte(`{"hello":"stale-nack"}`),
-		CreatedAt: time.Now().UTC(),
+		ETA:       &eta,
+		CreatedAt: now,
 	}
-
 	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
-		t.Fatalf("Publish() error = %v", err)
+		t.Fatalf("Publish() delayed task error = %v", err)
 	}
 
-	firstDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-a")
-	if err != nil {
-		t.Fatalf("Reserve() first consumer error = %v", err)
+	current := integrationLeadershipFence("scheduler-current", 2)
+	setIntegrationLeadership(t, ctx, client, current, time.Minute)
+	stale := integrationLeadershipFence("scheduler-stale", 1)
+	if moved, err := brokerInstance.MoveDue(ctx, stale, now, 1); !errors.Is(err, taskforge.ErrLeadershipLost) || moved != 0 {
+		t.Fatalf("MoveDue() = (%d, %v), want stale leadership rejection without movement", moved, err)
+	}
+	if got := delayedQueueCount(t, ctx, client, "default"); got != 1 {
+		t.Fatalf("delayed task count after stale fence = %d, want 1", got)
+	}
+	if got, err := client.XLen(ctx, "taskforge:v2:stream:default").Result(); err != nil {
+		t.Fatalf("XLen() after stale fence error = %v", err)
+	} else if got != 0 {
+		t.Fatalf("ready stream length after stale fence = %d, want 0", got)
 	}
 
-	time.Sleep(ciWaitForExpiry)
+	if moved, err := brokerInstance.MoveDue(ctx, current, now, 1); err != nil || moved != 1 {
+		t.Fatalf("MoveDue() with current fence = (%d, %v), want (1, nil)", moved, err)
+	}
+}
 
-	reclaimedDelivery, err := brokerInstance.Reserve(ctx, "default", "consumer-b")
-	if err != nil {
-		t.Fatalf("Reserve() reclaimed consumer error = %v", err)
+func TestRedisStateRetentionUsesTerminalClassAndPayloadPolicy(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	retention := taskforge.RetentionPolicy{
+		SucceededState: time.Minute,
+		FailedState:    2 * time.Minute,
+		ResultPayload:  3 * time.Minute,
+	}
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		ReserveTimeout: ciReserveTimeout,
+		Retention:      retention,
+	})
+	now := time.Now().UTC()
+	cases := []struct {
+		name       string
+		state      taskforge.State
+		wantTTL    time.Duration
+		payload    []byte
+		payloadTTL time.Duration
+	}{
+		{name: "succeeded", state: taskforge.StateSucceeded, wantTTL: retention.SucceededState, payload: []byte(`{"ok":true}`), payloadTTL: retention.ResultPayload},
+		{name: "dead lettered", state: taskforge.StateDeadLettered, wantTTL: retention.FailedState},
+		{name: "retry scheduled", state: taskforge.StateRetryScheduled, wantTTL: retention.FailedState},
 	}
 
-	if err := brokerInstance.Nack(ctx, firstDelivery, false); !errors.Is(err, taskforge.ErrStaleDelivery) {
-		t.Fatalf("Nack() stale delivery error = %v, want %v", err, taskforge.ErrStaleDelivery)
-	}
-
-	if err := brokerInstance.Ack(ctx, reclaimedDelivery); err != nil {
-		t.Fatalf("Ack() reclaimed delivery error = %v", err)
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			taskID := "integration-retention-" + strings.ReplaceAll(test.name, " ", "-")
+			delivery := taskforge.Delivery{
+				Message:   taskforge.Task{ID: taskID, Name: "integration.retention", Queue: "default", CreatedAt: now},
+				Execution: taskforge.ExecutionMetadata{TaskID: taskID, DeliveryID: "delivery-" + taskID, DeliveryCount: 1, LeaseOwner: "worker-a"},
+			}
+			if err := brokerInstance.RecordDelivery(ctx, delivery, test.state, test.payload); err != nil {
+				t.Fatalf("RecordDelivery() error = %v", err)
+			}
+			if record, err := brokerInstance.Get(ctx, taskID); err != nil || record.State != test.state {
+				t.Fatalf("Get() = (%+v, %v), want state %q", record, err, test.state)
+			}
+			assertRedisTTLWithin(t, ctx, client, "taskforge:v2:task:"+taskID, test.wantTTL)
+			if test.payloadTTL > 0 {
+				assertRedisTTLWithin(t, ctx, client, "taskforge:v2:task:"+taskID+":payload", test.payloadTTL)
+			}
+		})
 	}
 }
 
@@ -2560,6 +2618,17 @@ func delayedQueueCount(t *testing.T, ctx context.Context, client *redis.Client, 
 		t.Fatalf("ZCard() delayed queue %q error = %v", queue, err)
 	}
 	return count
+}
+
+func assertRedisTTLWithin(t *testing.T, ctx context.Context, client *redis.Client, key string, want time.Duration) {
+	t.Helper()
+	ttl, err := client.PTTL(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("PTTL(%q) error = %v", key, err)
+	}
+	if ttl <= 0 || ttl > want {
+		t.Fatalf("PTTL(%q) = %v, want within (0, %v]", key, ttl, want)
+	}
 }
 
 func delayedQueueEntries(t *testing.T, ctx context.Context, client *redis.Client, queue string) []string {

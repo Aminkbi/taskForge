@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test integration-test race-test bench bench-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test integration-test coverage race-test bench bench-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -22,6 +22,9 @@ test:
 
 integration-test:
 	TASKFORGE_RUN_INTEGRATION=1 $(GO) test ./test/integration/...
+
+coverage:
+	$(SHELL) ./scripts/coverage.sh
 
 race-test:
 	$(SHELL) ./scripts/race.sh

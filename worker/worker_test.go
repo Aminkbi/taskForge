@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,51 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	}
 }
 
+func TestWorkerDoesNotAcknowledgeBeforeReplacementPublishSucceeds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		broker        *stubBroker
+		deadLetters   taskforge.DeadLetterPublisher
+		handlerError  error
+		wantErrorPart string
+	}{
+		{
+			name:          "dead letter",
+			broker:        &stubBroker{},
+			deadLetters:   failingDeadLetter{err: errors.New("dlq unavailable")},
+			handlerError:  taskforge.Permanent(errors.New("boom")),
+			wantErrorPart: "dlq unavailable",
+		},
+		{
+			name:          "retry",
+			broker:        &stubBroker{publishErr: errors.New("retry unavailable")},
+			handlerError:  taskforge.Retryable(errors.New("boom")),
+			wantErrorPart: "retry unavailable",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			w := newTestWorker(test.broker, test.deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+				return test.handlerError
+			}))
+
+			err := w.processTask(context.Background(), testDelivery(), nil)
+			if err == nil || !strings.Contains(err.Error(), test.wantErrorPart) {
+				t.Fatalf("processTask() error = %v, want %q", err, test.wantErrorPart)
+			}
+			if len(test.broker.acked) != 0 {
+				t.Fatalf("Ack calls = %d, want no acknowledgement before replacement publish", len(test.broker.acked))
+			}
+			if len(test.broker.nacked) != 1 {
+				t.Fatalf("Nack calls = %d, want source delivery requeued", len(test.broker.nacked))
+			}
+		})
+	}
+}
+
 func TestWorkerProcessTaskDeadLettersRetryRejectedByAdmission(t *testing.T) {
 	t.Parallel()
 
@@ -243,9 +289,13 @@ type stubBroker struct {
 	published   []taskforge.Task
 	publishOpts []taskforge.PublishOptions
 	rejectRetry bool
+	publishErr  error
 }
 
 func (b *stubBroker) Publish(_ context.Context, msg taskforge.Task, opts taskforge.PublishOptions) (taskforge.PublishResult, error) {
+	if b.publishErr != nil && opts.Source == taskforge.PublishSourceRetry {
+		return taskforge.PublishResult{}, b.publishErr
+	}
 	if b.rejectRetry && opts.Source == taskforge.PublishSourceRetry {
 		return taskforge.PublishResult{
 			Decision: taskforge.AdmissionDecisionRejected,
@@ -283,6 +333,12 @@ type stubDeadLetter struct {
 func (d *stubDeadLetter) PublishDeadLetter(_ context.Context, envelope taskforge.DeadLetterEnvelope) error {
 	d.envelopes = append(d.envelopes, envelope)
 	return nil
+}
+
+type failingDeadLetter struct{ err error }
+
+func (d failingDeadLetter) PublishDeadLetter(context.Context, taskforge.DeadLetterEnvelope) error {
+	return d.err
 }
 
 type stubStateStore struct {
