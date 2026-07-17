@@ -14,23 +14,53 @@ import (
 	"time"
 )
 
-const SchemaVersion = "taskforge-experiment/v1"
+const SchemaVersion = "taskforge-experiment/v2"
 
 type Manifest struct {
-	Name             string        `json:"name"`
-	Description      string        `json:"description"`
-	Tasks            int           `json:"tasks"`
-	Tenants          []Tenant      `json:"tenants"`
-	ServiceTime      time.Duration `json:"service_time"`
-	SLO              time.Duration `json:"slo"`
-	RetryFraction    float64       `json:"retry_fraction"`
-	DelayedFraction  float64       `json:"delayed_fraction"`
-	CrashAfterStarts int           `json:"crash_after_starts"`
+	Name               string        `json:"name"`
+	Description        string        `json:"description"`
+	Tasks              int           `json:"tasks"`
+	Tenants            []Tenant      `json:"tenants"`
+	ServiceTime        time.Duration `json:"service_time"`
+	SLO                time.Duration `json:"slo"`
+	RetryFraction      float64       `json:"retry_fraction"`
+	DelayedFraction    float64       `json:"delayed_fraction"`
+	AbandonReservation bool          `json:"abandon_reservation"`
+	// Control parameters are defined at scale 1. Admission caps scale with the
+	// task count; the dependency budget models a fixed-capacity downstream and
+	// deliberately does not scale with offered load.
+	DependencyBudgetCapacity  int   `json:"dependency_budget_capacity,omitempty"`
+	AdmissionMaxPending       int64 `json:"admission_max_pending,omitempty"`
+	AdmissionMaxPendingPerKey int64 `json:"admission_max_pending_per_key,omitempty"`
+}
+
+// Scale multiplies the offered load and the load-relative admission caps by
+// factor, leaving per-task timings, SLOs, and fixed downstream capacity as
+// manifest-defined.
+func (m Manifest) Scale(factor int) Manifest {
+	if factor <= 1 {
+		return m
+	}
+	m.Tasks *= factor
+	m.AdmissionMaxPending *= int64(factor)
+	m.AdmissionMaxPendingPerKey *= int64(factor)
+	return m
 }
 
 type Tenant struct {
 	Name   string  `json:"name"`
 	Weight float64 `json:"weight"`
+	// FairnessWeight separates a tenant's service entitlement from its offered
+	// load when they differ (a noisy neighbor offers far more than its share).
+	// Zero means the offered weight is also the entitlement.
+	FairnessWeight float64 `json:"fairness_weight,omitempty"`
+}
+
+func (t Tenant) EffectiveFairnessWeight() float64 {
+	if t.FairnessWeight > 0 {
+		return t.FairnessWeight
+	}
+	return t.Weight
 }
 
 func (m Manifest) Validate() error {
@@ -39,13 +69,16 @@ func (m Manifest) Validate() error {
 	}
 	var weight float64
 	for _, tenant := range m.Tenants {
-		if tenant.Name == "" || tenant.Weight <= 0 {
+		if tenant.Name == "" || tenant.Weight <= 0 || tenant.FairnessWeight < 0 {
 			return fmt.Errorf("invalid tenant in %q", m.Name)
 		}
 		weight += tenant.Weight
 	}
 	if weight == 0 || m.RetryFraction < 0 || m.RetryFraction > 1 || m.DelayedFraction < 0 || m.DelayedFraction > 1 {
 		return fmt.Errorf("invalid fractions in %q", m.Name)
+	}
+	if m.DependencyBudgetCapacity < 0 || m.AdmissionMaxPending < 0 || m.AdmissionMaxPendingPerKey < 0 {
+		return fmt.Errorf("invalid control parameters in %q", m.Name)
 	}
 	return nil
 }
@@ -62,10 +95,10 @@ type Variant struct {
 func Variants() []Variant {
 	return []Variant{
 		{Name: "taskforge-fifo-static", System: "taskforge", Controls: []string{"fifo", "static-concurrency"}, Comparable: true},
-		{Name: "taskforge-no-fairness", System: "taskforge", Controls: []string{"static-concurrency", "admission", "adaptive-concurrency", "dependency-budget"}, Disabled: []string{"fairness"}, Comparable: true},
-		{Name: "taskforge-no-admission", System: "taskforge", Controls: []string{"fairness", "static-concurrency", "adaptive-concurrency", "dependency-budget"}, Disabled: []string{"admission"}, Comparable: true},
+		{Name: "taskforge-no-fairness", System: "taskforge", Controls: []string{"admission", "adaptive-concurrency", "dependency-budget"}, Disabled: []string{"fairness"}, Comparable: true},
+		{Name: "taskforge-no-admission", System: "taskforge", Controls: []string{"fairness", "adaptive-concurrency", "dependency-budget"}, Disabled: []string{"admission"}, Comparable: true},
 		{Name: "taskforge-no-adaptive", System: "taskforge", Controls: []string{"fairness", "admission", "static-concurrency", "dependency-budget"}, Disabled: []string{"adaptive-concurrency"}, Comparable: true},
-		{Name: "taskforge-no-dependency-budget", System: "taskforge", Controls: []string{"fairness", "admission", "adaptive-concurrency", "static-concurrency"}, Disabled: []string{"dependency-budget"}, Comparable: true},
+		{Name: "taskforge-no-dependency-budget", System: "taskforge", Controls: []string{"fairness", "admission", "adaptive-concurrency"}, Disabled: []string{"dependency-budget"}, Comparable: true},
 		{Name: "taskforge-full", System: "taskforge", Controls: []string{"fairness", "admission", "adaptive-concurrency", "dependency-budget"}, Comparable: true},
 		{Name: "asynq", System: "asynq", Controls: []string{"redis-backed", "static-concurrency"}, Comparable: false, Limitations: []string{"Asynq has no equivalent TaskForge tenant-fairness, admission, adaptive, or dependency-budget control; compare common delivery metrics only."}},
 	}
@@ -190,20 +223,22 @@ func percentiles(values []time.Duration) Percentiles {
 	pick := func(p float64) time.Duration { return values[int(math.Ceil(p*float64(len(values))))-1] }
 	return Percentiles{P50: pick(.50), P95: pick(.95), P99: pick(.99)}
 }
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
 
-func WriteResult(dir string, result Result) (string, error) {
+// WriteResult stores one raw run. Compact encoding is for results that are
+// committed as research evidence; the content is identical either way.
+func WriteResult(dir string, result Result, compact bool) (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
 	name := fmt.Sprintf("%s--%s--%d.json", result.Manifest.Name, result.Variant.Name, result.Seed)
 	path := filepath.Join(dir, name)
-	data, err := json.MarshalIndent(result, "", "  ")
+	var data []byte
+	var err error
+	if compact {
+		data, err = json.Marshal(result)
+	} else {
+		data, err = json.MarshalIndent(result, "", "  ")
+	}
 	if err != nil {
 		return "", err
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/experiment"
 	tfredis "github.com/aminkbi/taskforge/redis"
+	"github.com/aminkbi/taskforge/worker"
 )
 
 type event struct {
@@ -85,13 +86,19 @@ func main() {
 	manifestFilter := flag.String("manifest", "", "run one workload manifest by name")
 	variantFilter := flag.String("variant", "", "run one variant by name")
 	seed := flag.Int64("seed", 20260717, "deterministic workload seed")
+	scale := flag.Int("scale", 1, "multiply manifest task counts and load-relative admission caps")
+	compact := flag.Bool("compact", false, "write compact raw JSON for committed research evidence")
+	hostLabel := flag.String("hostname-label", "", "replace the recorded hostname with a neutral label")
 	addr := flag.String("redis-addr", env("TASKFORGE_REDIS_ADDR", "localhost:6379"), "Redis address")
 	db := flag.Int("redis-db", envInt("TASKFORGE_EXPERIMENT_REDIS_DB", 14), "dedicated Redis DB; must not contain production data")
 	flag.Parse()
+	if *scale < 1 || (*smoke && *scale != 1) {
+		fatal("scale must be >= 1 and smoke runs are always scale 1")
+	}
 	if *db < 1 {
 		fatal("refusing DB %d; choose a dedicated non-zero experiment DB", *db)
 	}
-	manifests, err := load(*workloads, *smoke)
+	manifests, err := load(*workloads, *smoke, *scale)
 	if err != nil {
 		fatal("load manifests: %v", err)
 	}
@@ -132,9 +139,12 @@ func main() {
 				fatal("%s/%s completed %d of %d tasks", manifest.Name, variant.Name, len(samples), manifest.Tasks)
 			}
 			result := experiment.Result{Schema: experiment.SchemaVersion, StartedAt: started, FinishedAt: finished, Seed: *seed, Manifest: manifest, Variant: variant, Environment: experiment.NewEnvironment(build, redisConfig), Samples: samples}
+			if *hostLabel != "" {
+				result.Environment.Hostname = *hostLabel
+			}
 			result.Summary = experiment.Summarize(samples, manifest.Tenants, redis)
 			result.Summary.RecoveryTime = tracker.recoveryTime()
-			path, err := experiment.WriteResult(*out, result)
+			path, err := experiment.WriteResult(*out, result, *compact)
 			if err != nil {
 				fatal("write result: %v", err)
 			}
@@ -143,12 +153,20 @@ func main() {
 	}
 }
 
+// experimentLeaseTTL bounds worker-crash recovery: a crashed consumer never
+// extends its lease, so reclaim becomes possible one TTL after the crash.
+const experimentLeaseTTL = 200 * time.Millisecond
+
+// runTaskForge executes the workload through the public embedded worker path
+// so every ablated control is the real product control, not a label.
 func runTaskForge(ctx context.Context, client *gredis.Client, m experiment.Manifest, v experiment.Variant, seed int64, tr *tracker) error {
-	options := tfredis.Options{Client: client, LeaseTTL: 25 * time.Millisecond, ReserveTimeout: time.Second, Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))}
-	if !has(v.Disabled, "fairness") && v.Name != "taskforge-fifo-static" {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	fifo := v.Name == "taskforge-fifo-static"
+	options := tfredis.Options{Client: client, LeaseTTL: experimentLeaseTTL, ReserveTimeout: time.Second, Logger: logger}
+	if !fifo && !slices.Contains(v.Disabled, "fairness") {
 		rules := make([]tfredis.FairnessRule, 0, len(m.Tenants))
 		for _, tenant := range m.Tenants {
-			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.Weight))})
+			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.EffectiveFairnessWeight()))})
 		}
 		policy, err := tfredis.NewFairnessPolicy(tfredis.FairnessRule{}, rules)
 		if err != nil {
@@ -156,101 +174,178 @@ func runTaskForge(ctx context.Context, client *gredis.Client, m experiment.Manif
 		}
 		options.FairnessPolicies = map[string]*tfredis.FairnessPolicy{"default": policy}
 	}
+	admissionEnabled := !fifo && !slices.Contains(v.Disabled, "admission") && (m.AdmissionMaxPending > 0 || m.AdmissionMaxPendingPerKey > 0)
+	if admissionEnabled {
+		options.AdmissionPolicies = map[string]tfredis.AdmissionPolicy{"default": {
+			Mode:                     tfredis.AdmissionModeDefer,
+			MaxPending:               m.AdmissionMaxPending,
+			MaxPendingPerFairnessKey: m.AdmissionMaxPendingPerKey,
+			DeferInterval:            10 * time.Millisecond,
+		}}
+	}
+	budgeted := !fifo && !slices.Contains(v.Disabled, "dependency-budget") && m.DependencyBudgetCapacity > 0
+	if budgeted {
+		options.DependencyBudgets = map[string]int{"downstream": m.DependencyBudgetCapacity}
+	}
 	broker := tfredis.New(options)
 	events := makeEvents(m, seed)
-	for i, e := range events {
+	publishOne := func(index int, e event) error {
 		e.Enqueued = time.Now().UTC()
 		task := taskforge.Task{ID: e.ID, Name: "experiment.task", Queue: "default", FairnessKey: e.Tenant, Payload: mustJSON(e), CreatedAt: e.Enqueued}
-		if m.DelayedFraction > 0 && float64(i)/float64(len(events)) < m.DelayedFraction {
+		if m.DelayedFraction > 0 && float64(index)/float64(len(events)) < m.DelayedFraction {
 			eta := time.Now().UTC().Add(12 * time.Millisecond)
 			task.ETA = &eta
 		}
-		if _, err := broker.Publish(ctx, task, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
-			return err
-		}
-	}
-	fence := taskforge.LeadershipFence{Owner: "experiment", Epoch: 1, Token: "experiment|1"}
-	if err := client.Set(ctx, "taskforge:v2:scheduler:leader", fence.Token, time.Minute).Err(); err != nil {
+		_, err := broker.Publish(ctx, task, taskforge.PublishOptions{Source: taskforge.PublishSourceNew})
 		return err
 	}
-	if err := client.Set(ctx, "taskforge:v2:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+	if admissionEnabled || m.DelayedFraction > 0 || m.RetryFraction > 0 {
+		fence := taskforge.LeadershipFence{Owner: "experiment", Epoch: 1, Token: "experiment|1"}
+		if err := client.Set(ctx, "taskforge:v2:scheduler:leader", fence.Token, time.Minute).Err(); err != nil {
+			return err
+		}
+		if err := client.Set(ctx, "taskforge:v2:scheduler:leader:epoch", fence.Epoch, 0).Err(); err != nil {
+			return err
+		}
+		stopScheduler := make(chan struct{})
+		var schedulerWG sync.WaitGroup
+		schedulerWG.Add(1)
+		go func() {
+			defer schedulerWG.Done()
+			ticker := time.NewTicker(2 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopScheduler:
+					return
+				case <-ticker.C:
+					_, _ = broker.MoveDue(ctx, fence, time.Now().UTC(), 256)
+				}
+			}
+		}()
+		defer func() {
+			close(stopScheduler)
+			schedulerWG.Wait()
+		}()
+	}
+	remaining := events
+	if m.AbandonReservation {
+		// A consumer that reserves one delivery and disappears without ack,
+		// nack, or lease extension; recovery is reclaim after lease expiry.
+		// The crashed reservation happens before the worker starts so the
+		// crash target is deterministic.
+		if err := publishOne(0, events[0]); err != nil {
+			return err
+		}
+		delivery, err := broker.Reserve(ctx, "default", "experiment-crashed")
+		if err != nil {
+			return fmt.Errorf("crash consumer reserve: %w", err)
+		}
+		var e event
+		if err := json.Unmarshal(delivery.Message.Payload, &e); err != nil {
+			return err
+		}
+		tr.start(e)
+		tr.crash(e)
+		remaining = events[1:]
+	}
+	handler := taskforge.HandlerFunc(func(_ context.Context, msg taskforge.Task) error {
+		var e event
+		if err := json.Unmarshal(msg.Payload, &e); err != nil {
+			return err
+		}
+		attempt := tr.start(e)
+		if m.RetryFraction > 0 && eventIndex(e.ID)%100 < int(m.RetryFraction*100) && attempt == 1 {
+			return errors.New("experiment retry")
+		}
+		time.Sleep(m.ServiceTime)
+		tr.done(e, m.SLO)
+		return nil
+	})
+	workerOptions := worker.Options{
+		Broker:      broker,
+		Handler:     handler,
+		Logger:      logger,
+		PoolName:    "experiment",
+		Queue:       "default",
+		ConsumerID:  fmt.Sprintf("experiment-%d", seed),
+		LeaseTTL:    experimentLeaseTTL,
+		Concurrency: 4,
+		RetryPolicy: taskforge.RetryPolicy{MaxDeliveries: 3, InitialBackoff: 5 * time.Millisecond, MaxBackoff: 10 * time.Millisecond, Multiplier: 1},
+	}
+	if budgeted {
+		workerOptions.BudgetManager = broker
+		workerOptions.TaskBudgets = map[string]worker.TaskBudget{"experiment.task": {Budget: "downstream", Tokens: 1}}
+	}
+	if !fifo && !slices.Contains(v.Disabled, "adaptive-concurrency") {
+		workerOptions.AdaptiveStore = broker
+		workerOptions.Adaptive = worker.AdaptiveConfig{
+			Enabled:                true,
+			MinConcurrency:         2,
+			MaxConcurrency:         8,
+			ControlPeriod:          25 * time.Millisecond,
+			Cooldown:               75 * time.Millisecond,
+			ScaleUpStep:            1,
+			ScaleDownStep:          1,
+			LatencyThreshold:       10 * m.ServiceTime,
+			ErrorRateThreshold:     0.5,
+			BacklogThreshold:       8,
+			HealthyWindowsRequired: 2,
+		}
+	}
+	w, err := worker.New(workerOptions)
+	if err != nil {
 		return err
 	}
 	workCtx, cancelWorkers := context.WithCancel(ctx)
 	defer cancelWorkers()
-	stopScheduler := make(chan struct{})
-	var schedulerWG sync.WaitGroup
-	schedulerWG.Add(1)
-	go func() {
-		defer schedulerWG.Done()
-		ticker := time.NewTicker(time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stopScheduler:
-				return
-			case <-ticker.C:
-				_, _ = broker.MoveDue(ctx, fence, time.Now().UTC(), 64)
-			}
-		}
-	}()
-	var wg sync.WaitGroup
-	var crash sync.Once
-	for n := 0; n < 4; n++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			for {
-				select {
-				case <-workCtx.Done():
-					return
-				default:
-				}
-				delivery, err := broker.Reserve(workCtx, "default", fmt.Sprintf("experiment-%d", n))
-				if errors.Is(err, taskforge.ErrNoTask) {
-					time.Sleep(time.Millisecond)
-					continue
-				}
-				if err != nil {
-					return
-				}
-				var e event
-				if json.Unmarshal(delivery.Message.Payload, &e) != nil {
-					return
-				}
-				attempt := tr.start(e)
-				if m.CrashAfterStarts > 0 && attempt == 1 {
-					crashed := false
-					crash.Do(func() { crashed = true })
-					if crashed {
-						tr.crash(e)
-						continue
-					}
-				}
-				retry := m.RetryFraction > 0 && eventIndex(e.ID)%100 < int(m.RetryFraction*100) && attempt == 1
-				if retry {
-					_ = broker.Nack(ctx, delivery, true)
-					continue
-				}
-				time.Sleep(m.ServiceTime)
-				if broker.Ack(ctx, delivery) == nil {
-					tr.done(e, m.SLO)
-				}
-			}
-		}(n)
+	workerErr := make(chan error, 1)
+	go func() { workerErr <- w.Run(workCtx) }()
+	// Arrival is concurrent with service: several publishers sustain an
+	// arrival stream against a running worker so overload forms while the
+	// controls are active, instead of pre-loading an unserved backlog.
+	offset := len(events) - len(remaining)
+	publishErr := concurrentPublish(remaining, offset, publishOne)
+	waitErr := waitFor(tr, m.Tasks, runTimeout(m))
+	cancelWorkers()
+	if publishErr != nil {
+		return publishErr
 	}
-	if err := waitFor(tr, m.Tasks, 3*time.Second); err != nil {
-		cancelWorkers()
-		close(stopScheduler)
-		schedulerWG.Wait()
-		wg.Wait()
+	if err := <-workerErr; err != nil && !errors.Is(err, context.Canceled) && waitErr == nil {
 		return err
 	}
-	cancelWorkers()
-	close(stopScheduler)
-	schedulerWG.Wait()
+	return waitErr
+}
+
+const experimentPublishers = 4
+
+// concurrentPublish fans events out to a fixed set of publishers, preserving
+// each event's manifest index for the delayed-fraction decision.
+func concurrentPublish(events []event, offset int, publish func(int, event) error) error {
+	var wg sync.WaitGroup
+	errs := make(chan error, experimentPublishers)
+	for p := 0; p < experimentPublishers; p++ {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+			for i := p; i < len(events); i += experimentPublishers {
+				if err := publish(offset+i, events[i]); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(p)
+	}
 	wg.Wait()
-	return nil
+	close(errs)
+	return <-errs
+}
+
+// runTimeout scales the completion deadline with offered load so larger
+// registered runs are not truncated by the smoke-sized deadline.
+func runTimeout(m experiment.Manifest) time.Duration {
+	perTask := m.ServiceTime + 2*time.Millisecond
+	return 10*time.Second + time.Duration(m.Tasks)*perTask
 }
 
 // runAsynq is the deliberately isolated baseline adapter. It shares only the
@@ -276,18 +371,22 @@ func runAsynq(m experiment.Manifest, addr string, db int, seed int64, tr *tracke
 	go func() { errCh <- server.Run(mux) }()
 	client := asynq.NewClient(opt)
 	defer client.Close()
-	for i, e := range makeEvents(m, seed) {
+	// Same concurrent arrival-against-running-service model as the TaskForge
+	// runner so the baseline sees an identical offered load.
+	publishErr := concurrentPublish(makeEvents(m, seed), 0, func(i int, e event) error {
 		e.Enqueued = time.Now().UTC()
 		opts := []asynq.Option{asynq.Queue("default"), asynq.MaxRetry(1)}
 		if m.DelayedFraction > 0 && float64(i)/float64(m.Tasks) < m.DelayedFraction {
 			opts = append(opts, asynq.ProcessIn(12*time.Millisecond))
 		}
-		if _, err := client.Enqueue(asynq.NewTask("experiment.task", mustJSON(e)), opts...); err != nil {
-			server.Shutdown()
-			return err
-		}
+		_, err := client.Enqueue(asynq.NewTask("experiment.task", mustJSON(e)), opts...)
+		return err
+	})
+	if publishErr != nil {
+		server.Shutdown()
+		return publishErr
 	}
-	err := waitFor(tr, m.Tasks, 3*time.Second)
+	err := waitFor(tr, m.Tasks, runTimeout(m))
 	server.Shutdown()
 	select {
 	case runErr := <-errCh:
@@ -316,7 +415,7 @@ func makeEvents(m experiment.Manifest, seed int64) []event {
 				break
 			}
 		}
-		result[i] = event{ID: fmt.Sprintf("%s-%d", m.Name, i), Tenant: tenant, Enqueued: time.Now().UTC()}
+		result[i] = event{ID: fmt.Sprintf("%s-%d", m.Name, i), Tenant: tenant}
 	}
 	return result
 }
@@ -330,7 +429,7 @@ func waitFor(tr *tracker, tasks int, timeout time.Duration) error {
 	}
 	return fmt.Errorf("timed out waiting for %d tasks; completed %d", tasks, tr.completed())
 }
-func load(dir string, smoke bool) ([]experiment.Manifest, error) {
+func load(dir string, smoke bool, scale int) ([]experiment.Manifest, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		return nil, err
@@ -354,7 +453,7 @@ func load(dir string, smoke bool) ([]experiment.Manifest, error) {
 		if smoke && m.Tasks > 8 {
 			m.Tasks = 8
 		}
-		result = append(result, m)
+		result = append(result, m.Scale(scale))
 	}
 	return result, nil
 }
@@ -417,20 +516,6 @@ func eventIndex(id string) int {
 	at := strings.LastIndex(id, "-")
 	n, _ := strconv.Atoi(id[at+1:])
 	return n
-}
-func has(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 func mustJSON(v any) []byte {
 	data, err := json.Marshal(v)
