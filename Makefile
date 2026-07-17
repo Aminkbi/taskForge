@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test bench bench-smoke experiment-smoke lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -39,6 +39,18 @@ coverage:
 
 race-test:
 	$(SHELL) ./scripts/race.sh
+
+fuzz-smoke:
+	$(SHELL) ./scripts/fuzz-smoke.sh
+
+security-check:
+	$(SHELL) ./scripts/security-check.sh
+
+benchmark-regression:
+	$(SHELL) ./scripts/benchmark-regression.sh
+
+certification-report:
+	$(GO) run ./cmd/certify $(CERTIFICATION_ARGS)
 
 bench:
 	$(SHELL) ./scripts/bench.sh

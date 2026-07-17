@@ -39,6 +39,20 @@ jobs:
           test -s dist/taskforge-binaries.spdx.json
           test -s dist/provenance.json
 
+      - name: Generate attachable reliability certification
+        run: |
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            go run ./cmd/certify \
+              -json dist/reliability-certification.json \
+              -markdown dist/reliability-certification.md \
+              -commit "${GITHUB_SHA}" \
+              -source-date-epoch "$(git show -s --format=%ct HEAD)" \
+              -result artifact=passed:release-artifacts-validated \
+              -artifact dist/SHA256SUMS \
+              -artifact dist/provenance.json \
+              -artifact dist/taskforge-binaries.spdx.json \
+              -allow-incomplete
+
       - name: Attest release binaries and metadata
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:

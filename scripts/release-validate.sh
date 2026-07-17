@@ -90,4 +90,24 @@ for role in scheduler api; do
   test "$(docker image inspect --format '{{json .Config.Healthcheck}}' "$image")" != "null"
 done
 
+# This is an attachable report for the dry-run evidence produced above. The
+# broader checks are intentionally recorded as skipped, so the report is
+# incomplete rather than falsely certified as a full release pass.
+certification_epoch="${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD 2>/dev/null || echo 0)}"
+certification_args=(
+  go run ./cmd/certify
+  -json "$TASKFORGE_DIST_DIR/reliability-certification.json"
+  -markdown "$TASKFORGE_DIST_DIR/reliability-certification.md"
+  -commit "$TASKFORGE_COMMIT"
+  -source-date-epoch "$certification_epoch"
+  -result artifact=passed:release-dry-run-artifacts-validated
+  -allow-incomplete
+)
+for artifact in "$TASKFORGE_DIST_DIR"/SHA256SUMS "$TASKFORGE_DIST_DIR"/provenance.json "$TASKFORGE_DIST_DIR"/taskforge-* "$TASKFORGE_DIST_DIR"/*-image.oci.tar "$TASKFORGE_DIST_DIR"/*-image-metadata.json; do
+  [[ -f "$artifact" ]] && certification_args+=(-artifact "$artifact")
+done
+"${certification_args[@]}"
+test -s "$TASKFORGE_DIST_DIR/reliability-certification.json"
+test -s "$TASKFORGE_DIST_DIR/reliability-certification.md"
+
 echo "release dry-run validation passed; no release or registry publication occurred"

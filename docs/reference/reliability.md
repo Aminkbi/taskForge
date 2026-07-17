@@ -74,6 +74,23 @@ make docs-check
 make certification-check
 ```
 
+`make certification-report` is the command interface for a versioned JSON and
+Markdown release attachment (pass flags through `CERTIFICATION_ARGS`). It can
+execute selected manifest checks with `-run` or consume CI-produced results
+with `-input`. Every unreported check is explicitly
+`skipped`; if any required check is skipped the report status is `incomplete`,
+not `passed`. Supply `SOURCE_DATE_EPOCH` (or use the command's commit-time
+default) with the commit to reproduce the same report bytes for identical
+inputs. `make release-validate` emits an attachable artifact-only report in
+`dist/`; it is deliberately incomplete because it does not rerun the broader
+reliability suite.
+
+Consumed-result files use `taskforge-certification-results/v1` as defined by
+[`certification/results.schema.json`](../../certification/results.schema.json).
+They contain check IDs and `passed`, `failed`, or `skipped` states, and may
+include machine-specific benchmark deltas. Results from different commits or
+environments must not be combined.
+
 Redis-backed commands require a writable Redis primary on
 `localhost:6379`. `make experiment-smoke` may start the repository's Redis
 Compose service and uses dedicated database 14. `make release-validate`

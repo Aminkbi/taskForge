@@ -1,0 +1,5 @@
+{
+  "schema_version": "taskforge-benchmark-baseline/v1",
+  "description": "Versioned benchmark baseline metadata. Per-release measured deltas are supplied as certification results rather than inferred across different hosts.",
+  "source": "docs/operations/benchmarks.md#measured-fairness-optimization-2026-07-17"
+}

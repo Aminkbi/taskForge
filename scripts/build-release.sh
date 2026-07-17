@@ -20,6 +20,8 @@ rm -f \
   "$dist_dir"/taskforge-* \
   "$dist_dir"/SHA256SUMS \
   "$dist_dir"/provenance.json \
+  "$dist_dir"/reliability-certification.json \
+  "$dist_dir"/reliability-certification.md \
   "$dist_dir"/*-image.oci.tar \
   "$dist_dir"/*-image-metadata.json
 

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aminkbi/taskforge/certification/report.schema.json",
+  "title": "TaskForge reliability certification report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provenance", "environment", "status", "checks", "skipped_checks", "assumptions", "benchmark_deltas", "artifacts"],
+  "properties": {
+    "schema_version": {"const": "taskforge-reliability-certification/v1"},
+    "status": {"enum": ["passed", "failed", "incomplete"]},
+    "provenance": {"type": "object"},
+    "environment": {"type": "object"},
+    "checks": {"type": "array"},
+    "skipped_checks": {"type": "array", "items": {"type": "string"}},
+    "assumptions": {"type": "array"},
+    "benchmark_deltas": {},
+    "artifacts": {"type": "array"}
+  }
+}

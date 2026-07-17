@@ -21,6 +21,7 @@ type manifest struct {
 type check struct {
 	ID            string   `json:"id"`
 	Command       string   `json:"command"`
+	Required      *bool    `json:"required"`
 	Scope         string   `json:"scope"`
 	Prerequisites []string `json:"prerequisites"`
 	Evidence      []string `json:"evidence"`
@@ -59,7 +60,7 @@ func TestManifestIsInternallyConsistent(t *testing.T) {
 	if err := decoder.Decode(&got); err != nil {
 		t.Fatalf("decode manifest: %v", err)
 	}
-	if got.Schema != "manifest.schema.json" || got.SchemaVersion != "taskforge-certification-manifest/v1" {
+	if got.Schema != "manifest.schema.json" || got.SchemaVersion != "taskforge-certification-manifest/v2" {
 		t.Fatalf("unexpected schema identity: path=%q version=%q", got.Schema, got.SchemaVersion)
 	}
 	assertJSONFile(t, got.Schema)
@@ -69,8 +70,8 @@ func TestManifestIsInternallyConsistent(t *testing.T) {
 	checks := make(map[string]struct{}, len(got.Checks))
 	for _, item := range got.Checks {
 		assertUniqueID(t, "check", item.ID, checks)
-		if item.Scope == "" || len(item.Evidence) == 0 {
-			t.Errorf("check %q needs scope and evidence", item.ID)
+		if item.Required == nil || item.Scope == "" || len(item.Evidence) == 0 {
+			t.Errorf("check %q needs required state, scope, and evidence", item.ID)
 		}
 		fields := strings.Fields(item.Command)
 		if len(fields) != 2 || fields[0] != "make" {
