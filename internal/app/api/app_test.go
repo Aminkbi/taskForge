@@ -145,7 +145,7 @@ func TestAdaptiveHandlerReturnsPoolAndBudgetSnapshots(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/admin/adaptive", nil)
 
-	adaptiveHandler(stubAdaptiveProvider{}, stubBudgetUsageProvider{}, []config.WorkerPoolConfig{
+	adaptiveHandler(stubAdaptiveProvider{}, stubBudgetUsageProvider{}, []taskforge.WorkerPoolConfig{
 		{Name: "critical", Queue: "critical"},
 	}).ServeHTTP(recorder, request)
 

@@ -21,6 +21,13 @@ const (
 	fairnessTierBorrow   = "borrow"
 )
 
+var removeIdleFairnessKeyScript = redis.NewScript(`
+if redis.call("XLEN", KEYS[1]) == 0 then
+  return redis.call("SREM", KEYS[2], ARGV[1])
+end
+return 0
+`)
+
 type fairnessKeySnapshot struct {
 	Key            string
 	Rule           ResolvedFairnessRule
@@ -255,6 +262,10 @@ func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName s
 		Consumer: consumerName,
 		Streams:  []string{streamKey, ">"},
 		Count:    1,
+		// go-redis treats a zero Block value as Redis BLOCK 0 (forever).
+		// Candidate snapshots can become stale when consumers race, so this
+		// selected-stream read must be nonblocking and retry selection.
+		Block: -1,
 	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -303,7 +314,9 @@ func (b *Broker) reclaimFairExpiredDelivery(ctx context.Context, queue, consumer
 			return taskforge.Delivery{}, false, fmt.Errorf("reclaim task: fairness inspect stream: %w", err)
 		}
 		if exists == 0 {
-			_ = b.client.SRem(ctx, b.fairnessKeysSetKey(queue), fairnessKey).Err()
+			if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
+				return taskforge.Delivery{}, false, err
+			}
 			continue
 		}
 		if err := b.ensureGroup(ctx, streamKey, b.groupName(queue)); err != nil {
@@ -357,7 +370,9 @@ func (b *Broker) loadFairnessKeySnapshot(ctx context.Context, queue, fairnessKey
 		if !isMissingStream(err) {
 			return fairnessKeySnapshot{}, false, fmt.Errorf("fairness metrics: stream %q: %w", fairnessKey, err)
 		}
-		_ = b.client.SRem(ctx, b.fairnessKeysSetKey(queue), fairnessKey).Err()
+		if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
+			return fairnessKeySnapshot{}, false, err
+		}
 		return fairnessKeySnapshot{}, false, nil
 	}
 	length = streamInfo.Length
@@ -377,7 +392,9 @@ func (b *Broker) loadFairnessKeySnapshot(ctx context.Context, queue, fairnessKey
 		ready = 0
 	}
 	if ready == 0 && pendingCount == 0 {
-		_ = b.client.SRem(ctx, b.fairnessKeysSetKey(queue), fairnessKey).Err()
+		if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
+			return fairnessKeySnapshot{}, false, err
+		}
 	}
 
 	return fairnessKeySnapshot{
@@ -386,6 +403,18 @@ func (b *Broker) loadFairnessKeySnapshot(ctx context.Context, queue, fairnessKey
 		Reserved:       pendingCount,
 		OldestReadyAge: b.oldestFairnessReadyAge(ctx, streamKey, groupName, now),
 	}, true, nil
+}
+
+func (b *Broker) removeIdleFairnessKey(ctx context.Context, queue, fairnessKey string) error {
+	if err := removeIdleFairnessKeyScript.Run(
+		ctx,
+		b.client,
+		[]string{b.fairnessStreamKey(queue, fairnessKey), b.fairnessKeysSetKey(queue)},
+		fairnessKey,
+	).Err(); err != nil {
+		return fmt.Errorf("remove idle fairness key %q: %w", fairnessKey, err)
+	}
+	return nil
 }
 
 func (b *Broker) oldestFairnessReadyAge(ctx context.Context, streamKey, groupName string, now time.Time) float64 {

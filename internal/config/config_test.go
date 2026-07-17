@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aminkbi/taskforge"
-	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	taskforgeredis "github.com/aminkbi/taskforge/redis"
 )
 
@@ -68,24 +67,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.HTTPMaxBodyBytes != 1<<20 || cfg.HTTPMaxHeaderBytes != 16<<10 {
 		t.Fatalf("unexpected HTTP size defaults: body=%d header=%d", cfg.HTTPMaxBodyBytes, cfg.HTTPMaxHeaderBytes)
 	}
-	if len(cfg.WorkerPools) != 1 {
-		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))
+	control := cfg.Control
+	if len(control.WorkerPools) != 0 {
+		t.Fatalf("Control.WorkerPools length = %d, want 0 for a sidecar", len(control.WorkerPools))
 	}
-	pool := cfg.WorkerPools[0]
-	if pool.Name != "default" || pool.Queue != "default" {
-		t.Fatalf("unexpected default pool identity: %+v", pool)
+	if control.LeaseTTL != defaultLeaseTTL {
+		t.Fatalf("Control.LeaseTTL = %v, want %v", control.LeaseTTL, defaultLeaseTTL)
 	}
-	if pool.Concurrency != defaultWorkerConcurrent || pool.Prefetch != defaultWorkerPrefetch {
-		t.Fatalf("unexpected default pool sizing: %+v", pool)
-	}
-	if pool.LeaseTTL != defaultLeaseTTL {
-		t.Fatalf("default pool lease ttl = %v, want %v", pool.LeaseTTL, defaultLeaseTTL)
-	}
-	if pool.TaskTimeout != defaultTaskTimeout {
-		t.Fatalf("default pool task timeout = %v, want %v", pool.TaskTimeout, defaultTaskTimeout)
-	}
-	if len(cfg.TaskTypeLimits) != 0 {
-		t.Fatalf("TaskTypeLimits length = %d, want 0", len(cfg.TaskTypeLimits))
+	if len(control.TaskTypeLimits) != 0 {
+		t.Fatalf("Control.TaskTypeLimits length = %d, want 0", len(control.TaskTypeLimits))
 	}
 	if cfg.RoutingPolicy != nil {
 		t.Fatalf("RoutingPolicy = %+v, want nil", cfg.RoutingPolicy)
@@ -93,26 +83,26 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RedisTLS.Enabled || cfg.RedisConnectTimeout != defaultRedisConnectTimeout {
 		t.Fatalf("unexpected default Redis connectivity: %+v timeout=%v", cfg.RedisTLS, cfg.RedisConnectTimeout)
 	}
-	if len(cfg.DependencyBudgets) != 0 {
-		t.Fatalf("DependencyBudgets length = %d, want 0", len(cfg.DependencyBudgets))
+	if len(control.DependencyBudgets) != 0 {
+		t.Fatalf("Control.DependencyBudgets length = %d, want 0", len(control.DependencyBudgets))
 	}
-	if len(cfg.TaskBudgets) != 0 {
-		t.Fatalf("TaskBudgets length = %d, want 0", len(cfg.TaskBudgets))
+	if len(control.TaskBudgets) != 0 {
+		t.Fatalf("Control.TaskBudgets length = %d, want 0", len(control.TaskBudgets))
 	}
-	if cfg.PollInterval != defaultPollInterval {
-		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, defaultPollInterval)
+	if control.Scheduler.PollInterval != defaultPollInterval {
+		t.Fatalf("Control.Scheduler.PollInterval = %v, want %v", control.Scheduler.PollInterval, defaultPollInterval)
 	}
-	if cfg.SchedulerLockTTL != defaultSchedulerLockTTL {
-		t.Fatalf("SchedulerLockTTL = %v, want %v", cfg.SchedulerLockTTL, defaultSchedulerLockTTL)
+	if control.Scheduler.LockTTL != defaultSchedulerLockTTL {
+		t.Fatalf("Control.Scheduler.LockTTL = %v, want %v", control.Scheduler.LockTTL, defaultSchedulerLockTTL)
 	}
-	if cfg.SchedulerRenewInterval != defaultSchedulerRenew {
-		t.Fatalf("SchedulerRenewInterval = %v, want %v", cfg.SchedulerRenewInterval, defaultSchedulerRenew)
+	if control.Scheduler.RenewInterval != defaultSchedulerRenew {
+		t.Fatalf("Control.Scheduler.RenewInterval = %v, want %v", control.Scheduler.RenewInterval, defaultSchedulerRenew)
 	}
-	if cfg.TaskSuccessRetention != defaultTaskSuccessTTL || cfg.TaskFailureRetention != defaultTaskFailureTTL || cfg.TaskPayloadRetention != defaultTaskPayloadTTL {
-		t.Fatalf("unexpected task retention defaults: %+v", cfg)
+	if control.Retention.SucceededState != defaultTaskSuccessTTL || control.Retention.FailedState != defaultTaskFailureTTL || control.Retention.ResultPayload != defaultTaskPayloadTTL {
+		t.Fatalf("unexpected task retention defaults: %+v", control.Retention)
 	}
-	if len(cfg.RecurringSchedules) != 0 {
-		t.Fatalf("RecurringSchedules length = %d, want 0", len(cfg.RecurringSchedules))
+	if len(control.Scheduler.Schedules) != 0 {
+		t.Fatalf("Control.Scheduler.Schedules length = %d, want 0", len(control.Scheduler.Schedules))
 	}
 	if cfg.ServiceName != "taskforge-test" {
 		t.Fatalf("ServiceName = %q, want %q", cfg.ServiceName, "taskforge-test")
@@ -225,26 +215,27 @@ func TestLoadOverrides(t *testing.T) {
 	if !cfg.RedisTLS.Enabled || cfg.RedisTLS.ServerName != "redis.internal" || cfg.RedisConnectTimeout != 3*time.Second {
 		t.Fatalf("unexpected Redis connectivity fields: %+v", cfg)
 	}
-	if len(cfg.WorkerPools) != 1 {
-		t.Fatalf("WorkerPools length = %d, want 1", len(cfg.WorkerPools))
+	control := cfg.Control
+	if len(control.WorkerPools) != 1 {
+		t.Fatalf("Control.WorkerPools length = %d, want 1", len(control.WorkerPools))
 	}
-	pool := cfg.WorkerPools[0]
+	pool := control.WorkerPools[0]
 	if pool.Name != "critical" || pool.Queue != "critical" {
 		t.Fatalf("unexpected worker pool identity: %+v", pool)
 	}
-	if pool.Concurrency != 2 || pool.Prefetch != 6 || pool.LeaseTTL != 45*time.Second || pool.TaskTimeout != 12*time.Second {
+	if pool.Concurrency != 2 || pool.Prefetch != 6 || control.LeaseTTL != 45*time.Second || pool.TaskTimeout != 12*time.Second {
 		t.Fatalf("unexpected worker pool runtime: %+v", pool)
 	}
-	if pool.RetryPolicy.MaxDeliveries != 5 || pool.RetryPolicy.InitialBackoff != 2*time.Second || pool.RetryPolicy.MaxBackoff != time.Minute {
-		t.Fatalf("unexpected worker pool retry policy: %+v", pool.RetryPolicy)
+	if pool.Retry.MaxDeliveries != 5 || pool.Retry.InitialBackoff != 2*time.Second || pool.Retry.MaxBackoff != time.Minute {
+		t.Fatalf("unexpected worker pool retry policy: %+v", pool.Retry)
 	}
-	if pool.TaskTypeLimits["demo.nightly"] != 1 {
+	if len(pool.TaskTypeLimits) != 1 || pool.TaskTypeLimits[0].TaskName != "demo.nightly" || pool.TaskTypeLimits[0].MaxConcurrency != 1 {
 		t.Fatalf("unexpected worker pool task limits: %+v", pool.TaskTypeLimits)
 	}
-	if pool.FairnessPolicy == nil {
+	if pool.Fairness == nil {
 		t.Fatalf("expected worker pool fairness policy")
 	}
-	if pool.Admission.Mode != taskforgeredis.AdmissionModeDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
+	if pool.Admission.Mode != taskforge.AdmissionDefer || pool.Admission.MaxPending != 10 || pool.Admission.MaxPendingPerFairnessKey != 4 {
 		t.Fatalf("unexpected worker pool admission policy: %+v", pool.Admission)
 	}
 	if pool.Admission.MaxOldestReadyAge != 30*time.Second || pool.Admission.MaxRetryBacklog != 3 || pool.Admission.DeferInterval != 5*time.Second {
@@ -253,28 +244,28 @@ func TestLoadOverrides(t *testing.T) {
 	if !pool.Adaptive.Enabled || pool.Adaptive.MinConcurrency != 1 || pool.Adaptive.MaxConcurrency != 6 {
 		t.Fatalf("unexpected adaptive config: %+v", pool.Adaptive)
 	}
-	if pool.Adaptive.ControlPeriod != 2*time.Second || pool.Adaptive.Cooldown != 6*time.Second || pool.Adaptive.LatencyThreshold != 500*time.Millisecond {
+	if pool.Adaptive.ControlPeriod != 2*time.Second || pool.Adaptive.LatencyThreshold != 500*time.Millisecond {
 		t.Fatalf("unexpected adaptive timing config: %+v", pool.Adaptive)
 	}
-	if pool.Adaptive.ScaleUpStep != 1 || pool.Adaptive.ScaleDownStep != 1 || pool.Adaptive.ErrorRateThreshold != 0.25 || pool.Adaptive.BacklogThreshold != 10 || pool.Adaptive.HealthyWindowsRequired != 2 {
+	if pool.Adaptive.ErrorRateThreshold != 0.25 || pool.Adaptive.BacklogThreshold != 10 {
 		t.Fatalf("unexpected adaptive thresholds: %+v", pool.Adaptive)
 	}
-	protected := pool.FairnessPolicy.Resolve("tenant-vip")
-	if protected.Bucket != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 {
+	protected := pool.Fairness.Rules[0]
+	if protected.Name != "protected" || protected.Weight != 2 || protected.ReservedConcurrency != 1 || protected.Keys[0] != "tenant-vip" {
 		t.Fatalf("unexpected fairness rule resolution: %+v", protected)
 	}
-	defaultRule := pool.FairnessPolicy.Resolve(taskforgeredis.DefaultKey)
-	if defaultRule.Bucket != "default" || defaultRule.HardQuota != 2 {
+	defaultRule := pool.Fairness.Default
+	if defaultRule.Name != "default" || defaultRule.HardQuota != 2 {
 		t.Fatalf("unexpected default fairness rule: %+v", defaultRule)
 	}
-	if cfg.TaskTypeLimits["shared.sync"] != 2 {
-		t.Fatalf("unexpected global task type limits: %+v", cfg.TaskTypeLimits)
+	if len(control.TaskTypeLimits) != 1 || control.TaskTypeLimits[0].TaskName != "shared.sync" || control.TaskTypeLimits[0].MaxConcurrency != 2 {
+		t.Fatalf("unexpected global task type limits: %+v", control.TaskTypeLimits)
 	}
-	if cfg.DependencyBudgets["downstream-api"].Capacity != 5 {
-		t.Fatalf("unexpected dependency budgets: %+v", cfg.DependencyBudgets)
+	if len(control.DependencyBudgets) != 1 || control.DependencyBudgets[0].Name != "downstream-api" || control.DependencyBudgets[0].Capacity != 5 {
+		t.Fatalf("unexpected dependency budgets: %+v", control.DependencyBudgets)
 	}
-	if cfg.TaskBudgets["demo.nightly"].Budget != "downstream-api" || cfg.TaskBudgets["demo.nightly"].Tokens != 2 {
-		t.Fatalf("unexpected task budgets: %+v", cfg.TaskBudgets)
+	if len(control.TaskBudgets) != 1 || control.TaskBudgets[0].TaskName != "demo.nightly" || control.TaskBudgets[0].Budget != "downstream-api" || control.TaskBudgets[0].Tokens != 2 {
+		t.Fatalf("unexpected task budgets: %+v", control.TaskBudgets)
 	}
 	if cfg.RoutingPolicy == nil {
 		t.Fatalf("expected routing policy")
@@ -283,19 +274,19 @@ func TestLoadOverrides(t *testing.T) {
 	if placement.Queue != "critical" || placement.Shard != "shard-b" || placement.Rule != "critical-tenant" {
 		t.Fatalf("unexpected routing placement: %+v", placement)
 	}
-	if cfg.PollInterval != 250*time.Millisecond {
-		t.Fatalf("PollInterval = %v, want %v", cfg.PollInterval, 250*time.Millisecond)
+	if control.Scheduler.PollInterval != 250*time.Millisecond {
+		t.Fatalf("Control.Scheduler.PollInterval = %v, want %v", control.Scheduler.PollInterval, 250*time.Millisecond)
 	}
-	if cfg.SchedulerLockTTL != 20*time.Second || cfg.SchedulerRenewInterval != 4*time.Second {
-		t.Fatalf("unexpected scheduler fields: %+v", cfg)
+	if control.Scheduler.LockTTL != 20*time.Second || control.Scheduler.RenewInterval != 4*time.Second {
+		t.Fatalf("unexpected scheduler fields: %+v", control.Scheduler)
 	}
-	if cfg.TaskSuccessRetention != 2*time.Hour || cfg.TaskFailureRetention != 72*time.Hour || cfg.TaskPayloadRetention != 30*time.Minute {
-		t.Fatalf("unexpected task retention fields: %+v", cfg)
+	if control.Retention.SucceededState != 2*time.Hour || control.Retention.FailedState != 72*time.Hour || control.Retention.ResultPayload != 30*time.Minute {
+		t.Fatalf("unexpected task retention fields: %+v", control.Retention)
 	}
-	if len(cfg.RecurringSchedules) != 1 {
-		t.Fatalf("RecurringSchedules length = %d, want 1", len(cfg.RecurringSchedules))
+	if len(control.Scheduler.Schedules) != 1 {
+		t.Fatalf("Control.Scheduler.Schedules length = %d, want 1", len(control.Scheduler.Schedules))
 	}
-	schedule := cfg.RecurringSchedules[0]
+	schedule := control.Scheduler.Schedules[0]
 	if schedule.ID != "nightly" || schedule.Queue != "critical" || schedule.TaskName != "demo.nightly" {
 		t.Fatalf("unexpected schedule identity fields: %+v", schedule)
 	}
@@ -314,8 +305,8 @@ func TestLoadOverrides(t *testing.T) {
 	if schedule.Headers["x-source"] != "config" {
 		t.Fatalf("schedule headers = %+v, want x-source=config", schedule.Headers)
 	}
-	if schedule.MisfirePolicy != schedulerpkg.MisfirePolicyCoalesce {
-		t.Fatalf("schedule misfire policy = %q, want %q", schedule.MisfirePolicy, schedulerpkg.MisfirePolicyCoalesce)
+	if schedule.MisfirePolicy != taskforge.MisfireCoalesce {
+		t.Fatalf("schedule misfire policy = %q, want %q", schedule.MisfirePolicy, taskforge.MisfireCoalesce)
 	}
 	if schedule.StartAt == nil || schedule.StartAt.Format(time.RFC3339) != "2026-04-14T10:00:00Z" {
 		t.Fatalf("schedule start_at = %v, want 2026-04-14T10:00:00Z", schedule.StartAt)
@@ -391,27 +382,15 @@ func TestLoadRejectsUnknownControlField(t *testing.T) {
 	}
 }
 
-func TestLoadForRoleAllowsEmptyWorkerPoolsForScheduler(t *testing.T) {
+func TestLoadAllowsExplicitEmptyWorkerPoolsForSidecar(t *testing.T) {
 	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
 
-	cfg, err := LoadForRole("taskforge-scheduler", ServiceRoleScheduler)
+	cfg, err := Load("taskforge-scheduler")
 	if err != nil {
-		t.Fatalf("LoadForRole() error = %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
-	if len(cfg.WorkerPools) != 0 {
-		t.Fatalf("WorkerPools length = %d, want 0", len(cfg.WorkerPools))
-	}
-}
-
-func TestLoadForRoleAllowsEmptyWorkerPoolsForAPI(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
-
-	cfg, err := LoadForRole("taskforge-api", ServiceRoleAPI)
-	if err != nil {
-		t.Fatalf("LoadForRole() error = %v", err)
-	}
-	if len(cfg.WorkerPools) != 0 {
-		t.Fatalf("WorkerPools length = %d, want 0", len(cfg.WorkerPools))
+	if len(cfg.Control.WorkerPools) != 0 {
+		t.Fatalf("Control.WorkerPools length = %d, want 0", len(cfg.Control.WorkerPools))
 	}
 }
 
@@ -427,9 +406,9 @@ func TestLoadInvalidDuration(t *testing.T) {
 func TestLoadRejectsWeakHTTPAuthToken(t *testing.T) {
 	t.Setenv("TASKFORGE_HTTP_AUTH_TOKEN", "short-token")
 
-	_, err := LoadForRole("taskforge-test", ServiceRoleAPI)
+	_, err := Load("taskforge-test")
 	if err == nil || !strings.Contains(err.Error(), "at least 32 characters") {
-		t.Fatalf("LoadForRole() error = %v, want token length error", err)
+		t.Fatalf("Load() error = %v, want token length error", err)
 	}
 }
 
@@ -451,9 +430,9 @@ func TestLoadRejectsInvalidHTTPResourceLimits(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(tc.key, tc.value)
-			_, err := LoadForRole("taskforge-test", ServiceRoleAPI)
+			_, err := Load("taskforge-test")
 			if err == nil || !strings.Contains(err.Error(), tc.key) {
-				t.Fatalf("LoadForRole() error = %v, want error for %s", err, tc.key)
+				t.Fatalf("Load() error = %v, want error for %s", err, tc.key)
 			}
 		})
 	}
@@ -483,15 +462,6 @@ func TestLoadRejectsInvalidWorkerPools(t *testing.T) {
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
-	}
-}
-
-func TestLoadRejectsEmptyWorkerPoolsForWorkerRole(t *testing.T) {
-	t.Setenv("TASKFORGE_WORKER_POOLS_JSON", `[]`)
-
-	_, err := LoadForRole("taskforge-worker", ServiceRoleWorker)
-	if err == nil {
-		t.Fatal("LoadForRole() error = nil, want non-nil")
 	}
 }
 
@@ -559,8 +529,8 @@ func TestLoadTaskBudgetDefaultsTokensToOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.TaskBudgets["demo.echo"].Tokens != 1 {
-		t.Fatalf("task budget tokens = %d, want 1", cfg.TaskBudgets["demo.echo"].Tokens)
+	if len(cfg.Control.TaskBudgets) != 1 || cfg.Control.TaskBudgets[0].Tokens != 1 {
+		t.Fatalf("task budgets = %+v, want one token", cfg.Control.TaskBudgets)
 	}
 }
 
@@ -621,8 +591,8 @@ func TestLoadNormalizesRetryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.WorkerPools[0].RetryPolicy.MaxDeliveries != 7 {
-		t.Fatalf("unexpected normalized retry policy: %+v", cfg.WorkerPools[0].RetryPolicy)
+	if cfg.Control.WorkerPools[0].Retry.MaxDeliveries != 7 {
+		t.Fatalf("unexpected normalized retry policy: %+v", cfg.Control.WorkerPools[0].Retry)
 	}
 }
 

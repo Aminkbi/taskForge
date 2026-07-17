@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aminkbi/taskforge/certification/manifest.schema.json",
+  "title": "TaskForge reliability certification manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "contract", "checks", "claims", "assumptions", "artifacts"],
+  "properties": {
+    "$schema": {"const": "manifest.schema.json"},
+    "schema_version": {"const": "taskforge-certification-manifest/v1"},
+    "contract": {"type": "string", "minLength": 1},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "assumptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/assumption"}
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/artifact"}
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "scope", "prerequisites", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "command": {"type": "string", "pattern": "^make [a-z][a-z-]*$"},
+        "scope": {"type": "string", "minLength": 1},
+        "prerequisites": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "checks", "sources"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "statement": {"type": "string", "minLength": 1},
+        "checks": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "sources": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "assumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "documented_at"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "statement": {"type": "string", "minLength": 1},
+        "documented_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "kind", "description", "produced_by"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "path": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["committed", "generated"]},
+        "description": {"type": "string", "minLength": 1},
+        "produced_by": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    }
+  }
+}

@@ -67,8 +67,15 @@ func (s *deadLetterStore) PublishDeadLetter(ctx context.Context, envelope taskfo
 		return fmt.Errorf("publish dead-letter envelope: marshal envelope: %w", err)
 	}
 
+	source := taskforge.Delivery{
+		Message: envelope.OriginalTask,
+		Execution: taskforge.ExecutionMetadata{
+			TaskID: envelope.OriginalTask.ID, DeliveryID: envelope.DeliveryID,
+		},
+	}
+	sourceKey := source.OwnershipKey()
 	msg := taskforge.Task{
-		ID:        fmt.Sprintf("dlq:%s", envelope.DeliveryID),
+		ID:        fmt.Sprintf("dlq:%x", sha256Sum(sourceKey)),
 		Name:      "taskforge.dead_letter",
 		Queue:     deadLetterQueue(envelope.OriginalTask.Queue),
 		Payload:   payload,
@@ -84,7 +91,7 @@ func (s *deadLetterStore) PublishDeadLetter(ctx context.Context, envelope taskfo
 
 	if _, err := s.Broker.Publish(ctx, msg, taskforge.PublishOptions{
 		Source:           taskforge.PublishSourceDeadLetter,
-		DeduplicationKey: fmt.Sprintf("dead_letter:%s", envelope.DeliveryID),
+		DeduplicationKey: fmt.Sprintf("dead_letter:%s", sourceKey),
 	}); err != nil {
 		observability.MarkSpanError(span, err)
 		return err

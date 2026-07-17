@@ -1,0 +1,59 @@
+{
+  "$schema": "manifest.schema.json",
+  "schema_version": "taskforge-certification-manifest/v1",
+  "contract": "docs/reference/reliability.md",
+  "checks": [
+    {"id":"unit","command":"make test","scope":"All Go unit, property, fuzz-seed, command, and package tests.","prerequisites":[],"evidence":["config_test.go","redis","worker","internal"]},
+    {"id":"lint","command":"make lint","scope":"Go vet, gofmt verification, and pinned staticcheck when installed.","prerequisites":["Go 1.26.5","staticcheck v0.7.0 for CI parity"],"evidence":["scripts/lint.sh"]},
+    {"id":"coverage","command":"make coverage","scope":"Critical-package statement coverage floors.","prerequisites":[],"evidence":["scripts/coverage.sh","docs/development/coverage.md"]},
+    {"id":"race","command":"make race-test","scope":"Repository Go tests with the race detector.","prerequisites":["race-detector-supported Go platform"],"evidence":["scripts/race.sh"]},
+    {"id":"redis-integration","command":"make integration-test","scope":"Redis-backed ownership, retry, DLQ, routing, fairness, admission, scheduler, state, and recovery behavior.","prerequisites":["writable standalone Redis primary at localhost:6379"],"evidence":["test/integration/redis_integration_test.go"]},
+    {"id":"example","command":"make test-demo","scope":"Public publish-to-handler overload demo contract.","prerequisites":["writable standalone Redis primary at localhost:6379"],"evidence":["examples/overload/main.go","test/integration/redis_integration_test.go"]},
+    {"id":"simulation","command":"make simulation-test","scope":"Deterministic seeded protocol fault schedules and invariants.","prerequisites":[],"evidence":["internal/sim","docs/development/deterministic-simulation.md"]},
+    {"id":"model-check","command":"make model-check","scope":"Bounded exhaustive delivery and scheduler protocol state spaces.","prerequisites":[],"evidence":["internal/modelcheck","docs/development/protocol-models.md"]},
+    {"id":"benchmark-smoke","command":"make bench-smoke","scope":"Every Go benchmark executes once without making performance claims.","prerequisites":[],"evidence":["test/benchmark/redis_benchmark_test.go"]},
+    {"id":"experiment-smoke","command":"make experiment-smoke","scope":"All comparative workloads and TaskForge variants plus the Asynq baseline with raw and derived outputs.","prerequisites":["writable standalone Redis primary","redis-cli","dedicated non-zero Redis database"],"evidence":["test/experiment/workloads","internal/experiment","scripts/experiment-smoke.sh"]},
+    {"id":"vulnerability","command":"make vuln-check","scope":"Reachable Go dependency vulnerability scan with the go.mod-pinned govulncheck tool.","prerequisites":["access to the Go vulnerability database"],"evidence":["go.mod","scripts/vuln-check.sh","SECURITY.md"]},
+    {"id":"release-smoke","command":"make release-smoke","scope":"Supported release binaries and, when Docker is available, images start and expose health endpoints.","prerequisites":["writable standalone Redis primary at localhost:6379","curl for process health smoke","Docker daemon for image smoke"],"evidence":["scripts/release-smoke.sh"]},
+    {"id":"release-validate","command":"make release-validate","scope":"Non-publishing release dry-run for binaries, checksums, SBOM, provenance, reproducibility, OCI attestations, labels, and configured non-root user and healthcheck.","prerequisites":["Docker daemon with Buildx","sha256sum"],"evidence":["scripts/release-validate.sh","RELEASING.md"]},
+    {"id":"documentation","command":"make docs-check","scope":"Active relative links, documented Make targets, and certification manifest integrity.","prerequisites":[],"evidence":["scripts/docs-check.sh","certification/manifest_test.go"]},
+    {"id":"certification-manifest","command":"make certification-check","scope":"Certification check, claim, assumption, artifact, path, and Make target references.","prerequisites":[],"evidence":["certification/manifest_test.go"]}
+  ],
+  "claims": [
+    {"id":"at-least-once-ownership","statement":"TaskForge is at least once; current delivery identity and owner fence ack, retry, dead-letter, and lease extension.","checks":["unit","race","redis-integration","simulation","model-check"],"sources":["delivery.go","broker.go","worker/ack.go","redis/redis.go"]},
+    {"id":"retry-and-dlq","statement":"Retry is bounded and identity-preserving, and DLQ publication precedes source acknowledgement.","checks":["unit","redis-integration","simulation","model-check"],"sources":["worker/worker.go","redis/dlq_store.go","retry.go"]},
+    {"id":"scheduler-fencing","statement":"Delayed and recurring scheduler writes require the current leadership fence.","checks":["unit","redis-integration","simulation","model-check"],"sources":["internal/scheduler","redis/redis.go"]},
+    {"id":"placement-preservation","statement":"New publishes choose routing while retry, release, recurrence, DLQ, and recovery preserve placement.","checks":["unit","redis-integration"],"sources":["redis/routing_policy.go","redis/redis_test.go","test/integration/redis_integration_test.go"]},
+    {"id":"canonical-configuration","statement":"Environment decoding and embedded applications use the canonical taskforge.Config model without a sidecar-owned runtime copy.","checks":["unit","certification-manifest"],"sources":["config.go","internal/config/config.go","redis/config.go","worker/config.go"]},
+    {"id":"http-safe-defaults","statement":"Sensitive HTTP routes require authentication or are absent, responses redact task payload/results, and bounded server limits default on.","checks":["unit"],"sources":["internal/httpserver","internal/app/api","docs/operations/http-security.md"]},
+    {"id":"redis-startup-scope","statement":"Validated startup accepts only a writable direct standalone Redis primary and makes TLS configuration explicit.","checks":["unit","redis-integration"],"sources":["redis/client.go","docs/operations/redis.md"]},
+    {"id":"bounded-fault-evidence","statement":"Named deterministic simulation seeds and bounded exhaustive models exercise documented ownership and fencing mutations.","checks":["simulation","model-check"],"sources":["internal/sim","internal/modelcheck","docs/development/deterministic-simulation.md","docs/development/protocol-models.md"]},
+    {"id":"release-dry-run","statement":"The release dry-run verifies supported binary and image evidence without publishing.","checks":["release-smoke","release-validate","vulnerability"],"sources":["scripts/build-release.sh","scripts/release-validate.sh","RELEASING.md"]},
+    {"id":"executable-adoption-and-experiments","statement":"The public demo and comparative smoke workloads are executable contracts; benchmark output is not an SLA or superiority claim.","checks":["example","benchmark-smoke","experiment-smoke"],"sources":["examples/overload","test/experiment/workloads","docs/operations/benchmarks.md"]}
+  ],
+  "assumptions": [
+    {"id":"handler-idempotency","statement":"Applications make external handler side effects idempotent; TaskForge does not provide exactly-once effects.","documented_at":"docs/reference/reliability.md#assumptions-and-operator-obligations"},
+    {"id":"redis-durability","statement":"Operators configure Redis persistence, replication, backup, recovery, and capacity for their durability needs.","documented_at":"docs/reference/reliability.md#assumptions-and-operator-obligations"},
+    {"id":"deployment-boundary","statement":"Operators use a trusted TLS reverse proxy and authentication for non-loopback HTTP exposure and protect Redis credentials and CA material.","documented_at":"docs/reference/reliability.md#assumptions-and-operator-obligations"},
+    {"id":"timing-liveness","statement":"Liveness assumes bounded pauses, a sufficiently accurate local clock, and eventual access to a writable Redis primary.","documented_at":"docs/reference/reliability.md#assumptions-and-operator-obligations"},
+    {"id":"bounded-evidence","statement":"Race, simulation, model, benchmark, and vulnerability checks are bounded evidence rather than proof of defect absence or performance superiority.","documented_at":"docs/reference/reliability.md#assumptions-and-operator-obligations"}
+  ],
+  "artifacts": [
+    {"id":"reliability-contract","path":"docs/reference/reliability.md","kind":"committed","description":"Human-readable guarantees, evidence limits, and assumptions.","produced_by":["documentation","certification-manifest"]},
+    {"id":"certification-manifest","path":"certification/manifest.json","kind":"committed","description":"Machine-readable check, claim, assumption, and artifact index.","produced_by":["certification-manifest"]},
+    {"id":"certification-schema","path":"certification/manifest.schema.json","kind":"committed","description":"JSON Schema for the certification manifest.","produced_by":["certification-manifest"]},
+    {"id":"ci-matrix","path":".github/workflows/ci.yml","kind":"committed","description":"Automated reliability gate command matrix.","produced_by":["documentation"]},
+    {"id":"simulation-model","path":"internal/sim","kind":"committed","description":"Deterministic simulator, named seeds, faults, and invariants.","produced_by":["simulation"]},
+    {"id":"protocol-models","path":"internal/modelcheck","kind":"committed","description":"Bounded delivery and scheduler model checker.","produced_by":["model-check"]},
+    {"id":"experiment-workloads","path":"test/experiment/workloads","kind":"committed","description":"Six comparative workload manifests.","produced_by":["experiment-smoke"]},
+    {"id":"experiment-schema","path":"internal/experiment/experiment.go","kind":"committed","description":"Raw result and summary schema implementation.","produced_by":["unit","experiment-smoke"]},
+    {"id":"experiment-raw","path":"artifacts/experiments/raw/*.json","kind":"generated","description":"Machine-local raw per-task experiment evidence.","produced_by":["experiment-smoke"]},
+    {"id":"experiment-report","path":"artifacts/experiments/reports/summary.json","kind":"generated","description":"Derived comparative summary; raw results remain authoritative.","produced_by":["experiment-smoke"]},
+    {"id":"experiment-plot","path":"artifacts/experiments/reports/throughput.svg","kind":"generated","description":"Derived smoke visualization without a superiority claim.","produced_by":["experiment-smoke"]},
+    {"id":"release-checksums","path":"dist/SHA256SUMS","kind":"generated","description":"Checksums for supported release binaries.","produced_by":["release-smoke","release-validate"]},
+    {"id":"release-sbom","path":"dist/taskforge-binaries.spdx.json","kind":"generated","description":"SPDX binary SBOM.","produced_by":["release-smoke","release-validate"]},
+    {"id":"release-provenance","path":"dist/provenance.json","kind":"generated","description":"Source revision and build metadata for binaries.","produced_by":["release-smoke","release-validate"]},
+    {"id":"release-oci","path":"dist/*-image.oci.tar","kind":"generated","description":"OCI image archives retaining Buildx SBOM and provenance attestations.","produced_by":["release-validate"]},
+    {"id":"release-image-metadata","path":"dist/*-image-metadata.json","kind":"generated","description":"Buildx image metadata for the dry-run images.","produced_by":["release-validate"]}
+  ]
+}

@@ -3,18 +3,18 @@
 package main
 
 import (
-	"bytes"
+	"debug/buildinfo"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 )
 
 type module struct {
-	Path    string
-	Version string
+	Path         string
+	Version      string
+	Downloadable bool
 }
 
 type pkg struct {
@@ -33,29 +33,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "--output is required")
 		os.Exit(2)
 	}
+	if flag.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "at least one release binary is required")
+		os.Exit(2)
+	}
 
-	cmd := exec.Command("go", "list", "-m", "-json", "all")
-	cmd.Stderr = os.Stderr
-	data, err := cmd.Output()
+	modules, err := linkedModules(flag.Args(), *version)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "list modules:", err)
+		fmt.Fprintln(os.Stderr, "read linked modules:", err)
 		os.Exit(1)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	var modules []module
-	for decoder.More() {
-		var m module
-		if err := decoder.Decode(&m); err != nil {
-			fmt.Fprintln(os.Stderr, "decode modules:", err)
-			os.Exit(1)
-		}
-		modules = append(modules, m)
-	}
-	sort.Slice(modules, func(i, j int) bool { return modules[i].Path < modules[j].Path })
 	packages := make([]pkg, 0, len(modules))
 	for i, m := range modules {
 		location := "NOASSERTION"
-		if m.Version != "" {
+		if m.Downloadable {
 			location = "https://proxy.golang.org/" + m.Path + "/@v/" + m.Version + ".zip"
 		}
 		packages = append(packages, pkg{fmt.Sprintf("SPDXRef-Package-%d", i), m.Path, m.Version, location})
@@ -79,4 +70,35 @@ func main() {
 		fmt.Fprintln(os.Stderr, "write SBOM:", err)
 		os.Exit(1)
 	}
+}
+
+func linkedModules(paths []string, releaseVersion string) ([]module, error) {
+	unique := make(map[string]module)
+	for _, path := range paths {
+		info, err := buildinfo.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if info.Main.Path != "" {
+			unique[info.Main.Path] = module{Path: info.Main.Path, Version: releaseVersion}
+		}
+		for _, dependency := range info.Deps {
+			linked := dependency
+			if dependency.Replace != nil {
+				linked = dependency.Replace
+			}
+			unique[linked.Path] = module{
+				Path:         linked.Path,
+				Version:      linked.Version,
+				Downloadable: linked.Version != "",
+			}
+		}
+	}
+
+	modules := make([]module, 0, len(unique))
+	for _, linked := range unique {
+		modules = append(modules, linked)
+	}
+	sort.Slice(modules, func(i, j int) bool { return modules[i].Path < modules[j].Path })
+	return modules, nil
 }

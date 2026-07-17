@@ -14,9 +14,7 @@ import (
 
 	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/httpserver"
-	schedulerpkg "github.com/aminkbi/taskforge/internal/scheduler"
 	"github.com/aminkbi/taskforge/redis"
-	"github.com/aminkbi/taskforge/worker"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -26,11 +24,8 @@ const (
 	defaultRedisAddr           = "localhost:6379"
 	defaultRedisDB             = 0
 	defaultRedisConnectTimeout = 5 * time.Second
-	defaultWorkerConcurrent    = 4
-	defaultWorkerPrefetch      = 4
 	defaultPollInterval        = time.Second
 	defaultLeaseTTL            = 30 * time.Second
-	defaultTaskTimeout         = 30 * time.Second
 	defaultShutdownTimeout     = 10 * time.Second
 	defaultSchedulerLockTTL    = 15 * time.Second
 	defaultSchedulerRenew      = 5 * time.Second
@@ -39,17 +34,9 @@ const (
 	defaultTaskPayloadTTL      = 24 * time.Hour
 )
 
-type ServiceRole string
-
-const (
-	ServiceRoleWorker    ServiceRole = "worker"
-	ServiceRoleScheduler ServiceRole = "scheduler"
-	ServiceRoleAPI       ServiceRole = "api"
-)
-
-// Config contains service plumbing plus the canonical, validated product
-// configuration in Control. Promoted legacy fields are compiled from Control
-// for the existing application wiring; they are never validated separately.
+// Config contains sidecar plumbing plus the canonical, validated product
+// configuration in Control. Environment-only values stay here; runtime
+// controls are read directly from Control by their owning packages.
 type Config struct {
 	LogLevel              string
 	HTTPAddr              string
@@ -68,45 +55,9 @@ type Config struct {
 	RoutingPolicy         *redis.RoutingPolicy
 	Control               taskforge.Config
 
-	WorkerPools            []WorkerPoolConfig
-	DependencyBudgets      map[string]DependencyBudgetConfig
-	TaskBudgets            map[string]TaskBudgetConfig
-	TaskTypeLimits         map[string]int
-	PollInterval           time.Duration
-	ShutdownTimeout        time.Duration
-	SchedulerLockTTL       time.Duration
-	SchedulerRenewInterval time.Duration
-	TaskSuccessRetention   time.Duration
-	TaskFailureRetention   time.Duration
-	TaskPayloadRetention   time.Duration
-	RecurringSchedules     []schedulerpkg.ScheduleDefinition
-	OTELEnabled            bool
-	ServiceName            string
-}
-
-type WorkerPoolConfig struct {
-	Name           string
-	Queue          string
-	Concurrency    int
-	Prefetch       int
-	LeaseTTL       time.Duration
-	TaskTimeout    time.Duration
-	RetryPolicy    taskforge.RetryPolicy
-	TaskTypeLimits map[string]int
-	FairnessPolicy *redis.FairnessPolicy
-	Admission      redis.AdmissionPolicy
-	Adaptive       worker.AdaptiveConfig
-}
-
-type DependencyBudgetConfig struct {
-	Name     string
-	Capacity int
-}
-
-type TaskBudgetConfig struct {
-	TaskName string
-	Budget   string
-	Tokens   int
+	ShutdownTimeout time.Duration
+	OTELEnabled     bool
+	ServiceName     string
 }
 
 type rawWorkerPool struct {
@@ -193,10 +144,6 @@ type rawSchedule struct {
 }
 
 func Load(defaultServiceName string) (Config, error) {
-	return LoadForRole(defaultServiceName, ServiceRoleWorker)
-}
-
-func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 	cfg := Config{
 		LogLevel:              getEnv("TASKFORGE_LOG_LEVEL", defaultLogLevel),
 		HTTPAddr:              getEnv("TASKFORGE_HTTP_ADDR", defaultHTTPAddr),
@@ -260,22 +207,19 @@ func LoadForRole(defaultServiceName string, role ServiceRole) (Config, error) {
 		return Config{}, err
 	}
 
-	control, err := loadControl(role)
+	control, err := loadControl()
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.Control = control
-	if err := cfg.compileControl(); err != nil {
-		return Config{}, err
-	}
 	return cfg, nil
 }
 
-func loadControl(role ServiceRole) (taskforge.Config, error) {
+func loadControl() (taskforge.Config, error) {
 	control := taskforge.DefaultConfig()
-	if role == ServiceRoleScheduler || role == ServiceRoleAPI {
-		control.WorkerPools = []taskforge.WorkerPoolConfig{}
-	}
+	// Sidecars do not execute tasks. Explicit pool declarations are still
+	// decoded below so the API and scheduler can observe configured queues.
+	control.WorkerPools = []taskforge.WorkerPoolConfig{}
 	var err error
 	if control.LeaseTTL, err = getEnvDuration("TASKFORGE_LEASE_TTL", defaultLeaseTTL); err != nil {
 		return taskforge.Config{}, err
@@ -309,9 +253,6 @@ func loadControl(role ServiceRole) (taskforge.Config, error) {
 		control.WorkerPools, err = parseWorkerPools(raw)
 		if err != nil {
 			return taskforge.Config{}, fmt.Errorf("TASKFORGE_WORKER_POOLS_JSON: %w", err)
-		}
-		if role == ServiceRoleWorker && len(control.WorkerPools) == 0 {
-			return taskforge.Config{}, fmt.Errorf("TASKFORGE_WORKER_POOLS_JSON: at least one worker pool is required")
 		}
 	}
 	if value := getEnv("TASKFORGE_DEPENDENCY_BUDGETS_JSON", ""); value != "" {
@@ -471,43 +412,6 @@ func parseSchedules(raw []rawSchedule) ([]taskforge.Schedule, error) {
 	return schedules, nil
 }
 
-func (c *Config) compileControl() error {
-	brokerOptions, err := redis.OptionsFromConfig(redis.Options{RoutingPolicy: c.RoutingPolicy}, c.Control)
-	if err != nil {
-		return err
-	}
-	c.WorkerPools = make([]WorkerPoolConfig, len(c.Control.WorkerPools))
-	for i, pool := range c.Control.WorkerPools {
-		workerOptions, err := worker.OptionsFromConfig(worker.Options{}, c.Control, pool.Name)
-		if err != nil {
-			return err
-		}
-		c.WorkerPools[i] = WorkerPoolConfig{
-			Name: pool.Name, Queue: pool.Queue, Concurrency: pool.Concurrency, Prefetch: pool.Prefetch,
-			LeaseTTL: c.Control.LeaseTTL, TaskTimeout: pool.TaskTimeout, RetryPolicy: pool.Retry,
-			TaskTypeLimits: workerOptions.PoolTaskLimits, FairnessPolicy: brokerOptions.FairnessPolicies[pool.Queue],
-			Admission: brokerOptions.AdmissionPolicies[pool.Queue], Adaptive: workerOptions.Adaptive,
-		}
-	}
-	c.DependencyBudgets = make(map[string]DependencyBudgetConfig, len(c.Control.DependencyBudgets))
-	for _, budget := range c.Control.DependencyBudgets {
-		c.DependencyBudgets[budget.Name] = DependencyBudgetConfig{Name: budget.Name, Capacity: budget.Capacity}
-	}
-	c.TaskBudgets = make(map[string]TaskBudgetConfig, len(c.Control.TaskBudgets))
-	for _, mapping := range c.Control.TaskBudgets {
-		c.TaskBudgets[mapping.TaskName] = TaskBudgetConfig{TaskName: mapping.TaskName, Budget: mapping.Budget, Tokens: mapping.Tokens}
-	}
-	c.TaskTypeLimits = taskLimitMap(c.Control.TaskTypeLimits)
-	c.PollInterval = c.Control.Scheduler.PollInterval
-	c.SchedulerLockTTL = c.Control.Scheduler.LockTTL
-	c.SchedulerRenewInterval = c.Control.Scheduler.RenewInterval
-	c.TaskSuccessRetention = c.Control.Retention.SucceededState
-	c.TaskFailureRetention = c.Control.Retention.FailedState
-	c.TaskPayloadRetention = c.Control.Retention.ResultPayload
-	c.RecurringSchedules = c.Control.Scheduler.Schedules
-	return nil
-}
-
 func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) (redis.Options, error) {
 	tlsConfig, err := c.RedisTLS.Config()
 	if err != nil {
@@ -588,17 +492,6 @@ func fairnessRule(raw rawFairnessRule) taskforge.FairnessRule {
 		Name: raw.Name, Keys: raw.Keys, Weight: raw.Weight,
 		ReservedConcurrency: raw.ReservedConcurrency, HardQuota: raw.HardQuota,
 	}
-}
-
-func taskLimitMap(limits []taskforge.TaskTypeLimit) map[string]int {
-	if len(limits) == 0 {
-		return nil
-	}
-	result := make(map[string]int, len(limits))
-	for _, limit := range limits {
-		result[limit.TaskName] = limit.MaxConcurrency
-	}
-	return result
 }
 
 func getEnv(key, fallback string) string {

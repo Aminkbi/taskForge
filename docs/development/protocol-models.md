@@ -103,8 +103,8 @@ These model assumptions are explicit:
   compare-and-mutate operation do not expose intermediate state.
 - Worker consumer identities differ across the lease generations that may
   execute concurrently. The implementation's delivery fence is stream
-  delivery ID plus consumer owner; the model's ghost generation is not an
-  additional production fence.
+  identity plus stream-local delivery ID and consumer owner; the model's ghost
+  generation is not an additional production fence.
 - A retry receipt remains present throughout the ambiguity/recovery window and
   its key is unique to the source delivery.
 - Logical clocks are monotonic, lease/leadership expiry is eventually

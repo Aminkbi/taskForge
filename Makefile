@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test bench bench-smoke experiment-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test bench bench-smoke experiment-smoke lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -55,8 +55,11 @@ lint:
 fmt:
 	$(GO)fmt -w .
 
-docs-check:
+docs-check: certification-check
 	$(SHELL) ./scripts/docs-check.sh
+
+certification-check:
+	$(GO) test ./certification
 
 release-smoke:
 	$(SHELL) ./scripts/release-smoke.sh

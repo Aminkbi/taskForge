@@ -510,7 +510,7 @@ func (b *Broker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue 
 		requeued.ETA = nil
 		if _, err := b.Publish(ctx, requeued, taskforge.PublishOptions{
 			Source:           taskforge.PublishSourceRequeue,
-			DeduplicationKey: fmt.Sprintf("requeue:%s", delivery.Execution.DeliveryID),
+			DeduplicationKey: fmt.Sprintf("requeue:%s", delivery.OwnershipKey()),
 		}); err != nil {
 			observability.MarkSpanError(span, err)
 			return err

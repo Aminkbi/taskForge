@@ -122,8 +122,8 @@ func TestWorkerProcessTaskRetriesFailedTask(t *testing.T) {
 	if b.published[0].ETA == nil {
 		t.Fatalf("Published ETA is nil")
 	}
-	if got := b.publishOpts[0].DeduplicationKey; got != "retry:delivery-1" {
-		t.Fatalf("Publish deduplication key = %q, want %q", got, "retry:delivery-1")
+	if got, want := b.publishOpts[0].DeduplicationKey, "retry:"+delivery.OwnershipKey(); got != want {
+		t.Fatalf("Publish deduplication key = %q, want %q", got, want)
 	}
 	if got := b.published[0].Headers["last_error"]; got != "boom" {
 		t.Fatalf("Published last_error = %q, want %q", got, "boom")

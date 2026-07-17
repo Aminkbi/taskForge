@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -59,10 +60,17 @@ func TestPublishDeadLetterUsesDeterministicIDAndDedupeKey(t *testing.T) {
 	if len(b.messages) != 1 {
 		t.Fatalf("published messages = %d, want 1", len(b.messages))
 	}
-	if got := b.messages[0].ID; got != "dlq:delivery-1" {
-		t.Fatalf("dead-letter task id = %q, want %q", got, "dlq:delivery-1")
+	source := taskforge.Delivery{
+		Message: envelope.OriginalTask,
+		Execution: taskforge.ExecutionMetadata{
+			TaskID: envelope.OriginalTask.ID, DeliveryID: envelope.DeliveryID,
+		},
 	}
-	if got := b.options[0].DeduplicationKey; got != "dead_letter:delivery-1" {
-		t.Fatalf("dead-letter deduplication key = %q, want %q", got, "dead_letter:delivery-1")
+	sourceKey := source.OwnershipKey()
+	if got, want := b.messages[0].ID, "dlq:"+fmt.Sprintf("%x", sha256Sum(sourceKey)); got != want {
+		t.Fatalf("dead-letter task id = %q, want %q", got, want)
+	}
+	if got, want := b.options[0].DeduplicationKey, "dead_letter:"+sourceKey; got != want {
+		t.Fatalf("dead-letter deduplication key = %q, want %q", got, want)
 	}
 }

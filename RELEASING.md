@@ -39,8 +39,11 @@ The build writes binaries, `SHA256SUMS`, `taskforge-binaries.spdx.json`, and
 
 Run `make release-validate` before creating a tag. It builds all supported binary
 targets and both local images, then verifies artifact checksums, binary SBOM and
-provenance metadata, image labels, non-root execution, and Docker health checks.
-It never calls a registry or GitHub release API.
+provenance metadata, image labels, and configured non-root user and healthcheck.
+`make release-smoke` starts those images and exercises their health endpoints.
+The validator creates and removes an isolated `docker-container` Buildx builder
+so local attestation support does not depend on the selected default builder. It
+never calls a registry or GitHub release API.
 
 ## Image signing and verification policy
 

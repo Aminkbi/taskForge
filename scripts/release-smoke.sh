@@ -68,7 +68,9 @@ smoke_container() {
 
 ./scripts/build-release.sh
 
-for binary in "$TASKFORGE_DIST_DIR"/taskforge-*-linux-amd64; do
+for binary in \
+  "$TASKFORGE_DIST_DIR/taskforge-scheduler-linux-amd64" \
+  "$TASKFORGE_DIST_DIR/taskforge-api-linux-amd64"; do
   test -x "$binary"
   "$binary" version
 done

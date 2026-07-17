@@ -36,8 +36,8 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 	options.Client = client
 	b := taskforgeredis.New(options)
 
-	queues := make([]string, 0, len(cfg.WorkerPools))
-	for _, pool := range cfg.WorkerPools {
+	queues := make([]string, 0, len(cfg.Control.WorkerPools))
+	for _, pool := range cfg.Control.WorkerPools {
 		queues = append(queues, pool.Queue)
 	}
 	slices.Sort(queues)
@@ -60,7 +60,7 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 			_, _ = w.Write([]byte(`{"status":"ok","time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`))
 		})))
 		mux.Handle("/v1/admin/admission", httpserver.ReadOnly(admissionHandler(b, queues)))
-		mux.Handle("/v1/admin/adaptive", httpserver.ReadOnly(adaptiveHandler(b, b, cfg.WorkerPools)))
+		mux.Handle("/v1/admin/adaptive", httpserver.ReadOnly(adaptiveHandler(b, b, cfg.Control.WorkerPools)))
 		mux.Handle("/v1/admin/workers", httpserver.ReadOnly(workerLifecycleHandler(b)))
 		mux.Handle("/v1/tasks/", httpserver.ReadOnly(taskLookupHandler(b)))
 
@@ -192,7 +192,7 @@ func workerLifecycleHandler(provider observability.WorkerLifecycleProvider) http
 	}
 }
 
-func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budgetProvider observability.DependencyBudgetUsageProvider, pools []config.WorkerPoolConfig) http.HandlerFunc {
+func adaptiveHandler(statusProvider observability.AdaptiveStatusProvider, budgetProvider observability.DependencyBudgetUsageProvider, pools []taskforge.WorkerPoolConfig) http.HandlerFunc {
 	type poolStatus struct {
 		Pool                  string             `json:"pool"`
 		Queue                 string             `json:"queue"`

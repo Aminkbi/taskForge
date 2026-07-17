@@ -27,7 +27,8 @@ generic standalone worker binary.
 
 - Delivery is at least once; duplicate execution is possible and handlers must
   be idempotent. Exactly-once is not offered.
-- Task ID identifies logical work; delivery ID and owner fence one lease.
+- Task ID identifies logical work. Queue/fairness stream plus stream-local
+  delivery ID identifies a broker entry; the consumer owner fences one lease.
   Stale or expired owners cannot acknowledge, extend, retry, or dead-letter
   newer work.
 - A retry keeps task identity and is bounded by delivery policy. DLQ publish
@@ -50,6 +51,7 @@ generic standalone worker binary.
 | Deterministic protocol fault schedules | `make simulation-test` |
 | Exhaustive bounded protocol state spaces | `make model-check` |
 | Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
+| Reliability claim/check/artifact linkage | `make certification-check` |
 | Documentation links | `make docs-check` |
 
 Use `make run-demo` for the public embedded-worker path and `make compose-up`
@@ -60,6 +62,7 @@ inputs and CI tracks.
 
 - README: product scope, quick start, public API.
 - `docs/reference/`: configuration and HTTP endpoint contracts.
+- `docs/reference/reliability.md`: reliability claims, evidence, and assumptions.
 - `docs/operations/`: runbooks, benchmark method, and routing operation.
 - `docs/development/`: this map, toolchain policy, and Redis development reset.
 - `docs/roadmap/01`–`30`: immutable history, not active guidance.

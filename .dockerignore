@@ -1,0 +1,12 @@
+.git
+.agents
+.claude
+.codex
+.idea
+.vscode
+artifacts
+bin
+dist
+coverage.out
+*.out
+*.test

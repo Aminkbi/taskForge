@@ -13,7 +13,7 @@ It delivers at least once: handlers must be idempotent because a task may run mo
 
 Prerequisites:
 
-- Go 1.25+
+- Go 1.26.5+
 - Docker with Compose support
 
 Run Redis and the adoption demo:
@@ -151,6 +151,7 @@ test/integration/     opt-in Redis integration tests
 ## Documentation
 
 - [Configuration reference](./docs/reference/configuration.md)
+- [Reliability contract and certification commands](./docs/reference/reliability.md)
 - [HTTP and operations API reference](./docs/reference/http-api.md)
 - [Operator runbooks](./docs/operations/runbooks.md)
 - [Redis operating model](./docs/operations/redis.md)

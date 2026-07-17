@@ -477,6 +477,65 @@ func TestRedisFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) {
 	}
 }
 
+func TestRedisConcurrentFairReserveDoesNotBlockOnStaleSnapshot(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+	})
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		ReserveTimeout:   time.Second,
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
+	})
+	message := taskforge.Task{
+		ID: "fairness-concurrent-reserve", Name: "integration.fairness", Queue: "default",
+		FairnessKey: "tenant-a", CreatedAt: time.Now().UTC(),
+	}
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	type reserveResult struct {
+		delivery taskforge.Delivery
+		err      error
+	}
+	const consumers = 8
+	start := make(chan struct{})
+	results := make(chan reserveResult, consumers)
+	for i := 0; i < consumers; i++ {
+		go func(i int) {
+			<-start
+			delivery, err := brokerInstance.Reserve(ctx, "default", fmt.Sprintf("fair-racer-%d", i))
+			results <- reserveResult{delivery: delivery, err: err}
+		}(i)
+	}
+	close(start)
+
+	var reserved []taskforge.Delivery
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for i := 0; i < consumers; i++ {
+		select {
+		case result := <-results:
+			if result.err == nil {
+				reserved = append(reserved, result.delivery)
+				continue
+			}
+			if !errors.Is(result.err, taskforge.ErrNoTask) {
+				t.Fatalf("Reserve() error = %v, want nil or %v", result.err, taskforge.ErrNoTask)
+			}
+		case <-deadline.C:
+			_ = client.Close()
+			t.Fatal("concurrent fairness reserve blocked after its bounded reserve timeout")
+		}
+	}
+	if len(reserved) != 1 {
+		t.Fatalf("successful reservations = %d, want 1", len(reserved))
+	}
+	if err := brokerInstance.Ack(ctx, reserved[0]); err != nil {
+		t.Fatalf("Ack() error = %v", err)
+	}
+}
+
 func TestRedisFairnessReservedCapacityProtectsVipTraffic(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -1334,7 +1393,8 @@ func TestRedisRejectsStaleOwnerOperationsAfterReclaim(t *testing.T) {
 func TestRedisMoveDueRejectsStaleFenceWithoutMutatingDelayedTask(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 	now := time.Now().UTC()
-	eta := now.Add(-time.Second)
+	eta := now.Add(time.Second)
+	dueAt := eta.Add(time.Second)
 	message := taskforge.Task{
 		ID:        "integration-stale-fence",
 		Name:      "integration.stale_fence",
@@ -1349,7 +1409,7 @@ func TestRedisMoveDueRejectsStaleFenceWithoutMutatingDelayedTask(t *testing.T) {
 	current := integrationLeadershipFence("scheduler-current", 2)
 	setIntegrationLeadership(t, ctx, client, current, time.Minute)
 	stale := integrationLeadershipFence("scheduler-stale", 1)
-	if moved, err := brokerInstance.MoveDue(ctx, stale, now, 1); !errors.Is(err, taskforge.ErrLeadershipLost) || moved != 0 {
+	if moved, err := brokerInstance.MoveDue(ctx, stale, dueAt, 1); !errors.Is(err, taskforge.ErrLeadershipLost) || moved != 0 {
 		t.Fatalf("MoveDue() = (%d, %v), want stale leadership rejection without movement", moved, err)
 	}
 	if got := delayedQueueCount(t, ctx, client, "default"); got != 1 {
@@ -1361,7 +1421,7 @@ func TestRedisMoveDueRejectsStaleFenceWithoutMutatingDelayedTask(t *testing.T) {
 		t.Fatalf("ready stream length after stale fence = %d, want 0", got)
 	}
 
-	if moved, err := brokerInstance.MoveDue(ctx, current, now, 1); err != nil || moved != 1 {
+	if moved, err := brokerInstance.MoveDue(ctx, current, dueAt, 1); err != nil || moved != 1 {
 		t.Fatalf("MoveDue() with current fence = (%d, %v), want (1, nil)", moved, err)
 	}
 }

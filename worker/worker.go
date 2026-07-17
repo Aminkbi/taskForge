@@ -517,7 +517,7 @@ func (w *Worker) nextDispatchable(ctx context.Context, state *workerState, reser
 			releaseGlobal()
 			return dispatchCandidate{}, false, nil
 		}
-		index := indexPendingEntry(state.pending, delivery.Execution.DeliveryID)
+		index := indexPendingEntry(state.pending, delivery)
 		if index < 0 {
 			state.mu.Unlock()
 			w.releaseBudget(ctx, budgetLease, delivery)
@@ -709,7 +709,7 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		}
 		if _, publishErr := w.Broker.Publish(execCtx, next, taskforge.PublishOptions{
 			Source:           taskforge.PublishSourceRetry,
-			DeduplicationKey: fmt.Sprintf("retry:%s", failedDelivery.Execution.DeliveryID),
+			DeduplicationKey: fmt.Sprintf("retry:%s", failedDelivery.OwnershipKey()),
 		}); publishErr != nil {
 			observability.MarkSpanError(span, publishErr)
 			var admissionErr *taskforge.AdmissionError
@@ -952,7 +952,7 @@ func (w *Worker) releaseBudget(ctx context.Context, budget *TaskBudget, delivery
 }
 
 func (w *Worker) budgetLeaseKey(delivery taskforge.Delivery) string {
-	return fmt.Sprintf("%s:%s:%s", taskforge.EffectiveQueue(delivery.Message), delivery.Message.FairnessKey, delivery.Execution.DeliveryID)
+	return delivery.OwnershipKey()
 }
 
 func (w *Worker) watchLeaseLoss(ctx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, entry *pendingDelivery) {
@@ -1007,7 +1007,7 @@ func (w *Worker) dropPendingIfLeaseLost(state *workerState, reserveWake, dispatc
 	}
 
 	state.mu.Lock()
-	index := indexPendingEntry(state.pending, entry.delivery.Execution.DeliveryID)
+	index := indexPendingEntry(state.pending, entry.delivery)
 	if index < 0 {
 		state.mu.Unlock()
 		return false
@@ -1113,9 +1113,10 @@ func (w *Worker) publishLifecycleSnapshot(ctx context.Context, snapshot taskforg
 	}
 }
 
-func indexPendingEntry(deliveries []*pendingDelivery, deliveryID string) int {
+func indexPendingEntry(deliveries []*pendingDelivery, target taskforge.Delivery) int {
+	ownershipKey := target.OwnershipKey()
 	for i, delivery := range deliveries {
-		if delivery.delivery.Execution.DeliveryID == deliveryID {
+		if delivery.delivery.OwnershipKey() == ownershipKey {
 			return i
 		}
 	}

@@ -97,9 +97,9 @@ the generated value. See the [HTTP API reference](http-api.md) for credential
 formats.
 
 The four HTTP durations bound connection/request lifetime. The byte settings
-bound request bodies and headers. `TASKFORGE_SHUTDOWN_TIMEOUT` bounds HTTP
-graceful shutdown and tracing shutdown and is also the worker drain grace
-window.
+bound request bodies and headers. `TASKFORGE_SHUTDOWN_TIMEOUT` bounds sidecar
+HTTP and tracing shutdown. Embedded applications configure worker drain with
+`worker.Manager.ShutdownTimeout`.
 
 ## Redis connectivity
 

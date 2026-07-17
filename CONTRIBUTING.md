@@ -4,7 +4,7 @@ TaskForge is early-stage. Keep contributions scoped to one observable behavior.
 
 ## Development Setup
 
-Prerequisites: Go 1.25+, Docker Compose, and Redis for integration tests.
+Prerequisites: Go 1.26.5+, Docker Compose, and Redis for integration tests.
 Start with the [architecture map](docs/development/agent-context.md). Common checks:
 
 ```bash

@@ -63,7 +63,7 @@ jobs:
             --build-arg "VERSION=${GITHUB_REF_NAME}" \
             --build-arg "COMMIT=${GITHUB_SHA}" \
             -t "ghcr.io/${IMAGE_REPO}/scheduler:${GITHUB_REF_NAME}" \
-            --sbom=true \
+            --sbom=generator=mirror.gcr.io/docker/buildkit-syft-scanner@sha256:79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68 \
             --provenance=mode=max \
             --push .
 
@@ -75,7 +75,7 @@ jobs:
             --build-arg "VERSION=${GITHUB_REF_NAME}" \
             --build-arg "COMMIT=${GITHUB_SHA}" \
             -t "ghcr.io/${IMAGE_REPO}/api:${GITHUB_REF_NAME}" \
-            --sbom=true \
+            --sbom=generator=mirror.gcr.io/docker/buildkit-syft-scanner@sha256:79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68 \
             --provenance=mode=max \
             --push .
 

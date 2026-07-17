@@ -42,18 +42,18 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		clock.RealClock{},
 		logger.With("component", "scheduler-leader"),
 		schedulerOwnerToken(cfg.ServiceName),
-		cfg.SchedulerLockTTL,
-		cfg.SchedulerRenewInterval,
+		cfg.Control.Scheduler.LockTTL,
+		cfg.Control.Scheduler.RenewInterval,
 	)
 	loopHealth := healthcheck.NewReporter("not_ready", "scheduler starting")
 	recurring := schedulerpkg.NewRecurringService(
 		b,
 		store,
-		cfg.RecurringSchedules,
+		cfg.Control.Scheduler.Schedules,
 		logger.With("component", "scheduler-recurring"),
 	)
-	queues := make([]string, 0, len(cfg.WorkerPools))
-	for _, pool := range cfg.WorkerPools {
+	queues := make([]string, 0, len(cfg.Control.WorkerPools))
+	for _, pool := range cfg.Control.WorkerPools {
 		queues = append(queues, pool.Queue)
 	}
 	_ = metrics.RegisterQueueMetricsCollector(b, queues)
@@ -69,8 +69,8 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		clock.RealClock{},
 		logger.With("component", "scheduler-runtime"),
 		metrics,
-		cfg.PollInterval,
-		cfg.SchedulerRenewInterval,
+		cfg.Control.Scheduler.PollInterval,
+		cfg.Control.Scheduler.RenewInterval,
 	)
 	schedulerRuntime.LoopHealth = loopHealth
 	server := httpserver.New(cfg.HTTPServerConfig(), logger.With("component", "httpserver"), metrics.Handler(), map[string]httpserver.CheckFunc{
