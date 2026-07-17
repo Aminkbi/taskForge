@@ -1,9 +1,15 @@
 package experiment
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"math"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -191,4 +197,114 @@ func TestValidateRegisteredGrid(t *testing.T) {
 			t.Fatal("ValidateRegisteredGrid() accepted a non-neutral hostname")
 		}
 	})
+}
+
+func writeRegisteredDataset(t *testing.T) (string, []Result, Dataset) {
+	t.Helper()
+	rawDir := filepath.Join(t.TempDir(), "raw")
+	if err := os.MkdirAll(rawDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	results := registeredTestGrid()
+	redis := RedisConfiguration{
+		Address: "localhost:6379", DB: 14,
+		Values: map[string]string{"appendfsync": "everysec", "appendonly": "yes", "maxmemory-policy": "noeviction", "save": "60 1"},
+	}
+	var runs []RunProvenance
+	for i := range results {
+		result := &results[i]
+		result.Environment.RedisConfig = encodeRedisConfiguration(redis)
+		name := result.Manifest.Name + "--" + result.Variant.Name + "--" + strconv.FormatInt(result.Seed, 10) + ".json.gz"
+		path := filepath.Join(rawDir, name)
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writer := gzip.NewWriter(file)
+		if err := json.NewEncoder(writer).Encode(result); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := SHA256File(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status := RunStatusOK
+		if result.Manifest.Name == "worker-crash" && result.Variant.Name == "asynq" {
+			status = RunStatusNotMeasured
+		}
+		runs = append(runs, RunProvenance{
+			Manifest: result.Manifest.Name, Variant: result.Variant.Name, Seed: result.Seed,
+			Status: status, ResultFile: name, ResultSHA256: digest, ResultSchema: SchemaVersion,
+			SourceCommit: result.Environment.BuildSHA, SourceTree: strings.Repeat("1", 40), BinarySHA256: strings.Repeat("2", 64),
+			BuildArguments:  []string{"go", "build", "-trimpath", "-buildvcs=false", "-o", "<temporary>/experiment", "./cmd/experiment"},
+			DependencyLocks: []FileDigest{{Path: "go.mod", SHA256: strings.Repeat("3", 64)}, {Path: "go.sum", SHA256: strings.Repeat("4", 64)}},
+			RunnerArguments: ExpectedRunnerArguments(result.Manifest.Name, result.Variant.Name, result.Seed),
+			Redis:           redis,
+			Environment: SanitizedEnvironment{
+				OS: result.Environment.OS, Architecture: result.Environment.Architecture,
+				GoVersion: result.Environment.GoVersion, CPUs: result.Environment.CPUs,
+				CGOEnabled: false, GOMAXPROCS: 1,
+			},
+		})
+	}
+	return rawDir, results, Dataset{Schema: DatasetSchemaVersion, Publishable: true, Runs: runs}
+}
+
+func TestValidateRegisteredDatasetRejectsIntegrityDefects(t *testing.T) {
+	rawDir, results, dataset := writeRegisteredDataset(t)
+	if err := ValidateRegisteredDataset(rawDir, results, dataset); err != nil {
+		t.Fatalf("ValidateRegisteredDataset() error = %v", err)
+	}
+
+	tests := map[string]func(*Dataset){
+		"pilot":          func(d *Dataset) { d.Publishable = false },
+		"failed":         func(d *Dataset) { d.Runs[0].Status = RunStatusFailed },
+		"duplicate":      func(d *Dataset) { d.Runs[len(d.Runs)-1] = d.Runs[0] },
+		"mixed revision": func(d *Dataset) { d.Runs[len(d.Runs)-1].SourceCommit = strings.Repeat("a", 40) },
+		"mixed schema":   func(d *Dataset) { d.Runs[len(d.Runs)-1].ResultSchema = "old" },
+		"privacy home": func(d *Dataset) {
+			d.Runs[len(d.Runs)-1].RunnerArguments = append(d.Runs[len(d.Runs)-1].RunnerArguments, "/home/alice/result")
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			copy := dataset
+			copy.Runs = append([]RunProvenance(nil), dataset.Runs...)
+			mutate(&copy)
+			if err := ValidateRegisteredDataset(rawDir, results, copy); err == nil {
+				t.Fatal("ValidateRegisteredDataset() accepted invalid dataset")
+			}
+		})
+	}
+
+	t.Run("missing result bytes", func(t *testing.T) {
+		path := filepath.Join(rawDir, dataset.Runs[0].ResultFile)
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateRegisteredDataset(rawDir, results, dataset); err == nil {
+			t.Fatal("ValidateRegisteredDataset() accepted missing raw bytes")
+		}
+	})
+}
+
+func TestPrivacyLeakRejectsUserIdentifiers(t *testing.T) {
+	for _, value := range []string{
+		`{"username":"alice"}`,
+		`{"arg":"/home/alice/results"}`,
+		`{"contact":"alice@example.test"}`,
+	} {
+		if leak := privacyLeak(value); leak == "" {
+			t.Errorf("privacyLeak(%q) accepted a user identifier", value)
+		}
+	}
+	if leak := privacyLeak(`{"hostname":"research-host","address":"localhost:6379"}`); leak != "" {
+		t.Fatalf("privacyLeak() rejected neutral provenance: %s", leak)
+	}
 }

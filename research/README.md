@@ -12,11 +12,13 @@ anywhere.
 | Path | Role |
 | --- | --- |
 | [`analysis-plan.md`](analysis-plan.md) | Pre-registered hypotheses, design, metrics, statistics, pilot amendments, and the disclosed full-grid replacement |
-| [`data/raw/`](data/raw/) | Committed raw evidence: 504 runs (6 workloads x 7 variants x 12 seeds), gzipped JSON with per-task samples and full environment metadata |
-| [`data/run-log.txt`](data/run-log.txt) | Per-cell execution log of the registered grid (all 504 ok) |
+| [`data/dataset.json`](data/dataset.json) | Per-cell provenance ledger: source/tree, binary and result digests, dependency locks, exact arguments, Redis configuration, sanitized environment, and measured/not-measured status |
+| [`data/raw/`](data/raw/) | Committed raw evidence: exactly 504 gzipped cell results (6 workloads x 7 variants x 12 seeds) |
+| [`data/run-log.txt`](data/run-log.txt) | Privacy-safe per-cell status log; unsupported Asynq crash cells are `not_measured` |
 | [`results/`](results/) | Derived statistical report (`analysis.md`, `analysis.json`) — generated, never hand-edited |
 | [`figures/`](figures/) | Derived SVG figures — generated, never hand-edited |
-| [`paper/paper.md`](paper/paper.md) | The paper draft; every number traces to `results/analysis.md` |
+| [`paper/paper.template.md`](paper/paper.template.md) | Narrative paper source with strict generated-evidence tokens |
+| [`paper/paper.md`](paper/paper.md) | Generated paper; its complete numeric result table comes from `analysis.json` |
 
 Citation metadata lives at the repository root (`CITATION.cff`,
 `.zenodo.json`).
@@ -39,46 +41,51 @@ Prerequisites: Go 1.26.5+, Docker with Compose (or a local Redis 7 on
    (seeded bootstrap, fixed iteration order).
 
    `make research-check` performs the same regeneration in a temporary
-   directory, byte-compares every result and figure, and validates the
+   directory, byte-compares every result, figure, and the paper, validates all
+   raw result digests and the complete provenance ledger, and checks the
    privacy-safe 504-cell run log without modifying committed outputs.
 
-2. Run a small live slice of the experiment against Redis:
+2. Run an explicitly non-publishable pilot grid against Redis:
 
    ```bash
    docker compose up -d redis
-   go run ./cmd/experiment -manifest noisy-neighbor -variant taskforge-full \
-     -scale 8 -output /tmp/taskforge-artifact-check
+   make research-experiments RESEARCH_ARGS='-pilot -seeds 20260717 \
+     -output /tmp/taskforge-artifact-pilot'
    ```
 
-   The printed JSON path contains raw per-task samples plus the summary
-   block; compare its shape with any file in `research/data/raw/`.
+   Pilot mode is the only mode that permits a dirty checkout or reduced grid.
+   Its `dataset.json` says `publishable: false`, and publication analysis
+   refuses it.
 
 ## Full reproduction (about 40 minutes on a 12-CPU host)
 
 ```bash
-make research-experiments   # re-runs the registered grid into research/data/raw
+make research-experiments   # atomically replaces research/data after all cells pass
 make research-analysis      # re-derives results/ and figures/
+make artifact-integrity     # rebuilds the recorded binary and byte-compares outputs
 ```
 
-`research-experiments` overwrites `research/data/raw/` with runs from your
-machine; use a scratch output directory
-(`scripts/research-experiments.sh /tmp/rerun`) to keep the registered
-evidence intact. Absolute numbers will differ on your hardware; the
-qualitative contrasts in the paper (admission benefits, fairness protection,
-budget capping, control overhead) are the reproduction target. Runs use the
-dedicated Redis DB 14 and flush it between cells; set
-`TASKFORGE_EXPERIMENT_REDIS_DB` if DB 14 is not free.
+Publication mode refuses any tracked or untracked source change, builds one
+measured binary from `HEAD`, writes every cell into a separate staging
+directory, validates the complete dataset, and replaces `research/data` only
+after all cells pass. Use `RESEARCH_ARGS='-pilot ... -output /tmp/rerun'` for
+exploration. Absolute numbers will differ on other hardware. Runs use the
+dedicated Redis DB 14 and flush it between cells.
 
 ## Provenance and privacy
 
-Every raw file records seed, manifest, variant, build SHA, Go version, OS,
-architecture, CPU count, and the Redis configuration string. The hostname is
-replaced with the neutral label `research-host` before results are committed.
-The registered replacement grid was produced from clean source commit
-`ac19e98ce8190bf962798e35f45052f0a76c4f91` with raw schema
-`taskforge-experiment/v2`, on the environment described in the plan. The
-analysis command rejects missing, duplicate, mixed-revision, mixed-environment,
-or non-neutral-host cells before generating publication output.
+Every ledger record repeats the exact source commit and tree, measured binary
+digest, `go.mod` and `go.sum` digests, build and runner arguments, Redis
+configuration, sanitized OS/architecture/Go/CPU facts, result schema and
+digest, and cell status. Raw results retain the neutral hostname
+`research-host`; generic environment maps, home paths, user names, email-like
+identifiers, credentials, and remote Redis addresses are not accepted.
+
+`make artifact-integrity` uses the ledger to extract and rebuild the exact
+measured source and binary. Dataset validation rejects dirty-pilot evidence,
+missing or duplicate cells, failures, mixed revision/schema/binary/lock or
+environment records, unexpected raw files, changed result bytes, and privacy
+leaks before generating publication output.
 
 ## Packaging for Zenodo
 

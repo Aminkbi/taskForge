@@ -59,8 +59,10 @@ committed raw evidence, and the derived statistical report live under
 [`research/`](../../research/README.md); run it with
 `make research-experiments` and regenerate every table and figure with
 `make research-analysis`. `make research-check` validates the complete grid,
-privacy-safe run log, and byte-reproducibility of every derived result and
-figure without modifying the committed outputs.
+per-cell provenance, privacy-safe run log, and byte-reproducibility of every
+derived result, paper table, and figure without modifying committed outputs.
+`make artifact-integrity` additionally extracts the recorded source commit,
+rebuilds the measured binary, and compares its digest.
 
 ## Preconditions
 

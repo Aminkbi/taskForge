@@ -17,7 +17,7 @@ import (
 
 // AnalysisSchemaVersion identifies the derived-analysis contract, which is
 // separate from the raw result schema it consumes.
-const AnalysisSchemaVersion = "taskforge-analysis/v1"
+const AnalysisSchemaVersion = "taskforge-analysis/v2"
 
 var registeredManifests = []string{
 	"delayed-backlog",
@@ -32,6 +32,16 @@ const (
 	registeredFirstSeed = int64(20260717)
 	registeredLastSeed  = int64(20260728)
 )
+
+func RegisteredManifests() []string { return slices.Clone(registeredManifests) }
+
+func RegisteredSeeds() []int64 {
+	seeds := make([]int64, 0, registeredLastSeed-registeredFirstSeed+1)
+	for seed := registeredFirstSeed; seed <= registeredLastSeed; seed++ {
+		seeds = append(seeds, seed)
+	}
+	return seeds
+}
 
 // ContrastMetrics are the pre-registered per-run metrics that participate in
 // variant contrasts. Every other extracted metric is reported descriptively.
@@ -103,12 +113,29 @@ type RelativeChange struct {
 }
 
 type Analysis struct {
-	Schema        string     `json:"schema"`
-	BootstrapSeed uint64     `json:"bootstrap_seed"`
-	Resamples     int        `json:"resamples"`
-	Runs          int        `json:"runs"`
-	Cells         []Cell     `json:"cells"`
-	Contrasts     []Contrast `json:"contrasts"`
+	Schema          string     `json:"schema"`
+	DatasetSchema   string     `json:"dataset_schema,omitempty"`
+	SourceCommit    string     `json:"source_commit,omitempty"`
+	BinarySHA256    string     `json:"binary_sha256,omitempty"`
+	ResultSchema    string     `json:"result_schema,omitempty"`
+	BootstrapSeed   uint64     `json:"bootstrap_seed"`
+	Resamples       int        `json:"resamples"`
+	Runs            int        `json:"runs"`
+	MeasuredRuns    int        `json:"measured_runs"`
+	NotMeasuredRuns int        `json:"not_measured_runs"`
+	Workloads       []Manifest `json:"workloads"`
+	Cells           []Cell     `json:"cells"`
+	Contrasts       []Contrast `json:"contrasts"`
+}
+
+func (a *Analysis) AttachDataset(dataset Dataset) {
+	a.DatasetSchema = dataset.Schema
+	if len(dataset.Runs) == 0 {
+		return
+	}
+	a.SourceCommit = dataset.Runs[0].SourceCommit
+	a.BinarySHA256 = dataset.Runs[0].BinarySHA256
+	a.ResultSchema = dataset.Runs[0].ResultSchema
 }
 
 // LoadRawResults reads every raw run in dir, accepting plain and gzip-encoded
@@ -123,43 +150,9 @@ func LoadRawResults(dir string) ([]Result, error) {
 		if !strings.HasSuffix(path, ".json") && !strings.HasSuffix(path, ".json.gz") {
 			continue
 		}
-		file, err := os.Open(path)
+		result, err := loadRawResult(path)
 		if err != nil {
 			return nil, err
-		}
-		var reader io.Reader = file
-		var unzipped *gzip.Reader
-		if strings.HasSuffix(path, ".gz") {
-			unzipped, err = gzip.NewReader(file)
-			if err != nil {
-				file.Close()
-				return nil, fmt.Errorf("open %s: %w", path, err)
-			}
-			reader = unzipped
-		}
-		decoder := json.NewDecoder(reader)
-		var result Result
-		decodeErr := decoder.Decode(&result)
-		if decodeErr == nil {
-			var trailing any
-			if err := decoder.Decode(&trailing); err != io.EOF {
-				if err == nil {
-					decodeErr = fmt.Errorf("multiple JSON values")
-				} else {
-					decodeErr = err
-				}
-			}
-		}
-		if unzipped != nil {
-			if err := unzipped.Close(); decodeErr == nil && err != nil {
-				decodeErr = err
-			}
-		}
-		if err := file.Close(); decodeErr == nil && err != nil {
-			decodeErr = err
-		}
-		if decodeErr != nil {
-			return nil, fmt.Errorf("decode %s: %w", path, decodeErr)
 		}
 		if result.Schema != SchemaVersion {
 			return nil, fmt.Errorf("%s: unsupported schema %q", path, result.Schema)
@@ -179,6 +172,48 @@ func LoadRawResults(dir string) ([]Result, error) {
 		return int(a.Seed - b.Seed)
 	})
 	return results, nil
+}
+
+func loadRawResult(path string) (Result, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Result{}, err
+	}
+	var reader io.Reader = file
+	var unzipped *gzip.Reader
+	if strings.HasSuffix(path, ".gz") {
+		unzipped, err = gzip.NewReader(file)
+		if err != nil {
+			file.Close()
+			return Result{}, fmt.Errorf("open %s: %w", path, err)
+		}
+		reader = unzipped
+	}
+	decoder := json.NewDecoder(reader)
+	var result Result
+	decodeErr := decoder.Decode(&result)
+	if decodeErr == nil {
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			if err == nil {
+				decodeErr = fmt.Errorf("multiple JSON values")
+			} else {
+				decodeErr = err
+			}
+		}
+	}
+	if unzipped != nil {
+		if err := unzipped.Close(); decodeErr == nil && err != nil {
+			decodeErr = err
+		}
+	}
+	if err := file.Close(); decodeErr == nil && err != nil {
+		decodeErr = err
+	}
+	if decodeErr != nil {
+		return Result{}, fmt.Errorf("decode %s: %w", path, decodeErr)
+	}
+	return result, nil
 }
 
 // ValidateRegisteredGrid rejects incomplete, duplicated, mixed-source, or
@@ -432,6 +467,13 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 
 	metricNames := slices.Concat(ContrastMetrics, DescriptiveMetrics)
 	analysis := Analysis{Schema: AnalysisSchemaVersion, BootstrapSeed: bootstrapSeed, Resamples: resamples, Runs: len(results)}
+	seenWorkload := map[string]bool{}
+	for _, result := range results {
+		if !seenWorkload[result.Manifest.Name] {
+			analysis.Workloads = append(analysis.Workloads, result.Manifest)
+			seenWorkload[result.Manifest.Name] = true
+		}
+	}
 	values := make(map[key]map[string][]float64, len(order))
 	for _, k := range order {
 		runs := grouped[k]
@@ -441,9 +483,11 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 			for _, run := range runs {
 				cell.Seeds = append(cell.Seeds, run.Seed)
 			}
+			analysis.NotMeasuredRuns += len(runs)
 			analysis.Cells = append(analysis.Cells, cell)
 			continue
 		}
+		analysis.MeasuredRuns += len(runs)
 		perMetric := make(map[string][]float64, len(metricNames))
 		for _, run := range runs {
 			cell.Seeds = append(cell.Seeds, run.Seed)

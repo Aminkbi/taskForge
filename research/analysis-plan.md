@@ -71,7 +71,7 @@ grid was executed:
 No registered results existed when these amendments were made; the registered
 grid was executed after this section was written.
 
-## Post-registration correction and complete replacement
+## Post-registration corrections and complete replacements
 
 An internal review of the first completed grid found four artifact defects.
 The first grid was discarded in full; no cells were selected or carried into
@@ -97,7 +97,19 @@ the dataset analyzed by the paper.
 These corrections implement the frozen design rather than change a hypothesis,
 workload, seed, task count, control parameter, or outcome rule. As required by
 the exclusion policy below, all 504 cells were rerun; the replacement raw
-directory contains no result from the discarded grid.
+directory contained no result from the discarded grid.
+
+A second internal artifact review found that source cleanliness covered only
+selected paths, the binary and dependency lock were not identified, runner
+arguments and a sanitized environment were absent, failed-grid handling and
+dataset completeness were not one validated transaction, the paper copied
+numbers by hand, and the unsupported Asynq crash cells could be read as
+zero-valued measurements. T16A replaces the complete grid again. The new
+runner requires a wholly clean checkout, stages rather than overwrites cells,
+fails the command on any failed cell, and publishes only after the 504-cell
+dataset and per-cell provenance ledger validate. The analysis marks the 12
+unsupported baseline fault cells not measured and excludes them from every
+metric. The paper's numeric table is generated from `analysis.json`.
 
 ## Experimental units and grid
 
@@ -169,9 +181,10 @@ Secondary, computed by the analysis tool from raw samples:
 
 ## Exclusion and failure rules
 
-- No run is excluded post hoc. A run that fails or times out is recorded in
-  the run log with its seed and error, the cell is analyzed with reduced n,
-  and the failure is reported.
+- No run is excluded post hoc. A run that fails or times out fails the grid
+  command, leaves the previously published dataset untouched, and cannot be
+  consumed by publication analysis. Publication output is generated only from
+  one complete successful replacement.
 - Reruns are permitted only for infrastructure failure external to the system
   under test (Redis unavailable, host out of memory) and every rerun is
   logged. Results are never selected by outcome.
@@ -181,11 +194,9 @@ Secondary, computed by the analysis tool from raw samples:
 
 ## Environment
 
-One shared workstation (12-CPU Intel i7-1255U, Linux, Go 1.26.5, Redis 7.4.9
-standalone, AOF `everysec`, `maxmemory-policy noeviction`), Redis and workers
-co-located, CPU frequency scaling enabled, not isolated from normal
-workstation activity. Every raw result embeds build SHA, OS, architecture,
-CPU count, Go version, and the Redis configuration string; the hostname is
-replaced by a neutral label before results are committed. These conditions
-bound the claims: results characterize control behavior under contention on
-one host, not absolute performance or cross-environment superiority.
+One shared workstation, with Redis and workers co-located and without host
+isolation. Exact non-identifying execution facts and Redis persistence/memory
+settings are repeated in every run's provenance record. Hostname, user, home,
+CI, and credential variables are excluded. These conditions bound the claims:
+results characterize control behavior under contention on one host, not
+absolute performance or cross-environment superiority.

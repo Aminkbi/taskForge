@@ -71,24 +71,31 @@ func figures() []figureSpec {
 }
 
 func main() {
-	input := flag.String("input", "research/data/raw", "raw result directory (.json or .json.gz)")
+	input := flag.String("input", "research/data", "registered dataset directory (or raw result directory with -allow-partial)")
 	results := flag.String("results", "research/results", "derived analysis output directory")
 	figuresDir := flag.String("figures", "research/figures", "derived SVG figure directory")
+	paperTemplate := flag.String("paper-template", "research/paper/paper.template.md", "paper template with generated-analysis tokens")
+	paper := flag.String("paper", "research/paper/paper.md", "generated paper output")
 	bootstrapSeed := flag.Uint64("bootstrap-seed", 20260717, "seed for the deterministic bootstrap")
 	resamples := flag.Int("resamples", 10000, "bootstrap resamples")
 	allowPartial := flag.Bool("allow-partial", false, "allow non-registered development inputs")
 	flag.Parse()
 
-	raw, err := experiment.LoadRawResults(*input)
-	if err != nil {
-		fatal("load raw results: %v", err)
+	var raw []experiment.Result
+	var dataset experiment.Dataset
+	var err error
+	if *allowPartial {
+		raw, err = experiment.LoadRawResults(*input)
+	} else {
+		raw, dataset, err = experiment.LoadRegisteredDataset(*input)
 	}
-	if !*allowPartial {
-		if err := experiment.ValidateRegisteredGrid(raw); err != nil {
-			fatal("validate registered grid: %v", err)
-		}
+	if err != nil {
+		fatal("load experiment evidence: %v", err)
 	}
 	analysis := experiment.Analyze(raw, *bootstrapSeed, *resamples)
+	if !*allowPartial {
+		analysis.AttachDataset(dataset)
+	}
 
 	if err := os.MkdirAll(*results, 0755); err != nil {
 		fatal("mkdir: %v", err)
@@ -106,6 +113,13 @@ func main() {
 	if err := os.WriteFile(filepath.Join(*results, "analysis.md"), []byte(markdown(analysis)), 0644); err != nil {
 		fatal("write analysis.md: %v", err)
 	}
+	evidence := paperEvidence(analysis)
+	if err := os.WriteFile(filepath.Join(*results, "paper-evidence.md"), []byte(evidence), 0644); err != nil {
+		fatal("write paper-evidence.md: %v", err)
+	}
+	if err := renderPaper(*paperTemplate, *paper, analysis, evidence); err != nil {
+		fatal("render paper: %v", err)
+	}
 	for _, spec := range figures() {
 		svg, ok := renderFigure(analysis, spec)
 		if !ok {
@@ -116,6 +130,67 @@ func main() {
 		}
 	}
 	fmt.Printf("%s\n", filepath.Join(*results, "analysis.md"))
+}
+
+func paperEvidence(analysis experiment.Analysis) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<!-- Generated from analysis.json; do not edit. -->\n")
+	fmt.Fprintf(&b, "| Workload | Variant | Status | p99 completion (ms) | Throughput (tasks/s) | Jain fairness | SLO violations | Peak concurrency | Recovery (ms) |\n")
+	fmt.Fprintf(&b, "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	for _, manifest := range manifestNames(analysis) {
+		for _, variant := range variantOrder {
+			cell, ok := cellFor(analysis, manifest, variant)
+			if !ok {
+				continue
+			}
+			if cell.Status == "not_measured" {
+				fmt.Fprintf(&b, "| %s | %s | not measured | not measured | not measured | not measured | not measured | not measured | not measured |\n", manifest, variant)
+				continue
+			}
+			fmt.Fprintf(&b, "| %s | %s | measured | %s | %s | %s | %s | %s | %s |\n",
+				manifest, variant,
+				summarize(cell, "completion_p99_ms", 1),
+				summarize(cell, "throughput_per_second", 0),
+				summarize(cell, "jain_fairness", 3),
+				summarize(cell, "slo_violations", 0),
+				summarize(cell, "peak_concurrency", 0),
+				summarize(cell, "recovery_ms", 0),
+			)
+		}
+	}
+	return b.String()
+}
+
+func renderPaper(templatePath, outputPath string, analysis experiment.Analysis, evidence string) error {
+	data, err := os.ReadFile(templatePath)
+	if err != nil {
+		return err
+	}
+	replacements := map[string]string{
+		"{{RUNS}}":               fmt.Sprintf("%d", analysis.Runs),
+		"{{MEASURED_RUNS}}":      fmt.Sprintf("%d", analysis.MeasuredRuns),
+		"{{NOT_MEASURED_RUNS}}":  fmt.Sprintf("%d", analysis.NotMeasuredRuns),
+		"{{WORKLOADS}}":          fmt.Sprintf("%d", len(analysis.Workloads)),
+		"{{VARIANTS}}":           fmt.Sprintf("%d", len(variantOrder)),
+		"{{RESAMPLES}}":          fmt.Sprintf("%d", analysis.Resamples),
+		"{{SOURCE_COMMIT}}":      analysis.SourceCommit,
+		"{{BINARY_SHA256}}":      analysis.BinarySHA256,
+		"{{GENERATED_EVIDENCE}}": strings.TrimSpace(evidence),
+	}
+	output := string(data)
+	for token, value := range replacements {
+		if !strings.Contains(output, token) {
+			return fmt.Errorf("template is missing token %s", token)
+		}
+		output = strings.ReplaceAll(output, token, value)
+	}
+	if strings.Contains(output, "{{") {
+		return fmt.Errorf("template contains an unresolved token")
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(outputPath, []byte(strings.TrimSpace(output)+"\n"), 0644)
 }
 
 func manifestNames(analysis experiment.Analysis) []string {
@@ -141,8 +216,21 @@ func cellFor(analysis experiment.Analysis, manifest, variant string) (experiment
 func markdown(analysis experiment.Analysis) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Registered experiment analysis\n\n")
-	fmt.Fprintf(&b, "Generated by `taskforge-experiment-analysis`; do not edit. Derived from %d raw runs with a seeded bootstrap (seed %d, %d resamples). Regenerate with `make research-analysis`.\n\n", analysis.Runs, analysis.BootstrapSeed, analysis.Resamples)
-	fmt.Fprintf(&b, "Values are medians across seeds with seeded bootstrap 95%% intervals. The `asynq` arm is a non-comparable baseline reported descriptively; it exposes none of the contrasted controls, and its `worker-crash` cell has no crash injected, so it records no recovery event. In workloads with retries, `peak_concurrency` spans first start to final completion and therefore measures in-flight logical tasks, not execution overlap; it is an execution-overlap proxy only in retry-free workloads. `duplicates` counts every re-delivered task, including intentional retries.\n")
+	fmt.Fprintf(&b, "Generated by `taskforge-experiment-analysis`; do not edit. Derived from %d registered run records (%d measured, %d explicitly not measured) with a seeded bootstrap (seed %d, %d resamples). Regenerate with `make research-analysis`.\n\n", analysis.Runs, analysis.MeasuredRuns, analysis.NotMeasuredRuns, analysis.BootstrapSeed, analysis.Resamples)
+	if analysis.SourceCommit != "" {
+		fmt.Fprintf(&b, "Measured source commit: `%s`; measured binary SHA-256: `%s`; raw schema: `%s`; dataset schema: `%s`.\n\n", analysis.SourceCommit, analysis.BinarySHA256, analysis.ResultSchema, analysis.DatasetSchema)
+	}
+	fmt.Fprintf(&b, "Values are medians across measured seeds with seeded bootstrap 95%% intervals. The `asynq` arm is a non-comparable baseline reported descriptively; it exposes none of the contrasted controls, and its unsupported `worker-crash` cell is **not measured** and contributes no zero-valued observation. In workloads with retries, `peak_concurrency` spans first start to final completion and therefore measures in-flight logical tasks, not execution overlap; it is an execution-overlap proxy only in retry-free workloads. `duplicates` counts every re-delivered task, including intentional retries.\n\n")
+	fmt.Fprintf(&b, "## Registered workload definitions\n\n")
+	fmt.Fprintf(&b, "Descriptions and parameters below are copied from the machine-readable raw manifests, after the registered scale has been applied.\n\n")
+	fmt.Fprintf(&b, "| Workload | Description | Tasks | Service time | SLO | Retry fraction | Delayed fraction | Dependency capacity | Admission cap | Per-key cap | Abandoned reservation |\n")
+	fmt.Fprintf(&b, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
+	for _, workload := range analysis.Workloads {
+		fmt.Fprintf(&b, "| %s | %s | %d | %s | %s | %.3f | %.3f | %d | %d | %d | %t |\n",
+			workload.Name, workload.Description, workload.Tasks, workload.ServiceTime, workload.SLO,
+			workload.RetryFraction, workload.DelayedFraction, workload.DependencyBudgetCapacity,
+			workload.AdmissionMaxPending, workload.AdmissionMaxPendingPerKey, workload.AbandonReservation)
+	}
 
 	for _, manifest := range manifestNames(analysis) {
 		fmt.Fprintf(&b, "\n## %s\n\n", manifest)
