@@ -54,7 +54,7 @@ used to validate harness mechanics before this plan was frozen. They exposed
 three defects that were fixed, and are disclosed here, before the registered
 grid was executed:
 
-1. The T12 harness never wired admission, adaptive-concurrency, or
+1. The initial comparative harness never wired admission, adaptive-concurrency, or
    dependency-budget controls, so four of the seven variants differed only by
    label. The runner now executes the public embedded worker path with each
    control genuinely engaged.
@@ -104,7 +104,7 @@ selected paths, the binary and dependency lock were not identified, runner
 arguments and a sanitized environment were absent, failed-grid handling and
 dataset completeness were not one validated transaction, the paper copied
 numbers by hand, and the unsupported Asynq crash cells could be read as
-zero-valued measurements. T16A replaces the complete grid again. The new
+zero-valued measurements. The complete grid was replaced again. The new
 runner requires a wholly clean checkout, stages rather than overwrites cells,
 fails the command on any failed cell, and publishes only after the 504-cell
 dataset and per-cell provenance ledger validate. The analysis marks the 12
@@ -118,8 +118,8 @@ metric. The paper's numeric table is generated from `analysis.json`.
   `worker-crash`, each scaled by a factor of 8 (task counts 128-192).
 - Seven variants: `taskforge-fifo-static`, four single-control ablations,
   `taskforge-full`, and the non-comparable `asynq` baseline.
-- Twelve seeds: 20260717 through 20260728, chosen to match the T14
-  optimization-report precedent and fixed before execution.
+- Twelve seeds: 20260717 through 20260728, chosen to match the earlier
+  optimization report's seed block and fixed before execution.
 - The unit of analysis is one run (one seed of one workload/variant cell).
   Samples within a run are correlated and are never pooled across runs for
   inference; per-run summary statistics are the observations.
