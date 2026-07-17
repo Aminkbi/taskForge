@@ -5,6 +5,102 @@ same machine and Redis configuration; they are not SLA claims.
 
 ## Comparative experiments
 
+### Neutral open-loop overload harness
+
+The neutral harness is the preferred path for overload, dependency-budget,
+admission, and cross-system delivery experiments. It has two deliberately
+separate processes:
+
+1. `cmd/experiment-trace` generates one deterministic trace and creates it
+   read-only with exclusive-create semantics. The trace contains synthetic UTC
+   arrival timestamps, tenant and service-time choices, delayed eligibility,
+   per-attempt failure draws, and worker fault timestamps. Its SHA-256 covers
+   all of those fields.
+2. `cmd/experiment-neutral` only accepts an existing trace. It maps the same
+   timestamp offsets onto each cell's run epoch and dispatches arrivals without
+   waiting for prior enqueue calls. Enqueue blocking therefore appears as
+   dispatch lag and enqueue duration instead of reducing the offered rate.
+
+For example:
+
+```bash
+make experiment-trace \
+  PROFILE=test/experiment/open-loop/sustained-and-burst.json \
+  TRACE=/tmp/sustained-seed-20260718.json \
+  TRACE_ARGS='-seed 20260718'
+
+make experiment-neutral \
+  TRACE=/tmp/sustained-seed-20260718.json \
+  NEUTRAL_ARGS='-repetition 0 -output /tmp/neutral-results'
+```
+
+Generate a new path for every seed; trace generation refuses to replace an
+existing file. Run repetitions 0 through 3 so the seeded counterbalance
+rotates every arm through every position over one complete block. Redis DB 14
+is flushed between cells. The
+benchmark records the trace digest and position in every result, making an
+accidental per-system workload or fixed-order comparison detectable.
+
+The registered profiles under `test/experiment/open-loop/` have 30-second
+warm-up and cooldown windows and a three-minute steady-state window with at
+least 10,000 steady arrivals. Together they cover sustained and burst
+overload, 4- and 16-tenant entitlement/load skews, service times at 1ms, 10ms,
+100ms, and 1s, delayed-work pressure, retry amplification, and a dependency
+whose latency and failure rate rise above declared capacity and collapse at a
+declared overlap ratio. `make experiment-neutral-smoke` uses a shorter profile
+only to check plumbing; its tails are not evidence.
+
+Each raw result includes:
+
+- accepted, deferred, and rejected enqueue observations, enqueue latency,
+  external scheduler dispatch lag, and the trace timestamp;
+- ready, deferred/scheduled, retry, and DLQ/archive backlog trajectories plus
+  scheduler lag; every attempt also records eligibility-to-start lag, an
+  explicit upper bound containing due-release and ready-queue wait;
+- every downstream overlap, modeled latency, capacity, and failure;
+- effective concurrency and controller action/reason;
+- per-tenant offered, accepted, completed, SLO-compliant, entitlement share,
+  service share, service deficit, and SLO attainment;
+- Redis CPU, used memory, commands, network input bytes, and network output
+  bytes; and
+- cost per SLO-compliant completion when explicit CPU, network, and
+  memory-time cost-unit rates are supplied. Zero rates intentionally produce
+  zero cost rather than inventing infrastructure prices.
+
+The dependency budget is configured to the modeled dependency's declared
+capacity. It therefore gates a resource that can observably saturate and
+collapse, rather than a constant handler sleep.
+
+#### Adapter tuning and semantic boundaries
+
+Adapters live in separate packages under `internal/experiment/adapters/`.
+Their only shared code reads Redis server counters.
+
+| Setting or semantic | TaskForge | Asynq |
+| --- | --- | --- |
+| Nominal worker concurrency | 16 by default; CLI-controlled | 16 by default; same CLI value |
+| Poll/release period | 10ms scheduler, 1s blocking reserve | 10ms pending/delayed checks |
+| Retry count/backoff | Trace maximum; fixed trace backoff | Same attempt count and fixed backoff |
+| Delayed work | TaskForge delayed set and scheduler fence | Asynq scheduled set |
+| Tenant entitlement | Weighted fairness from trace entitlements | Unsupported |
+| Admission | Defer at 512 pending by default | No equivalent admission control |
+| Dependency capacity | Budget tokens equal modeled capacity | No equivalent budget |
+| Effective concurrency | Adaptive range 4-32 at default nominal 16 | Static 16 |
+| DLQ column | TaskForge dead-letter contract | Asynq archive count; semantically different |
+| Worker process crash | Unsupported by this in-process adapter | Unsupported by this in-process adapter |
+
+The replay grid includes TaskForge full, no-admission, and
+no-dependency-budget arms plus Asynq. The two TaskForge ablations change only
+the named control, so admission and budget claims are evaluated against the
+same dependency that the no-budget arm can drive beyond capacity.
+
+Because graceful in-process shutdown is not equivalent to process death,
+worker-fault traces are marked unsupported and excluded before either adapter
+starts. They are not emitted as zero-valued measurements and must not enter a
+delivery or recovery comparison. A future process-isolated adapter may opt in
+only when it applies the trace's exact crash/recovery timestamps and preserves
+the common delivery observation contract.
+
 `make experiment-smoke` is the clean-checkout smoke command. It starts the
 Redis compose service if necessary, uses the dedicated Redis DB 14, runs every
 workload/variant combination with a fixed seed, and writes raw JSON under

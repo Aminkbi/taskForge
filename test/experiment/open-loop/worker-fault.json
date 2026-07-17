@@ -1,0 +1,44 @@
+{
+  "name": "worker-fault",
+  "warmup": 30000000000,
+  "steady_state": 180000000000,
+  "cooldown": 30000000000,
+  "phases": [
+    {"name": "warmup", "duration": 30000000000, "rate_per_second": 80},
+    {"name": "steady", "duration": 180000000000, "rate_per_second": 200},
+    {"name": "cooldown", "duration": 30000000000, "rate_per_second": 60}
+  ],
+  "tenants": [
+    {"name": "tenant-a", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-b", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-c", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-d", "offered_weight": 1, "entitlement_weight": 1}
+  ],
+  "service_times": [
+    {"duration": 1000000, "weight": 50},
+    {"duration": 10000000, "weight": 30},
+    {"duration": 100000000, "weight": 15},
+    {"duration": 1000000000, "weight": 5}
+  ],
+  "delayed_fraction": 0.1,
+  "delay": 3000000000,
+  "slo": 3000000000,
+  "max_attempts": 3,
+  "retry_backoff": 100000000,
+  "downstream": {
+    "name": "database",
+    "capacity": 12,
+    "base_latency": 3000000,
+    "max_latency": 2000000000,
+    "base_failure_rate": 0.01,
+    "latency_slope": 2.5,
+    "failure_slope": 0.2,
+    "collapse_at": 2,
+    "collapse_failure_rate": 0.9
+  },
+  "faults": [
+    {"at": 90000000000, "kind": "worker_crash", "target": "worker-pool"},
+    {"at": 105000000000, "kind": "worker_recover", "target": "worker-pool"}
+  ],
+  "minimum_tail_count": 10000
+}

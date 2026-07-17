@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke research-experiments research-analysis research-check artifact-integrity research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke research-experiments research-analysis research-check artifact-integrity research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -60,6 +60,18 @@ bench-smoke:
 
 experiment-smoke:
 	$(SHELL) ./scripts/experiment-smoke.sh
+
+experiment-trace:
+	@test -n "$(PROFILE)" || { echo "PROFILE is required"; exit 2; }
+	@test -n "$(TRACE)" || { echo "TRACE is required"; exit 2; }
+	$(GO) run ./cmd/experiment-trace -profile "$(PROFILE)" -output "$(TRACE)" $(TRACE_ARGS)
+
+experiment-neutral:
+	@test -n "$(TRACE)" || { echo "TRACE is required"; exit 2; }
+	$(GO) run ./cmd/experiment-neutral -trace "$(TRACE)" $(NEUTRAL_ARGS)
+
+experiment-neutral-smoke:
+	$(SHELL) ./scripts/experiment-neutral-smoke.sh
 
 research-experiments:
 	$(SHELL) ./scripts/research-experiments.sh $(RESEARCH_ARGS)

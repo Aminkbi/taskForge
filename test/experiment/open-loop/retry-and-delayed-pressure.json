@@ -1,0 +1,40 @@
+{
+  "name": "retry-and-delayed-pressure",
+  "warmup": 30000000000,
+  "steady_state": 180000000000,
+  "cooldown": 30000000000,
+  "phases": [
+    {"name": "warmup", "duration": 30000000000, "rate_per_second": 80},
+    {"name": "failure-overload", "duration": 180000000000, "rate_per_second": 300},
+    {"name": "cooldown", "duration": 30000000000, "rate_per_second": 60}
+  ],
+  "tenants": [
+    {"name": "premium", "offered_weight": 1, "entitlement_weight": 4},
+    {"name": "standard-a", "offered_weight": 4, "entitlement_weight": 1},
+    {"name": "standard-b", "offered_weight": 4, "entitlement_weight": 1},
+    {"name": "bulk", "offered_weight": 16, "entitlement_weight": 1}
+  ],
+  "service_times": [
+    {"duration": 1000000, "weight": 40},
+    {"duration": 10000000, "weight": 35},
+    {"duration": 100000000, "weight": 20},
+    {"duration": 1000000000, "weight": 5}
+  ],
+  "delayed_fraction": 0.4,
+  "delay": 10000000000,
+  "slo": 3000000000,
+  "max_attempts": 5,
+  "retry_backoff": 50000000,
+  "downstream": {
+    "name": "failure-prone-api",
+    "capacity": 10,
+    "base_latency": 5000000,
+    "max_latency": 3000000000,
+    "base_failure_rate": 0.08,
+    "latency_slope": 3,
+    "failure_slope": 0.3,
+    "collapse_at": 1.8,
+    "collapse_failure_rate": 0.95
+  },
+  "minimum_tail_count": 10000
+}

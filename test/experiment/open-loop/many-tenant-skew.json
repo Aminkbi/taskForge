@@ -1,0 +1,54 @@
+{
+  "name": "many-tenant-skew",
+  "warmup": 30000000000,
+  "steady_state": 180000000000,
+  "cooldown": 30000000000,
+  "phases": [
+    {"name": "warmup", "duration": 30000000000, "rate_per_second": 100},
+    {"name": "nominal", "duration": 60000000000, "rate_per_second": 180},
+    {"name": "skewed-burst", "duration": 30000000000, "rate_per_second": 700},
+    {"name": "recovery-load", "duration": 90000000000, "rate_per_second": 180},
+    {"name": "cooldown", "duration": 30000000000, "rate_per_second": 80}
+  ],
+  "tenants": [
+    {"name": "tenant-00", "offered_weight": 48, "entitlement_weight": 1},
+    {"name": "tenant-01", "offered_weight": 8, "entitlement_weight": 1},
+    {"name": "tenant-02", "offered_weight": 4, "entitlement_weight": 1},
+    {"name": "tenant-03", "offered_weight": 2, "entitlement_weight": 1},
+    {"name": "tenant-04", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-05", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-06", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-07", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-08", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-09", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-10", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-11", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-12", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-13", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-14", "offered_weight": 1, "entitlement_weight": 1},
+    {"name": "tenant-15", "offered_weight": 1, "entitlement_weight": 1}
+  ],
+  "service_times": [
+    {"duration": 1000000, "weight": 50},
+    {"duration": 10000000, "weight": 30},
+    {"duration": 100000000, "weight": 15},
+    {"duration": 1000000000, "weight": 5}
+  ],
+  "delayed_fraction": 0.1,
+  "delay": 3000000000,
+  "slo": 2000000000,
+  "max_attempts": 3,
+  "retry_backoff": 100000000,
+  "downstream": {
+    "name": "tenant-database",
+    "capacity": 12,
+    "base_latency": 3000000,
+    "max_latency": 2000000000,
+    "base_failure_rate": 0.01,
+    "latency_slope": 2.5,
+    "failure_slope": 0.2,
+    "collapse_at": 2,
+    "collapse_failure_rate": 0.9
+  },
+  "minimum_tail_count": 10000
+}
