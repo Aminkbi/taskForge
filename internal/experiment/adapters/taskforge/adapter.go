@@ -31,6 +31,8 @@ type Config struct {
 	AdmissionMaxPending      int64
 	DependencyBudgetCapacity int
 	DisableDependencyBudget  bool
+	DisableFairness          bool
+	DisableAdaptive          bool
 	LeaseTTL                 time.Duration
 	SchedulerPeriod          time.Duration
 }
@@ -81,6 +83,8 @@ func (a *Adapter) Capabilities() experiment.AdapterCapabilities {
 			"max_concurrency": strconv.Itoa(a.config.MaxConcurrency), "admission_max_pending": strconv.FormatInt(a.config.AdmissionMaxPending, 10),
 			"dependency_budget_enabled":  strconv.FormatBool(!a.config.DisableDependencyBudget),
 			"dependency_budget_capacity": strconv.Itoa(a.config.DependencyBudgetCapacity),
+			"fairness_enabled":           strconv.FormatBool(!a.config.DisableFairness),
+			"adaptive_enabled":           strconv.FormatBool(!a.config.DisableAdaptive),
 			"scheduler_period":           a.config.SchedulerPeriod.String(), "reserve_timeout": time.Second.String(),
 		},
 		SemanticLimitations: []string{"in-process worker shutdown is graceful; process-crash cells are excluded rather than mislabeled equivalent"},
@@ -95,21 +99,23 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	defer a.mu.Unlock()
 	a.runtime = runtime
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	rules := make([]tfredis.FairnessRule, 0, len(runtime.Trace.Profile.Tenants))
-	for _, tenant := range runtime.Trace.Profile.Tenants {
-		rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.EntitlementWeight*1000))})
-	}
-	fairness, err := tfredis.NewFairnessPolicy(tfredis.FairnessRule{}, rules)
-	if err != nil {
-		return err
-	}
 	budgetCapacity := a.config.DependencyBudgetCapacity
 	if budgetCapacity <= 0 {
 		budgetCapacity = runtime.Trace.Profile.Downstream.Capacity
 	}
 	options := tfredis.Options{
 		Client: a.config.Client, LeaseTTL: a.config.LeaseTTL, ReserveTimeout: time.Second, Logger: logger,
-		FairnessPolicies: map[string]*tfredis.FairnessPolicy{"default": fairness},
+	}
+	if !a.config.DisableFairness {
+		rules := make([]tfredis.FairnessRule, 0, len(runtime.Trace.Profile.Tenants))
+		for _, tenant := range runtime.Trace.Profile.Tenants {
+			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.EntitlementWeight*1000))})
+		}
+		fairness, err := tfredis.NewFairnessPolicy(tfredis.FairnessRule{}, rules)
+		if err != nil {
+			return err
+		}
+		options.FairnessPolicies = map[string]*tfredis.FairnessPolicy{"default": fairness}
 	}
 	if !a.config.DisableDependencyBudget {
 		options.DependencyBudgets = map[string]int{"downstream": budgetCapacity}
@@ -150,13 +156,16 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	})
 	workerOptions := worker.Options{
 		Broker: a.broker, Handler: handler, Logger: logger, PoolName: "neutral", Queue: "default", ConsumerID: "neutral-worker",
-		LeaseTTL: a.config.LeaseTTL, Concurrency: a.config.Concurrency,
-		RetryPolicy:   taskforge.RetryPolicy{MaxDeliveries: runtime.Trace.Profile.MaxAttempts, InitialBackoff: runtime.Trace.Profile.RetryBackoff, MaxBackoff: runtime.Trace.Profile.RetryBackoff, Multiplier: 1},
-		AdaptiveStore: a.broker, Adaptive: worker.AdaptiveConfig{
+		LeaseTTL: a.config.LeaseTTL, Concurrency: a.config.Concurrency, Prefetch: a.config.MaxConcurrency,
+		RetryPolicy: taskforge.RetryPolicy{MaxDeliveries: runtime.Trace.Profile.MaxAttempts, InitialBackoff: runtime.Trace.Profile.RetryBackoff, MaxBackoff: runtime.Trace.Profile.RetryBackoff, Multiplier: 1},
+	}
+	if !a.config.DisableAdaptive {
+		workerOptions.AdaptiveStore = a.broker
+		workerOptions.Adaptive = worker.AdaptiveConfig{
 			Enabled: true, MinConcurrency: a.config.MinConcurrency, MaxConcurrency: a.config.MaxConcurrency,
 			ControlPeriod: 100 * time.Millisecond, Cooldown: 300 * time.Millisecond, ScaleUpStep: 1, ScaleDownStep: 1,
 			LatencyThreshold: runtime.Trace.Profile.SLO / 4, ErrorRateThreshold: .15, BacklogThreshold: int64(a.config.Concurrency), HealthyWindowsRequired: 2,
-		},
+		}
 	}
 	if !a.config.DisableDependencyBudget {
 		workerOptions.BudgetManager = a.broker
@@ -170,23 +179,37 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	a.workerCancel = cancelWorker
 	a.workerDone = make(chan error, 1)
 	go func() { a.workerDone <- w.Run(workerCtx) }()
-	schedulerCtx, cancelScheduler := context.WithCancel(ctx)
-	a.schedulerCancel = cancelScheduler
-	a.schedulerDone = make(chan struct{})
-	go func() {
-		defer close(a.schedulerDone)
-		ticker := time.NewTicker(a.config.SchedulerPeriod)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-schedulerCtx.Done():
-				return
-			case now := <-ticker.C:
-				_, _ = a.broker.MoveDue(schedulerCtx, fence, now.UTC(), 1024)
+	if a.needsScheduler(runtime.Trace) {
+		schedulerCtx, cancelScheduler := context.WithCancel(ctx)
+		a.schedulerCancel = cancelScheduler
+		a.schedulerDone = make(chan struct{})
+		go func() {
+			defer close(a.schedulerDone)
+			ticker := time.NewTicker(a.config.SchedulerPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-schedulerCtx.Done():
+					return
+				case now := <-ticker.C:
+					_, _ = a.broker.MoveDue(schedulerCtx, fence, now.UTC(), 1024)
+				}
 			}
-		}
-	}()
+		}()
+	}
 	return nil
+}
+
+func (a *Adapter) needsScheduler(trace experiment.OpenLoopTrace) bool {
+	if a.config.AdmissionMaxPending > 0 || trace.Profile.MaxAttempts > 1 {
+		return true
+	}
+	for _, arrival := range trace.Arrivals {
+		if arrival.NotBefore.After(arrival.At) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Adapter) Enqueue(ctx context.Context, arrival experiment.TraceArrival) (experiment.EnqueueResult, error) {
@@ -228,16 +251,20 @@ func (a *Adapter) Snapshot(ctx context.Context, at time.Duration) (experiment.Te
 	if err != nil {
 		return experiment.TelemetryPoint{}, err
 	}
-	controller, err := a.broker.AdaptiveStatusSnapshot(ctx, "neutral")
-	if err != nil {
-		return experiment.TelemetryPoint{}, err
+	controllerPoint := experiment.ControllerPoint{At: at, EffectiveConcurrency: float64(a.config.Concurrency), Decision: "static", Reason: "adaptive_disabled"}
+	if !a.config.DisableAdaptive {
+		controller, err := a.broker.AdaptiveStatusSnapshot(ctx, "neutral")
+		if err != nil {
+			return experiment.TelemetryPoint{}, err
+		}
+		controllerPoint = experiment.ControllerPoint{At: at, EffectiveConcurrency: controller.EffectiveConcurrency, Decision: controller.LastAdjustmentAction, Reason: controller.LastAdjustmentReason}
 	}
 	delayed, _ := a.config.Client.ZCard(ctx, "taskforge:v2:delayed:queue:default").Result()
 	retry := int64(admission.RetryBacklog)
 	return experiment.TelemetryPoint{
 		At:         at,
 		Backlog:    experiment.BacklogPoint{At: at, Ready: int64(queue.Depth), Deferred: max(delayed-retry, 0), Retry: retry, DLQ: int64(dlq)},
-		Controller: experiment.ControllerPoint{At: at, EffectiveConcurrency: controller.EffectiveConcurrency, Decision: controller.LastAdjustmentAction, Reason: controller.LastAdjustmentReason},
+		Controller: controllerPoint,
 		Redis:      adapters.RedisPoint(ctx, a.config.Client, at), SchedulerLag: time.Duration(lagSeconds * float64(time.Second)),
 	}, nil
 }

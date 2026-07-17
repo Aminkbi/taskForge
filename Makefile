@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke research-experiments research-analysis research-check artifact-integrity research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -72,6 +72,10 @@ experiment-neutral:
 
 experiment-neutral-smoke:
 	$(SHELL) ./scripts/experiment-neutral-smoke.sh
+
+frontier-check:
+	@test -n "$(FRONTIER_RESULTS)" || { echo "FRONTIER_RESULTS is required"; exit 2; }
+	$(GO) run ./cmd/experiment-frontier-check -input "$(FRONTIER_RESULTS)" -max-throughput-loss 0.15
 
 research-experiments:
 	$(SHELL) ./scripts/research-experiments.sh $(RESEARCH_ARGS)

@@ -29,6 +29,19 @@ type QueueMetricsProvider interface {
 	QueueMetricsSnapshot(ctx context.Context, queue string) (taskforge.QueueMetricsSnapshot, error)
 }
 
+type reservationBatcher interface {
+	ReserveBatch(ctx context.Context, queue, consumerID string, max int) ([]taskforge.Delivery, error)
+}
+
+type deliveryStateBatchWriter interface {
+	RecordDeliveryBatch(ctx context.Context, deliveries []taskforge.Delivery, state taskforge.State) error
+}
+
+type stateFinalizingBroker interface {
+	OwnsStateStore(store taskforge.StateStore) bool
+	AckAndRecord(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) error
+}
+
 type AdaptiveConfig struct {
 	Enabled                bool
 	MinConcurrency         int

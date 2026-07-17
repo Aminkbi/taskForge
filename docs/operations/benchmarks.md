@@ -276,3 +276,163 @@ and profiles remain local because they contain host metadata and absolute paths.
 - Remaining formatting, hashing, and tracing allocations were not optimized:
   network round trips remained the dominant measured cost and no independent
   benchmark demonstrated material benefit from those micro-optimizations.
+
+## Control-plane frontier pass (2026-07-18)
+
+This pass defines a host-local target for the common successful-delivery workload:
+TaskForge FIFO/static median throughput must be no more than 15% below the
+tuned Asynq adapter. The target is enforced from a complete counterbalanced
+result directory, not from one favorable pair:
+
+```bash
+make experiment-trace \
+  PROFILE=test/experiment/open-loop/frontier-common-contract.json \
+  TRACE=/tmp/taskforge-frontier.json \
+  TRACE_ARGS='-seed 20260718'
+
+for repetition in 0 1 2 3; do
+  go run ./cmd/experiment-neutral \
+    -trace /tmp/taskforge-frontier.json \
+    -output /tmp/taskforge-frontier-results \
+    -systems taskforge-fifo-static,asynq \
+    -repetition "$repetition" \
+    -concurrency 16 \
+    -snapshot-period 500ms \
+    -drain-timeout 30s
+done
+
+make frontier-check FRONTIER_RESULTS=/tmp/taskforge-frontier-results
+```
+
+The checker rejects excluded, incomplete, rejected-enqueue, mixed-trace,
+unpaired, and non-counterbalanced inputs. It computes each arm's median over
+completion throughput measured from the first through last completion. The
+profile offers 6,000 one-millisecond tasks/s for six seconds, with no retry,
+delay, failure, admission, fairness, adaptive, or dependency-budget behavior.
+It is a deliberately narrow common-workload throughput target, not a claim
+that the adapters have identical state, DLQ, or crash semantics.
+
+### Result and variability
+
+Four counterbalanced repetitions on the host described below completed all
+36,003 arrivals per arm with zero enqueue rejections, retries, duplicates, or
+unfinished tasks.
+
+| Metric | TaskForge FIFO/static | Asynq |
+| --- | ---: | ---: |
+| median completion throughput | 4,498 tasks/s | 4,610 tasks/s |
+| throughput range | 4,278-4,761 tasks/s | 4,113-5,280 tasks/s |
+| median p99 eligibility-to-start lag | 2.01s | 1.87s |
+| median peak ready backlog | 9,007 | 8,154 |
+| median Redis commands/completion | 13.97 | 17.25 |
+| median Redis network bytes/completion | 3,288 | 1,672 |
+
+The observed median throughput loss is 2.43%, so this block meets the 15%
+target. Individual paired relative results ranged from TaskForge 13.7% faster
+to 19.0% slower. The result is therefore host- and block-specific, and the
+large order/run variation must remain visible in later multi-environment work.
+TaskForge's roughly 2x network-byte cost is not hidden: unlike this Asynq
+adapter, TaskForge writes its public queued, leased, running, and terminal task
+state contract.
+
+### Matched microbenchmarks
+
+The baseline binary was built from `e804820`; the candidate used the same Go,
+Redis, database, payload, and benchmark counts. Values are medians of the
+listed repeated runs. `B/op` is Go allocated bytes, distinct from Redis network
+bytes.
+
+| Path | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| FIFO publish, 6 runs | 221us, 4,952 B/op, 76 allocs | 149us, 4,250 B/op, 64 allocs | -32.7% time, -15.8% allocs |
+| FIFO reserve+ack, 8 runs | 469us, 7,804 B/op, 134 allocs | 207us, 6,938 B/op, 102 allocs | -55.9% time, -23.9% allocs |
+| skewed fairness reserve+ack, 8 runs | 1.097ms, 14,721 B/op, 276 allocs | 0.449ms, 12,357 B/op, 208 allocs | -59.1% time, -24.6% allocs |
+| fairness Redis commands/task | 12.50 | 7.01 | -43.9% |
+| fairness client round trips/task | 10.00 | 5.01 | -49.9% |
+
+The final short-task feeder reaches all 16 handlers transiently but averages
+6.4 active handlers and a median 5.6k tasks/s with prefetch 32. Nominal
+concurrency is therefore reachable, but the remaining sustained limiter is
+quantified: per-delivery running-state and ownership/state-finalization work,
+plus Go scheduling and tracing, leave average utilization at about 40% for
+one-millisecond handlers. Bounded FIFO batching improves the matched median by
+about 5% over the sequential feeder; it is not described as a full solution.
+
+### Command, byte, and allocation accounting
+
+Run the accounting directly with:
+
+```bash
+TASKFORGE_RUN_BENCHMARKS=1 go test -run '^$' \
+  -bench '^BenchmarkControlPlaneCategories$' \
+  -benchtime=500x -count=5 -benchmem ./test/benchmark
+```
+
+| Category | Client commands / round trips | Redis network bytes/op | Go B/op / allocs |
+| --- | ---: | ---: | ---: |
+| standalone state transition | 1 / 1 | 517 | 2,952 / 43 |
+| dependency-budget acquire+release | 2 / 2 | 474 | 1,412 / 46 |
+| adaptive snapshot persistence | 1 / 1 | 398 | 894 / 14 |
+| configured idle scheduler poll | 1 / 1 | 123 | 480 / 14 |
+
+The FIFO/static arm constructs no fairness policy, adaptive writer, admission
+policy, or dependency budget, and detects that its immutable trace contains no
+delayed/retry work, so those controls issue zero Redis commands. A configured
+production scheduler still polls: one indexed command per interval is the
+measured cost, rather than an unmeasured “near zero” claim.
+
+### Retained and rejected changes
+
+Retained changes are intentionally limited to measured wins:
+
+- Consumer-group creation is positively cached and invalidated/recreated on
+  `NOGROUP`; it is no longer attempted for every reservation.
+- FIFO reservation can return a bounded batch. Fairness remains one candidate
+  at a time so a tenant stream cannot bypass weighted tier selection.
+- Pending-owner/idle validation, `XACK`, `XDEL`, and terminal Redis state are
+  one atomic script when the broker owns the state store. Custom state stores
+  retain the previous ack-then-record behavior.
+- FIFO publish and queued state are atomic for the built-in Redis state store;
+  delayed, deduplicated, admission, routing, retry, and DLQ paths retain their
+  existing placement and receipt rules.
+- Reclaim scans run at one quarter of the shortest observed lease, capped at
+  100ms and floored at 1ms, instead of once per reservation. Expired work is
+  delayed by a bounded control interval, never acknowledged or reassigned
+  without the existing owner and idle checks.
+- The neutral FIFO/static arm disables genuinely absent controls and suppresses
+  its scheduler only when the immutable trace proves there can be no delayed,
+  deferred, or retry release.
+- Budget-blocked adaptive windows reset healthy history and scale down; a
+  regression test prevents blocked tokens from being interpreted as healthy
+  backlog for scale-up.
+
+Rejected or deferred approaches remain part of the record:
+
+- Four concurrent reservation feeders regressed median throughput slightly
+  (about 2.90k to 2.80k tasks/s before reclaim suppression) and did not improve
+  average concurrency, so the prototype was removed.
+- A process-local fairness-key cache was rejected because external publishers
+  can introduce keys; bounded staleness would change service selection. The
+  existing pipelined snapshot reconstruction remains.
+- Atomic multi-tenant fairness selection was not retained: dynamically keyed
+  tenant streams and quota snapshots would require a larger storage-layout
+  change without matched evidence.
+- Budget acquire/release remains two immediate atomic lease operations. Async
+  or batched release could strand shared capacity after task completion.
+- Adaptive state remains one durable write per enabled control period so
+  operator snapshots do not become silently stale. Disabled adaptive control
+  installs no writer in the FIFO/static arm.
+- General production scheduler backoff was rejected because API and scheduler
+  commonly run in separate processes; without a durable cross-process wakeup,
+  local no-work caching could miss newly earlier work. The indexed poll cost is
+  reported above instead.
+
+Environment: Linux 7.0.0-27-generic x86-64; 12 logical CPUs on an Intel
+i7-1255U; Go 1.26.5; Redis 7.4.9 standalone on localhost. CPU scaling and
+normal host activity were not isolated. Raw neutral JSON, profiles, and the
+rejected prototype captures remain private because they are large and contain
+host timing metadata.
+
+The committed `research/data` grid remains immutable evidence for its recorded
+source revision; it was not partially regenerated with the optimized code. A
+later full replacement study will start from the optimized revision.

@@ -136,6 +136,102 @@ func TestRedisPublishReserveAndAck(t *testing.T) {
 	}
 }
 
+func TestRedisReserveBatchPreservesIndividualOwnership(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	for index := 0; index < 5; index++ {
+		message := taskforge.Task{ID: fmt.Sprintf("batch-%d", index), Name: "integration.batch", Queue: "default", CreatedAt: time.Now().UTC()}
+		if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deliveries, err := brokerInstance.ReserveBatch(ctx, "default", "batch-owner", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deliveries) != 4 {
+		t.Fatalf("ReserveBatch() returned %d deliveries, want 4", len(deliveries))
+	}
+	pending, err := client.XPending(ctx, "taskforge:v2:stream:default", "taskforge:v2:default").Result()
+	if err != nil || pending.Count != 4 {
+		t.Fatalf("pending after batch = %+v, %v", pending, err)
+	}
+	for _, delivery := range deliveries {
+		if delivery.Execution.LeaseOwner == "" || delivery.Execution.DeliveryID == "" {
+			t.Fatalf("batch delivery missing ownership: %+v", delivery.Execution)
+		}
+		if err := brokerInstance.AckAndRecord(ctx, delivery, taskforge.StateSucceeded); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRedisConsumerGroupCacheRecoversAfterStreamReset(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
+	publish := func(id string) {
+		t.Helper()
+		message := taskforge.Task{ID: id, Name: "integration.group-reset", Queue: "default", CreatedAt: time.Now().UTC()}
+		if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	publish("group-before-reset")
+	first, err := brokerInstance.Reserve(ctx, "default", "group-reset-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brokerInstance.Ack(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Del(ctx, "taskforge:v2:stream:default").Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	publish("group-after-reset")
+	second, err := brokerInstance.Reserve(ctx, "default", "group-reset-owner")
+	if err != nil {
+		t.Fatalf("Reserve() after stream reset: %v", err)
+	}
+	if second.Message.ID != "group-after-reset" {
+		t.Fatalf("reserved task = %q, want group-after-reset", second.Message.ID)
+	}
+}
+
+func TestRedisAtomicFinalizeRejectsStaleStateWrite(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 20*time.Millisecond)
+	message := taskforge.Task{ID: "atomic-stale-state", Name: "integration.atomic-state", Queue: "default", CreatedAt: time.Now().UTC()}
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := brokerInstance.Reserve(ctx, "default", "old-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	reclaimed, err := brokerInstance.Reserve(ctx, "default", "new-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brokerInstance.AckAndRecord(ctx, first, taskforge.StateSucceeded); !errors.Is(err, taskforge.ErrStaleDelivery) {
+		t.Fatalf("stale AckAndRecord() error = %v", err)
+	}
+	record, err := brokerInstance.Get(ctx, message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != taskforge.StateQueued {
+		t.Fatalf("state after stale finalization = %q, want queued", record.State)
+	}
+	if err := brokerInstance.AckAndRecord(ctx, reclaimed, taskforge.StateSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	record, err = brokerInstance.Get(ctx, message.ID)
+	if err != nil || record.State != taskforge.StateSucceeded {
+		t.Fatalf("state after current finalization = %q, %v", record.State, err)
+	}
+}
+
 func TestRedisV2PrefixIgnoresPreRefactorOwnershipData(t *testing.T) {
 	ctx, brokerInstance, client := newIntegrationBroker(t, 30*time.Second)
 
@@ -1424,6 +1520,33 @@ func TestRedisRejectsStaleOwnerOperationsAfterReclaim(t *testing.T) {
 				t.Fatalf("Ack() reclaimed delivery error = %v", err)
 			}
 		})
+	}
+}
+
+func TestRedisStaleNackCannotPublishRequeue(t *testing.T) {
+	ctx, brokerInstance, client := newIntegrationBroker(t, ciLeaseTTL)
+	message := taskforge.Task{ID: "stale-nack-requeue", Name: "integration.stale-nack", Queue: "default", CreatedAt: time.Now().UTC()}
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := brokerInstance.Reserve(ctx, "default", "old-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(ciWaitForExpiry)
+	current, err := brokerInstance.Reserve(ctx, "default", "new-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brokerInstance.Nack(ctx, stale, true); !errors.Is(err, taskforge.ErrStaleDelivery) {
+		t.Fatalf("stale Nack(requeue) error = %v", err)
+	}
+	length, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
+	if err != nil || length != 1 {
+		t.Fatalf("stream length after stale requeue = %d, %v; want original entry only", length, err)
+	}
+	if err := brokerInstance.Ack(ctx, current); err != nil {
+		t.Fatal(err)
 	}
 }
 

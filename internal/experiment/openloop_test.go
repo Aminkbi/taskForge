@@ -16,8 +16,8 @@ func TestRegisteredOpenLoopProfilesAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 5 {
-		t.Fatalf("found %d open-loop profiles, want 5", len(paths))
+	if len(paths) != 6 {
+		t.Fatalf("found %d open-loop profiles, want 6", len(paths))
 	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)

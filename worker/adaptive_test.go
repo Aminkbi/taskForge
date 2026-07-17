@@ -175,6 +175,48 @@ func TestAdaptiveConcurrencyRequiresConsecutiveHealthyWindows(t *testing.T) {
 	}
 }
 
+func TestAdaptiveConcurrencyBudgetBlockCannotScaleUp(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	worker := &Worker{
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics:     observability.NewMetrics(),
+		PoolName:    "dependency-bound",
+		Queue:       "default",
+		Concurrency: 4,
+		Adaptive: AdaptiveConfig{
+			Enabled: true, MinConcurrency: 2, MaxConcurrency: 8,
+			ControlPeriod: time.Second, Cooldown: time.Second,
+			ScaleUpStep: 2, ScaleDownStep: 1,
+			LatencyThreshold: time.Second, ErrorRateThreshold: .5,
+			BacklogThreshold: 1, HealthyWindowsRequired: 1,
+		},
+		QueueMetrics: staticQueueMetricsProvider{snapshot: taskforge.QueueMetricsSnapshot{Depth: 100}},
+		Clock:        fixedClock{now: now},
+	}
+	state := &workerState{
+		effectiveConcurrency: 4,
+		healthyWindows:       10,
+		lastAdjustedAt:       now.Add(-time.Minute),
+		window: adaptiveWindow{
+			executions: 4, totalLatency: 40 * time.Millisecond, budgetBlocked: 1,
+		},
+	}
+	worker.runtimeState = state
+
+	snapshot, old, action, reason, changed, err := worker.evaluateAdaptiveWindow(context.Background(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || old != 4 || snapshot.EffectiveConcurrency != 3 || action != "scale_down" || reason != "budget_exhaustion" {
+		t.Fatalf("budget-bound adjustment = old:%d effective:%v changed:%v action:%q reason:%q", old, snapshot.EffectiveConcurrency, changed, action, reason)
+	}
+	if snapshot.HealthyWindows != 0 {
+		t.Fatalf("healthy windows = %v, want reset to 0", snapshot.HealthyWindows)
+	}
+}
+
 type staticQueueMetricsProvider struct {
 	snapshot taskforge.QueueMetricsSnapshot
 }

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	basynq "github.com/hibiken/asynq"
@@ -26,6 +28,7 @@ func main() {
 	db := flag.Int("redis-db", envInt("TASKFORGE_EXPERIMENT_REDIS_DB", 14), "dedicated non-production Redis DB")
 	repetition := flag.Int("repetition", 0, "counterbalance repetition index")
 	concurrency := flag.Int("concurrency", 16, "expert-tuned common nominal worker concurrency")
+	systems := flag.String("systems", "taskforge-full,taskforge-no-admission,taskforge-no-dependency-budget,asynq", "comma-separated systems to replay")
 	admissionPending := flag.Int64("taskforge-admission-pending", 512, "TaskForge admission pending limit")
 	snapshot := flag.Duration("snapshot-period", 100*time.Millisecond, "telemetry sampling interval")
 	drain := flag.Duration("drain-timeout", 2*time.Minute, "maximum post-arrival drain")
@@ -53,6 +56,9 @@ func main() {
 		fatal("connect Redis: %v", err)
 	}
 	factories := map[string]func() experiment.OpenLoopAdapter{
+		"taskforge-fifo-static": func() experiment.OpenLoopAdapter {
+			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-fifo-static", Client: client, Concurrency: *concurrency, DisableFairness: true, DisableAdaptive: true, DisableDependencyBudget: true})
+		},
 		"taskforge-full": func() experiment.OpenLoopAdapter {
 			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-full", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity})
 		},
@@ -66,7 +72,17 @@ func main() {
 			return asynqadapter.New(asynqadapter.Config{Redis: basynq.RedisClientOpt{Addr: *addr, DB: *db}, Client: client, Concurrency: *concurrency})
 		},
 	}
-	order := experiment.CounterbalancedOrder([]string{"taskforge-full", "taskforge-no-admission", "taskforge-no-dependency-budget", "asynq"}, trace.Seed, *repetition)
+	selected := strings.Split(*systems, ",")
+	for index := range selected {
+		selected[index] = strings.TrimSpace(selected[index])
+		if _, ok := factories[selected[index]]; !ok {
+			fatal("unknown system %q", selected[index])
+		}
+	}
+	if len(selected) == 0 || slices.Contains(selected, "") {
+		fatal("-systems must name at least one system")
+	}
+	order := experiment.CounterbalancedOrder(selected, trace.Seed, *repetition)
 	for position, name := range order {
 		if err := client.FlushDB(ctx).Err(); err != nil {
 			fatal("clear dedicated experiment DB: %v", err)

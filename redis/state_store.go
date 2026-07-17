@@ -12,6 +12,29 @@ import (
 	"github.com/aminkbi/taskforge"
 )
 
+var recordStatesScript = redis.NewScript(`
+local position = 1
+for _, key in ipairs(KEYS) do
+  local ttl = tonumber(ARGV[position]) or -1
+  local fieldCount = tonumber(ARGV[position + 1]) or 0
+  position = position + 2
+  local fields = {}
+  for index = 1, fieldCount * 2 do
+    fields[index] = ARGV[position]
+    position = position + 1
+  end
+  if #fields > 0 then
+    redis.call("HSET", key, unpack(fields))
+  end
+  if ttl > 0 then
+    redis.call("PEXPIRE", key, ttl)
+  else
+    redis.call("PERSIST", key)
+  end
+end
+return #KEYS
+`)
+
 type stateStore struct {
 	client    *redis.Client
 	prefix    string
@@ -28,27 +51,33 @@ func newStateStore(client *redis.Client, retention taskforge.RetentionPolicy) *s
 
 func (s *stateStore) RecordQueued(ctx context.Context, msg taskforge.Task) error {
 	now := time.Now().UTC()
+	record, err := s.queuedRecord(msg, now)
+	if err != nil {
+		return err
+	}
+	if err := s.recordStates(ctx, []stateRecord{record}); err != nil {
+		return fmt.Errorf("record queued task %s: %w", record.taskID, err)
+	}
+	return nil
+}
+
+func (s *stateStore) queuedRecord(msg taskforge.Task, now time.Time) (stateRecord, error) {
 	taskID := msg.ID
 	if taskID == "" {
-		return fmt.Errorf("record queued task: missing id")
+		return stateRecord{}, fmt.Errorf("record queued task: missing id")
 	}
 	createdAt := msg.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = now
 	}
-
-	fields := map[string]any{
+	return stateRecord{taskID: taskID, state: taskforge.StateQueued, fields: map[string]any{
 		"task_id":    taskID,
 		"name":       msg.Name,
 		"queue":      taskforge.EffectiveQueue(msg),
 		"state":      string(taskforge.StateQueued),
 		"created_at": formatTime(createdAt),
 		"updated_at": formatTime(now),
-	}
-	if err := s.client.HSet(ctx, s.taskKey(taskID), fields).Err(); err != nil {
-		return fmt.Errorf("record queued task %s: %w", taskID, err)
-	}
-	return s.applyRecordTTL(ctx, taskID, taskforge.StateQueued)
+	}}, nil
 }
 
 func (s *stateStore) RecordDelivery(ctx context.Context, delivery taskforge.Delivery, state taskforge.State, resultPayload []byte) error {
@@ -88,8 +117,7 @@ func (s *stateStore) RecordDelivery(ctx context.Context, delivery taskforge.Deli
 		fields["completed_at"] = formatTime(now)
 	}
 
-	key := s.taskKey(taskID)
-	if err := s.client.HSet(ctx, key, fields).Err(); err != nil {
+	if err := s.recordStates(ctx, []stateRecord{{taskID: taskID, state: state, fields: fields}}); err != nil {
 		return fmt.Errorf("record task %s state %s: %w", taskID, state, err)
 	}
 	if len(resultPayload) > 0 {
@@ -97,7 +125,96 @@ func (s *stateStore) RecordDelivery(ctx context.Context, delivery taskforge.Deli
 			return err
 		}
 	}
-	return s.applyRecordTTL(ctx, taskID, state)
+	return nil
+}
+
+func (s *stateStore) RecordDeliveryBatch(ctx context.Context, deliveries []taskforge.Delivery, state taskforge.State) error {
+	records := make([]stateRecord, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		record, err := s.deliveryRecord(delivery, state)
+		if err != nil {
+			return err
+		}
+		records = append(records, record)
+	}
+	if err := s.recordStates(ctx, records); err != nil {
+		return fmt.Errorf("record %d task deliveries state %s: %w", len(deliveries), state, err)
+	}
+	return nil
+}
+
+func (s *stateStore) deliveryRecord(delivery taskforge.Delivery, state taskforge.State) (stateRecord, error) {
+	now := time.Now().UTC()
+	msg := delivery.Message
+	taskID := delivery.Execution.TaskID
+	if taskID == "" {
+		taskID = msg.ID
+	}
+	if taskID == "" {
+		return stateRecord{}, fmt.Errorf("record task delivery: missing task id")
+	}
+	createdAt := msg.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = delivery.Execution.FirstEnqueuedAt
+	}
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	return stateRecord{taskID: taskID, state: state, fields: deliveryStateFields(delivery, state, createdAt, now)}, nil
+}
+
+type stateRecord struct {
+	taskID string
+	state  taskforge.State
+	fields map[string]any
+}
+
+func (s *stateStore) recordStates(ctx context.Context, records []stateRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(records))
+	args := make([]any, 0, len(records)*22)
+	for _, record := range records {
+		keys = append(keys, s.taskKey(record.taskID))
+		ttl := s.recordTTL(record.state)
+		ttlMillis := int64(-1)
+		if ttl > 0 {
+			ttlMillis = ttl.Milliseconds()
+		}
+		args = append(args, ttlMillis, len(record.fields))
+		for field, value := range record.fields {
+			args = append(args, field, value)
+		}
+	}
+	return recordStatesScript.Run(ctx, s.client, keys, args...).Err()
+}
+
+func deliveryStateFields(delivery taskforge.Delivery, state taskforge.State, createdAt, now time.Time) map[string]any {
+	msg := delivery.Message
+	taskID := delivery.Execution.TaskID
+	if taskID == "" {
+		taskID = msg.ID
+	}
+	fields := map[string]any{
+		"task_id":          taskID,
+		"name":             msg.Name,
+		"queue":            taskforge.EffectiveQueue(msg),
+		"state":            string(state),
+		"last_error":       delivery.Execution.LastError,
+		"created_at":       formatTime(createdAt),
+		"updated_at":       formatTime(now),
+		"delivery_count":   delivery.Execution.DeliveryCount,
+		"last_delivery_id": delivery.Execution.DeliveryID,
+		"last_lease_owner": delivery.Execution.LeaseOwner,
+	}
+	if state == taskforge.StateRunning {
+		fields["started_at"] = formatTime(now)
+	}
+	if taskforge.CompletesTask(state) {
+		fields["completed_at"] = formatTime(now)
+	}
+	return fields
 }
 
 func (s *stateStore) Get(ctx context.Context, taskID string) (taskforge.TaskRecord, error) {
@@ -145,14 +262,6 @@ func (s *stateStore) storePayload(ctx context.Context, taskID string, payload []
 		return fmt.Errorf("store task %s payload: %w", taskID, err)
 	}
 	return nil
-}
-
-func (s *stateStore) applyRecordTTL(ctx context.Context, taskID string, state taskforge.State) error {
-	ttl := s.recordTTL(state)
-	if ttl <= 0 {
-		return s.client.Persist(ctx, s.taskKey(taskID)).Err()
-	}
-	return s.client.Expire(ctx, s.taskKey(taskID), ttl).Err()
 }
 
 func (s *stateStore) recordTTL(state taskforge.State) time.Duration {

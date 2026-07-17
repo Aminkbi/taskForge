@@ -43,6 +43,26 @@ redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
 redis.call("PSETEX", KEYS[2], ARGV[3], "1")
 return 1
 `)
+	publishReadyWithStateScript = redis.NewScript(`
+redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
+local ttl = tonumber(ARGV[3]) or -1
+local fieldCount = tonumber(ARGV[4]) or 0
+local fields = {}
+local position = 5
+for index = 1, fieldCount * 2 do
+  fields[index] = ARGV[position]
+  position = position + 1
+end
+if #fields > 0 then
+  redis.call("HSET", KEYS[2], unpack(fields))
+end
+if ttl > 0 then
+  redis.call("PEXPIRE", KEYS[2], ttl)
+else
+  redis.call("PERSIST", KEYS[2])
+end
+return 1
+`)
 	publishFairReadyWithReceiptScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[4]) == 1 then
   return 0
@@ -83,6 +103,45 @@ if ARGV[6] == "1" then
 end
 redis.call("PSETEX", KEYS[2], ARGV[3], "1")
 return 1
+`)
+	finalizeDeliveryScript = redis.NewScript(`
+local pending = redis.call("XPENDING", KEYS[1], ARGV[1], ARGV[2], ARGV[2], 1)
+if not pending[1] or pending[1][1] ~= ARGV[2] then
+  return {0, "", 0}
+end
+local owner = pending[1][2]
+local idle = tonumber(pending[1][3]) or 0
+if ARGV[3] ~= "" and owner ~= ARGV[3] then
+  return {2, owner, idle}
+end
+local ttl = tonumber(ARGV[4]) or 0
+if ttl > 0 and idle >= ttl then
+  return {3, owner, idle}
+end
+local acked = redis.call("XACK", KEYS[1], ARGV[1], ARGV[2])
+local deleted = redis.call("XDEL", KEYS[1], ARGV[2])
+if acked ~= 1 or deleted ~= 1 then
+  return {0, owner, idle}
+end
+if KEYS[2] then
+  local stateTTL = tonumber(ARGV[5]) or -1
+  local fieldCount = tonumber(ARGV[6]) or 0
+  local fields = {}
+  local position = 7
+  for index = 1, fieldCount * 2 do
+    fields[index] = ARGV[position]
+    position = position + 1
+  end
+  if #fields > 0 then
+    redis.call("HSET", KEYS[2], unpack(fields))
+  end
+  if stateTTL > 0 then
+    redis.call("PEXPIRE", KEYS[2], stateTTL)
+  else
+    redis.call("PERSIST", KEYS[2])
+  end
+end
+return {1, owner, idle}
 `)
 	fencedReleaseReadyScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -175,6 +234,12 @@ type Broker struct {
 	workerStore       *workerLifecycleStore
 	stateStore        taskforge.StateStore
 	deadLetters       *deadLetterStore
+	consumerGroupsMu  sync.Mutex
+	consumerGroups    map[string]struct{}
+	queuedStateWrites sync.Map
+	reclaimMu         sync.Mutex
+	reclaimNext       map[string]time.Time
+	reclaimIntervals  map[string]time.Duration
 }
 
 type Options struct {
@@ -241,6 +306,9 @@ func New(options Options) *Broker {
 		adaptiveStore:     newAdaptiveStateStore(client, defaultPrefix),
 		workerStore:       newWorkerLifecycleStore(client, defaultPrefix),
 		stateStore:        state,
+		consumerGroups:    make(map[string]struct{}),
+		reclaimNext:       make(map[string]time.Time),
+		reclaimIntervals:  make(map[string]time.Duration),
 	}
 	b.deadLetters = newDeadLetterStore(client, b, logger.With("component", "dlq"))
 	return b
@@ -267,6 +335,50 @@ func (b *Broker) RecordQueued(ctx context.Context, task taskforge.Task) error {
 
 func (b *Broker) RecordDelivery(ctx context.Context, delivery taskforge.Delivery, state taskforge.State, payload []byte) error {
 	return b.stateStore.RecordDelivery(ctx, delivery, state, payload)
+}
+
+func (b *Broker) RecordDeliveryBatch(ctx context.Context, deliveries []taskforge.Delivery, state taskforge.State) error {
+	if store, ok := b.stateStore.(interface {
+		RecordDeliveryBatch(context.Context, []taskforge.Delivery, taskforge.State) error
+	}); ok {
+		return store.RecordDeliveryBatch(ctx, deliveries, state)
+	}
+	for _, delivery := range deliveries {
+		if err := b.stateStore.RecordDelivery(ctx, delivery, state, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Broker) OwnsStateStore(store taskforge.StateStore) bool {
+	_, builtIn := b.stateStore.(*stateStore)
+	return builtIn && store == b
+}
+
+func (b *Broker) AckAndRecord(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) error {
+	store, ok := b.stateStore.(*stateStore)
+	if !ok {
+		return fmt.Errorf("ack and record requires the broker Redis state store")
+	}
+	record, err := store.deliveryRecord(delivery, state)
+	if err != nil {
+		return err
+	}
+	ctx, span := observability.StartQueueSpan(
+		ctx,
+		"taskforge.redis",
+		"taskforge.ack",
+		delivery.Message,
+		deliverySpanAttributes(delivery)...,
+	)
+	defer span.End()
+	pending, ttl, err := b.finalizeDelivery(ctx, delivery, &record)
+	if err != nil {
+		b.logDeliveryRejection("ack rejected", delivery, pending, ttl, err)
+		observability.MarkSpanError(span, err)
+	}
+	return err
 }
 
 func (b *Broker) PublishDeadLetter(ctx context.Context, envelope taskforge.DeadLetterEnvelope) error {
@@ -365,7 +477,8 @@ func (b *Broker) Publish(ctx context.Context, msg taskforge.Task, opts taskforge
 	if placement.Rule != "" {
 		result.RoutingRule = placement.Rule
 	}
-	if b.stateStore != nil && result.Decision != taskforge.AdmissionDecisionRejected && !result.Deduplicated {
+	_, queuedStateRecorded := b.queuedStateWrites.LoadAndDelete(msg.ID)
+	if b.stateStore != nil && !queuedStateRecorded && result.Decision != taskforge.AdmissionDecisionRejected && !result.Deduplicated {
 		if err := b.stateStore.RecordQueued(ctx, msg); err != nil {
 			observability.MarkSpanError(span, err)
 			b.logger.Warn("record queued task state failed", "task_id", msg.ID, "error", err)
@@ -392,65 +505,136 @@ func (b *Broker) Reserve(ctx context.Context, queue, consumerID string) (taskfor
 	if b.fairnessPolicy(queue) != nil {
 		return b.reserveFair(ctx, queue, consumerID)
 	}
+	deliveries, err := b.reserveFIFO(ctx, queue, consumerID, 1)
+	if err != nil {
+		return taskforge.Delivery{}, err
+	}
+	return deliveries[0], nil
+}
+
+// ReserveBatch reserves up to max deliveries with one blocking stream read.
+// Fairness queues deliberately retain single-candidate selection because a
+// batch from one tenant stream would bypass weighted tier selection.
+func (b *Broker) ReserveBatch(ctx context.Context, queue, consumerID string, max int) ([]taskforge.Delivery, error) {
+	started := time.Now()
+	defer func(queue string) {
+		b.metrics.ObserveReserveLatency(normalizeQueue(queue), time.Since(started).Seconds())
+	}(queue)
+
+	queue = normalizeQueue(queue)
+	if max < 1 {
+		max = 1
+	}
+	if b.fairnessPolicy(queue) != nil {
+		delivery, err := b.reserveFair(ctx, queue, consumerID)
+		if err != nil {
+			return nil, err
+		}
+		return []taskforge.Delivery{delivery}, nil
+	}
+	return b.reserveFIFO(ctx, queue, consumerID, max)
+}
+
+func (b *Broker) reserveFIFO(ctx context.Context, queue, consumerID string, max int) ([]taskforge.Delivery, error) {
 	streamKey := b.streamKey(queue)
 	groupName := b.groupName(queue)
 	consumerName := b.consumerName(consumerID)
 
 	if err := b.ensureGroup(ctx, streamKey, groupName); err != nil {
-		return taskforge.Delivery{}, err
+		return nil, err
 	}
 
-	if reclaimed, ok, err := b.reclaimExpiredDelivery(ctx, queue, streamKey, groupName, consumerName); err != nil {
-		return taskforge.Delivery{}, err
-	} else if ok {
-		return reclaimed, nil
+	if b.shouldCheckReclaim(queue) {
+		if reclaimed, ok, err := b.reclaimExpiredDelivery(ctx, queue, streamKey, groupName, consumerName); err != nil {
+			return nil, err
+		} else if ok {
+			return []taskforge.Delivery{reclaimed}, nil
+		}
 	}
 
-	streams, err := b.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+	args := &redis.XReadGroupArgs{
 		Group:    groupName,
 		Consumer: consumerName,
 		Streams:  []string{streamKey, ">"},
-		Count:    1,
+		Count:    int64(max),
 		Block:    b.reserveTTL,
-	}).Result()
+	}
+	streams, err := b.readGroup(ctx, streamKey, groupName, args)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return taskforge.Delivery{}, taskforge.ErrNoTask
+			return nil, taskforge.ErrNoTask
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return taskforge.Delivery{}, err
+			return nil, err
 		}
-		return taskforge.Delivery{}, fmt.Errorf("reserve task: %w", err)
+		return nil, fmt.Errorf("reserve task: %w", err)
 	}
 	if len(streams) == 0 || len(streams[0].Messages) == 0 {
-		return taskforge.Delivery{}, taskforge.ErrNoTask
+		return nil, taskforge.ErrNoTask
 	}
 
-	entry := streams[0].Messages[0]
-	msg, err := decodeTask(entry)
-	if err != nil {
-		return taskforge.Delivery{}, fmt.Errorf("reserve task: %w", err)
-	}
-	if msg.Queue == "" {
-		msg.Queue = queue
-	}
-
-	spanCtx := observability.ExtractTraceContext(ctx, msg.Headers)
-	ttl := b.effectiveLeaseTTL(msg)
 	now := time.Now().UTC()
-	delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, 0))
-	_, span := observability.StartQueueSpan(
-		spanCtx,
-		"taskforge.redis",
-		"taskforge.reserve",
-		msg,
-		deliverySpanAttributes(delivery)...,
-	)
-	defer span.End()
+	deliveries := make([]taskforge.Delivery, 0, len(streams[0].Messages))
+	for _, entry := range streams[0].Messages {
+		msg, err := decodeTask(entry)
+		if err != nil {
+			return nil, fmt.Errorf("reserve task: %w", err)
+		}
+		if msg.Queue == "" {
+			msg.Queue = queue
+		}
 
-	logging.WithDelivery(b.logger, delivery).Info("reserved task delivery")
+		spanCtx := observability.ExtractTraceContext(ctx, msg.Headers)
+		ttl := b.effectiveLeaseTTL(msg)
+		b.noteLeaseTTL(queue, ttl)
+		delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, 0))
+		_, span := observability.StartQueueSpan(
+			spanCtx,
+			"taskforge.redis",
+			"taskforge.reserve",
+			msg,
+			deliverySpanAttributes(delivery)...,
+		)
+		span.End()
 
-	return delivery, nil
+		logging.WithDelivery(b.logger, delivery).Info("reserved task delivery")
+		deliveries = append(deliveries, delivery)
+	}
+
+	return deliveries, nil
+}
+
+func (b *Broker) shouldCheckReclaim(queue string) bool {
+	now := time.Now()
+	b.reclaimMu.Lock()
+	defer b.reclaimMu.Unlock()
+	if now.Before(b.reclaimNext[queue]) {
+		return false
+	}
+	interval := b.reclaimIntervals[queue]
+	if interval <= 0 {
+		interval = min(b.leaseTTL/4, 100*time.Millisecond)
+	}
+	if interval < time.Millisecond {
+		interval = time.Millisecond
+	}
+	b.reclaimNext[queue] = now.Add(interval)
+	return true
+}
+
+func (b *Broker) noteLeaseTTL(queue string, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+	interval := min(ttl/4, 100*time.Millisecond)
+	if interval < time.Millisecond {
+		interval = time.Millisecond
+	}
+	b.reclaimMu.Lock()
+	if current := b.reclaimIntervals[queue]; current <= 0 || interval < current {
+		b.reclaimIntervals[queue] = interval
+	}
+	b.reclaimMu.Unlock()
 }
 
 func (b *Broker) Ack(ctx context.Context, delivery taskforge.Delivery) error {
@@ -463,28 +647,13 @@ func (b *Broker) Ack(ctx context.Context, delivery taskforge.Delivery) error {
 	)
 	defer span.End()
 
-	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
+	pending, ttl, err := b.finalizeDelivery(ctx, delivery, nil)
 	if err != nil {
 		b.logDeliveryRejection("ack rejected", delivery, pending, ttl, err)
 		observability.MarkSpanError(span, err)
 		return err
 	}
 
-	queue := taskforge.EffectiveQueue(delivery.Message)
-	streamKey := b.queueStreamKey(queue, delivery.Message.FairnessKey)
-	acked, err := b.client.XAck(ctx, streamKey, b.groupName(queue), delivery.Execution.DeliveryID).Result()
-	if err != nil {
-		observability.MarkSpanError(span, err)
-		return fmt.Errorf("ack task: %w", err)
-	}
-	if acked == 0 {
-		observability.MarkSpanError(span, taskforge.ErrUnknownDelivery)
-		return taskforge.ErrUnknownDelivery
-	}
-	if err := b.deleteFinalizedEntry(ctx, streamKey, delivery.Execution.DeliveryID); err != nil {
-		observability.MarkSpanError(span, err)
-		return err
-	}
 	return nil
 }
 
@@ -498,14 +667,13 @@ func (b *Broker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue 
 	)
 	defer span.End()
 
-	pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
-	if err != nil {
-		b.logDeliveryRejection("nack rejected", delivery, pending, ttl, err)
-		observability.MarkSpanError(span, err)
-		return err
-	}
-
 	if requeue {
+		pending, ttl, err := b.validatePendingDelivery(ctx, delivery)
+		if err != nil {
+			b.logDeliveryRejection("nack rejected", delivery, pending, ttl, err)
+			observability.MarkSpanError(span, err)
+			return err
+		}
 		requeued := delivery.Message
 		requeued.ETA = nil
 		if _, err := b.Publish(ctx, requeued, taskforge.PublishOptions{
@@ -517,18 +685,9 @@ func (b *Broker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue 
 		}
 	}
 
-	queue := taskforge.EffectiveQueue(delivery.Message)
-	streamKey := b.queueStreamKey(queue, delivery.Message.FairnessKey)
-	acked, err := b.client.XAck(ctx, streamKey, b.groupName(queue), delivery.Execution.DeliveryID).Result()
+	pending, ttl, err := b.finalizeDelivery(ctx, delivery, nil)
 	if err != nil {
-		observability.MarkSpanError(span, err)
-		return fmt.Errorf("nack task: %w", err)
-	}
-	if acked == 0 {
-		observability.MarkSpanError(span, taskforge.ErrUnknownDelivery)
-		return taskforge.ErrUnknownDelivery
-	}
-	if err := b.deleteFinalizedEntry(ctx, streamKey, delivery.Execution.DeliveryID); err != nil {
+		b.logDeliveryRejection("nack rejected", delivery, pending, ttl, err)
 		observability.MarkSpanError(span, err)
 		return err
 	}
@@ -1008,6 +1167,24 @@ func (b *Broker) publishMessage(ctx context.Context, msg taskforge.Task, opts ta
 		}
 		return result, nil
 	}
+	if opts.DeduplicationKey == "" {
+		if store, ok := b.stateStore.(*stateStore); ok {
+			record, err := store.queuedRecord(msg, now)
+			if err != nil {
+				return taskforge.PublishResult{}, err
+			}
+			args := []any{streamPayloadField, string(payload), int64(-1), len(record.fields)}
+			for field, value := range record.fields {
+				args = append(args, field, value)
+			}
+			if err := publishReadyWithStateScript.Run(ctx, b.client, []string{b.streamKey(queue), store.taskKey(record.taskID)}, args...).Err(); err != nil {
+				return taskforge.PublishResult{}, fmt.Errorf("publish task with queued state: %w", err)
+			}
+			b.queuedStateWrites.Store(msg.ID, struct{}{})
+			b.metrics.IncPublished(queue)
+			return result, nil
+		}
+	}
 	published, err := b.publishReadyWithDedup(ctx, queue, payload, opts.DeduplicationKey)
 	if err != nil {
 		return taskforge.PublishResult{}, err
@@ -1075,14 +1252,102 @@ func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, dedupli
 }
 
 func (b *Broker) ensureGroup(ctx context.Context, streamKey, groupName string) error {
-	err := b.client.XGroupCreateMkStream(ctx, streamKey, groupName, "0").Err()
-	if err == nil {
+	cacheKey := streamKey + "\x00" + groupName
+	b.consumerGroupsMu.Lock()
+	defer b.consumerGroupsMu.Unlock()
+	if _, ok := b.consumerGroups[cacheKey]; ok {
 		return nil
 	}
-	if strings.HasPrefix(err.Error(), "BUSYGROUP ") {
+
+	err := b.client.XGroupCreateMkStream(ctx, streamKey, groupName, "0").Err()
+	if err == nil || strings.HasPrefix(err.Error(), "BUSYGROUP ") {
+		b.consumerGroups[cacheKey] = struct{}{}
 		return nil
 	}
 	return fmt.Errorf("ensure consumer group: %w", err)
+}
+
+func (b *Broker) forgetGroup(streamKey, groupName string) {
+	b.consumerGroupsMu.Lock()
+	delete(b.consumerGroups, streamKey+"\x00"+groupName)
+	b.consumerGroupsMu.Unlock()
+}
+
+func (b *Broker) readGroup(ctx context.Context, streamKey, groupName string, args *redis.XReadGroupArgs) ([]redis.XStream, error) {
+	streams, err := b.client.XReadGroup(ctx, args).Result()
+	if !isMissingGroup(err) {
+		return streams, err
+	}
+
+	// Redis may be reset independently of a long-lived broker. Invalidate the
+	// positive cache and recreate the group before retrying once.
+	b.forgetGroup(streamKey, groupName)
+	if ensureErr := b.ensureGroup(ctx, streamKey, groupName); ensureErr != nil {
+		return nil, ensureErr
+	}
+	return b.client.XReadGroup(ctx, args).Result()
+}
+
+func (b *Broker) finalizeDelivery(ctx context.Context, delivery taskforge.Delivery, record *stateRecord) (redis.XPendingExt, time.Duration, error) {
+	ttl := b.effectiveLeaseTTL(delivery.Message)
+	if delivery.Execution.DeliveryID == "" {
+		return redis.XPendingExt{}, ttl, taskforge.ErrUnknownDelivery
+	}
+
+	queue := taskforge.EffectiveQueue(delivery.Message)
+	keys := []string{b.queueStreamKey(queue, delivery.Message.FairnessKey)}
+	args := []any{
+		b.groupName(queue),
+		delivery.Execution.DeliveryID,
+		delivery.Execution.LeaseOwner,
+		ttl.Milliseconds(),
+	}
+	if record != nil {
+		keys = append(keys, b.stateStore.(*stateStore).taskKey(record.taskID))
+		stateTTL := b.stateStore.(*stateStore).recordTTL(record.state)
+		stateTTLMillis := int64(-1)
+		if stateTTL > 0 {
+			stateTTLMillis = stateTTL.Milliseconds()
+		}
+		args = append(args, stateTTLMillis, len(record.fields))
+		for field, value := range record.fields {
+			args = append(args, field, value)
+		}
+	}
+	result, err := finalizeDeliveryScript.Run(
+		ctx,
+		b.client,
+		keys,
+		args...,
+	).Result()
+	if err != nil {
+		return redis.XPendingExt{}, ttl, fmt.Errorf("finalize task: %w", err)
+	}
+	values, ok := result.([]any)
+	if !ok || len(values) != 3 {
+		return redis.XPendingExt{}, ttl, fmt.Errorf("finalize task: unexpected result %T", result)
+	}
+	code, ok := int64Value(values[0])
+	if !ok {
+		return redis.XPendingExt{}, ttl, fmt.Errorf("finalize task: unexpected status %T", values[0])
+	}
+	owner, _ := values[1].(string)
+	idleMillis, _ := int64Value(values[2])
+	pending := redis.XPendingExt{
+		ID:       delivery.Execution.DeliveryID,
+		Consumer: owner,
+		Idle:     time.Duration(idleMillis) * time.Millisecond,
+	}
+	switch code {
+	case 1:
+		return pending, ttl, nil
+	case 2:
+		return pending, ttl, taskforge.ErrStaleDelivery
+	case 3:
+		return pending, ttl, taskforge.ErrDeliveryExpired
+	default:
+		return pending, ttl, taskforge.ErrUnknownDelivery
+	}
 }
 
 func (b *Broker) validatePendingDelivery(ctx context.Context, delivery taskforge.Delivery) (redis.XPendingExt, time.Duration, error) {
@@ -1222,17 +1487,6 @@ func (b *Broker) SchedulerLag(ctx context.Context, now time.Time, queue string) 
 
 func (b *Broker) incrementLeaseExtensionFailure(queue string) {
 	b.metrics.IncLeaseExtensionFailure(queue)
-}
-
-func (b *Broker) deleteFinalizedEntry(ctx context.Context, streamKey, deliveryID string) error {
-	deleted, err := b.client.XDel(ctx, streamKey, deliveryID).Result()
-	if err != nil {
-		return fmt.Errorf("delete finalized task entry: %w", err)
-	}
-	if deleted == 0 {
-		return taskforge.ErrUnknownDelivery
-	}
-	return nil
 }
 
 func isMissingGroup(err error) bool {

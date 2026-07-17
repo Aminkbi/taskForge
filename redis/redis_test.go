@@ -1,11 +1,35 @@
 package redis
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/aminkbi/taskforge"
 )
+
+type customStateStore struct{}
+
+func (customStateStore) RecordQueued(context.Context, taskforge.Task) error { return nil }
+func (customStateStore) RecordDelivery(context.Context, taskforge.Delivery, taskforge.State, []byte) error {
+	return nil
+}
+func (customStateStore) Get(context.Context, string) (taskforge.TaskRecord, error) {
+	return taskforge.TaskRecord{}, nil
+}
+
+func TestOwnsStateStoreOnlyForBuiltInStore(t *testing.T) {
+	t.Parallel()
+
+	builtIn := &Broker{stateStore: &stateStore{}}
+	if !builtIn.OwnsStateStore(builtIn) {
+		t.Fatal("built-in broker state store was not recognized")
+	}
+	custom := &Broker{stateStore: customStateStore{}}
+	if custom.OwnsStateStore(custom) {
+		t.Fatal("custom state store was incorrectly treated as atomically co-located")
+	}
+}
 
 func TestStreamNaming(t *testing.T) {
 	t.Parallel()

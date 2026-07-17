@@ -131,10 +131,12 @@ func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (tas
 	queue = normalizeQueue(queue)
 	consumerName := b.consumerName(consumerID)
 
-	if reclaimed, ok, err := b.reclaimFairExpiredDelivery(ctx, queue, consumerName); err != nil {
-		return taskforge.Delivery{}, err
-	} else if ok {
-		return reclaimed, nil
+	if b.shouldCheckReclaim(queue) {
+		if reclaimed, ok, err := b.reclaimFairExpiredDelivery(ctx, queue, consumerName); err != nil {
+			return taskforge.Delivery{}, err
+		} else if ok {
+			return reclaimed, nil
+		}
 	}
 
 	for {
@@ -257,7 +259,7 @@ func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName s
 		return taskforge.Delivery{}, false, err
 	}
 
-	streams, err := b.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+	streams, err := b.readGroup(ctx, streamKey, groupName, &redis.XReadGroupArgs{
 		Group:    groupName,
 		Consumer: consumerName,
 		Streams:  []string{streamKey, ">"},
@@ -266,7 +268,7 @@ func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName s
 		// Candidate snapshots can become stale when consumers race, so this
 		// selected-stream read must be nonblocking and retry selection.
 		Block: -1,
-	}).Result()
+	})
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return taskforge.Delivery{}, false, nil
@@ -286,6 +288,7 @@ func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName s
 		msg.Queue = queue
 	}
 	ttl := b.effectiveLeaseTTL(msg)
+	b.noteLeaseTTL(queue, ttl)
 	now := time.Now().UTC()
 	delivery := newDelivery(msg, queue, consumerName, entry.ID, now, ttl, deliveryCount(msg, 0))
 	spanCtx := observability.ExtractTraceContext(ctx, msg.Headers)

@@ -266,7 +266,8 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 		default:
 		}
 
-		if !w.canReserve(state) {
+		capacity := w.reserveCapacity(state)
+		if capacity == 0 {
 			select {
 			case <-ctx.Done():
 				return nil
@@ -276,7 +277,17 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 			continue
 		}
 
-		delivery, err := w.Broker.Reserve(ctx, w.Queue, w.consumerKey())
+		var deliveries []taskforge.Delivery
+		var err error
+		if batcher, ok := w.Broker.(reservationBatcher); ok && capacity > 1 {
+			deliveries, err = batcher.ReserveBatch(ctx, w.Queue, w.consumerKey(), capacity)
+		} else {
+			var delivery taskforge.Delivery
+			delivery, err = w.Broker.Reserve(ctx, w.Queue, w.consumerKey())
+			if err == nil {
+				deliveries = []taskforge.Delivery{delivery}
+			}
+		}
 		if err != nil {
 			switch {
 			case errors.Is(err, taskforge.ErrNoTask):
@@ -290,20 +301,28 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 				return fmt.Errorf("worker reserve task: %w", err)
 			}
 		}
-
-		entry := &pendingDelivery{
-			delivery:    delivery,
-			brokerLease: startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+		if len(deliveries) == 0 {
+			continue
 		}
-		if err := w.recordTaskState(ctx, delivery, taskforge.StateLeased, nil); err != nil {
+
+		entries := make([]*pendingDelivery, 0, len(deliveries))
+		for _, delivery := range deliveries {
+			entries = append(entries, &pendingDelivery{
+				delivery:    delivery,
+				brokerLease: startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+			})
+		}
+		if err := w.recordTaskStates(ctx, deliveries, taskforge.StateLeased); err != nil {
 			return err
 		}
 
-		w.Metrics.IncReserved(taskforge.EffectiveQueue(delivery.Message))
 		state.mu.Lock()
-		state.pending = append(state.pending, entry)
+		state.pending = append(state.pending, entries...)
 		state.mu.Unlock()
-		go w.watchLeaseLoss(leaseCtx, state, reserveWake, dispatchWake, entry)
+		for _, entry := range entries {
+			w.Metrics.IncReserved(taskforge.EffectiveQueue(entry.delivery.Message))
+			go w.watchLeaseLoss(leaseCtx, state, reserveWake, dispatchWake, entry)
+		}
 		notify(dispatchWake)
 	}
 }
@@ -658,7 +677,8 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(succeededDelivery, brokerLease, "ack_succeeded") {
 			return nil
 		}
-		if ackErr := w.Broker.Ack(execCtx, succeededDelivery); ackErr != nil {
+		recorded, ackErr := w.acknowledge(execCtx, succeededDelivery, taskforge.StateSucceeded)
+		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(succeededDelivery, "ack_succeeded", brokerLease)
 				return nil
@@ -666,9 +686,11 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
-		if err := w.recordTaskState(execCtx, succeededDelivery, taskforge.StateSucceeded, nil); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
+		if !recorded {
+			if err := w.recordTaskState(execCtx, succeededDelivery, taskforge.StateSucceeded, nil); err != nil {
+				observability.MarkSpanError(span, err)
+				return err
+			}
 		}
 		return nil
 	}
@@ -738,7 +760,8 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 				if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "ack_dead_lettered_retry_rejected") {
 					return nil
 				}
-				if ackErr := w.Broker.Ack(execCtx, deadLetterDelivery); ackErr != nil {
+				recorded, ackErr := w.acknowledge(execCtx, deadLetterDelivery, taskforge.StateDeadLettered)
+				if ackErr != nil {
 					if w.leaseOwnershipLost(ackErr) {
 						w.logLeaseLoss(deadLetterDelivery, "ack_dead_lettered_retry_rejected", brokerLease)
 						return nil
@@ -746,9 +769,11 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 					observability.MarkSpanError(span, ackErr)
 					return ackErr
 				}
-				if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
-					observability.MarkSpanError(span, err)
-					return err
+				if !recorded {
+					if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
+						observability.MarkSpanError(span, err)
+						return err
+					}
 				}
 				return nil
 			}
@@ -766,7 +791,8 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(retryDelivery, brokerLease, "ack_retry_scheduled") {
 			return nil
 		}
-		if ackErr := w.Broker.Ack(execCtx, retryDelivery); ackErr != nil {
+		recorded, ackErr := w.acknowledge(execCtx, retryDelivery, taskforge.StateRetryScheduled)
+		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(retryDelivery, "ack_retry_scheduled", brokerLease)
 				return nil
@@ -774,9 +800,11 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
-		if err := w.recordTaskState(execCtx, retryDelivery, taskforge.StateRetryScheduled, nil); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
+		if !recorded {
+			if err := w.recordTaskState(execCtx, retryDelivery, taskforge.StateRetryScheduled, nil); err != nil {
+				observability.MarkSpanError(span, err)
+				return err
+			}
 		}
 		return nil
 	case outcomeDeadLetter:
@@ -806,7 +834,8 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "ack_dead_lettered") {
 			return nil
 		}
-		if ackErr := w.Broker.Ack(execCtx, deadLetterDelivery); ackErr != nil {
+		recorded, ackErr := w.acknowledge(execCtx, deadLetterDelivery, taskforge.StateDeadLettered)
+		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(deadLetterDelivery, "ack_dead_lettered", brokerLease)
 				return nil
@@ -814,16 +843,19 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
-		if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
+		if !recorded {
+			if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
+				observability.MarkSpanError(span, err)
+				return err
+			}
 		}
 		return nil
 	default:
 		if w.abandonIfLeaseLost(failedDelivery, brokerLease, "ack_failed_delivery") {
 			return nil
 		}
-		if ackErr := w.Broker.Ack(execCtx, failedDelivery); ackErr != nil {
+		recorded, ackErr := w.acknowledge(execCtx, failedDelivery, failedDelivery.Execution.State)
+		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(failedDelivery, "ack_failed_delivery", brokerLease)
 				return nil
@@ -831,9 +863,11 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
-		if err := w.recordTaskState(execCtx, failedDelivery, failedDelivery.Execution.State, nil); err != nil {
-			observability.MarkSpanError(span, err)
-			return err
+		if !recorded {
+			if err := w.recordTaskState(execCtx, failedDelivery, failedDelivery.Execution.State, nil); err != nil {
+				observability.MarkSpanError(span, err)
+				return err
+			}
 		}
 		return nil
 	}
@@ -861,6 +895,31 @@ func (w *Worker) recordTaskState(ctx context.Context, delivery taskforge.Deliver
 	}
 	if err := w.StateStore.RecordDelivery(ctx, delivery, state, resultPayload); err != nil {
 		logging.WithDelivery(w.Logger, delivery).Warn("record task state failed", "state", state, "error", err)
+	}
+	return nil
+}
+
+func (w *Worker) acknowledge(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) (bool, error) {
+	if broker, ok := w.Broker.(stateFinalizingBroker); ok && broker.OwnsStateStore(w.StateStore) {
+		return true, broker.AckAndRecord(ctx, delivery, state)
+	}
+	return false, w.Broker.Ack(ctx, delivery)
+}
+
+func (w *Worker) recordTaskStates(ctx context.Context, deliveries []taskforge.Delivery, state taskforge.State) error {
+	if w.StateStore == nil || len(deliveries) == 0 {
+		return nil
+	}
+	if store, ok := w.StateStore.(deliveryStateBatchWriter); ok && len(deliveries) > 1 {
+		if err := store.RecordDeliveryBatch(ctx, deliveries, state); err != nil {
+			logging.WithDelivery(w.Logger, deliveries[0]).Warn("record task states failed", "state", state, "count", len(deliveries), "error", err)
+		}
+		return nil
+	}
+	for _, delivery := range deliveries {
+		if err := w.recordTaskState(ctx, delivery, state, nil); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -894,13 +953,13 @@ func (w *Worker) maxConcurrency() int {
 	return w.Concurrency
 }
 
-func (w *Worker) canReserve(state *workerState) bool {
+func (w *Worker) reserveCapacity(state *workerState) int {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.lifecycleState != "accepting" {
-		return false
+		return 0
 	}
-	return state.running+len(state.pending) < minInt(w.Prefetch, state.effectiveConcurrency)
+	return maxInt(w.Prefetch-state.running-len(state.pending), 0)
 }
 
 func (w *Worker) deliveryLeaseTTL(delivery taskforge.Delivery) time.Duration {
