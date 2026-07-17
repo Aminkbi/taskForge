@@ -47,6 +47,7 @@ generic standalone worker binary.
 | General Go change | `make test` |
 | Formatting or static analysis | `make lint` |
 | Concurrent worker, lease, or scheduler behavior | `make race-test` |
+| Deterministic protocol fault schedules | `make simulation-test` |
 | Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
 | Documentation links | `make docs-check` |
 

@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test integration-test coverage race-test bench bench-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay integration-test coverage race-test bench bench-smoke lint fmt docs-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -19,6 +19,13 @@ test-demo:
 
 test:
 	$(SHELL) ./scripts/test.sh
+
+simulation-test:
+	$(GO) test -count=1 ./internal/sim
+
+simulation-replay:
+	@test -n "$(TASKFORGE_SIM_SEED)" || { echo "TASKFORGE_SIM_SEED is required"; exit 2; }
+	$(GO) test -count=1 -run '^TestReplaySeed$$' -v ./internal/sim
 
 integration-test:
 	TASKFORGE_RUN_INTEGRATION=1 $(GO) test ./test/integration/...

@@ -21,6 +21,13 @@ make integration-test
 They verify Redis ownership, fencing, and persistence semantics that unit
 coverage cannot faithfully simulate.
 
+The bounded [deterministic simulator](deterministic-simulation.md) is also a
+separate CI check. It exercises repeatable fault interleavings without Redis:
+
+```sh
+make simulation-test
+```
+
 The named fuzz seeds run with the normal Go test suite. To explore additional
 inputs locally, run one target at a time; any failure is saved by Go in that
 package's `testdata/fuzz` corpus and is replayed by `go test` thereafter.
