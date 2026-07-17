@@ -48,6 +48,7 @@ generic standalone worker binary.
 | Formatting or static analysis | `make lint` |
 | Concurrent worker, lease, or scheduler behavior | `make race-test` |
 | Deterministic protocol fault schedules | `make simulation-test` |
+| Exhaustive bounded protocol state spaces | `make model-check` |
 | Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
 | Documentation links | `make docs-check` |
 
