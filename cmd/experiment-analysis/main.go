@@ -153,7 +153,7 @@ func markdown(analysis experiment.Analysis) string {
 			if !ok {
 				continue
 			}
-			if unsupportedCell(manifest, variant) {
+			if cell.Status == "not_measured" {
 				fmt.Fprintf(&b, "| %s | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |\n", variant)
 				continue
 			}
@@ -173,12 +173,14 @@ func markdown(analysis experiment.Analysis) string {
 		}
 		if manifest == "worker-crash" {
 			fmt.Fprintf(&b, "\nRecovery time after the crashed reservation (TaskForge only): ")
+			first := true
 			for _, variant := range variantOrder {
-				if unsupportedCell(manifest, variant) {
-					continue
-				}
-				if cell, ok := cellFor(analysis, manifest, variant); ok {
-					fmt.Fprintf(&b, "%s %s ms; ", variant, summarize(cell, "recovery_ms", 0))
+				if cell, ok := cellFor(analysis, manifest, variant); ok && cell.Status != "not_measured" {
+					if !first {
+						fmt.Fprintf(&b, "; ")
+					}
+					fmt.Fprintf(&b, "%s %s ms", variant, summarize(cell, "recovery_ms", 0))
+					first = false
 				}
 			}
 			fmt.Fprintf(&b, "\n")
@@ -187,21 +189,24 @@ func markdown(analysis experiment.Analysis) string {
 
 	fmt.Fprintf(&b, "\n## Pre-registered contrasts\n\n")
 	fmt.Fprintf(&b, "Difference of medians, `taskforge-full` minus the listed arm; an interval excluding zero is marked detected. Every pre-registered contrast is listed, including unfavorable and inconclusive ones.\n\n")
-	fmt.Fprintf(&b, "| Workload | Metric | Against | Difference | 95%% interval | Detected |\n")
-	fmt.Fprintf(&b, "| --- | --- | --- | --- | --- | --- |\n")
+	fmt.Fprintf(&b, "| Workload | Metric | Against | Difference | 95%% interval | Relative change | Detected/material |\n")
+	fmt.Fprintf(&b, "| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, contrast := range analysis.Contrasts {
 		mark := ""
 		if contrast.Detected {
 			mark = "yes"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %+.2f | [%+.2f, %+.2f] | %s |\n",
-			contrast.Manifest, contrast.Metric, contrast.Against, contrast.Difference, contrast.Lo, contrast.Hi, mark)
+		relative := "-"
+		if contrast.RelativeChange != nil {
+			relative = fmt.Sprintf("%+.1f%% [%+.1f%%, %+.1f%%]", contrast.RelativeChange.Estimate, contrast.RelativeChange.Lo, contrast.RelativeChange.Hi)
+			if contrast.RelativeChange.Material {
+				mark = "material reduction"
+			}
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %+.2f | [%+.2f, %+.2f] | %s | %s |\n",
+			contrast.Manifest, contrast.Metric, contrast.Against, contrast.Difference, contrast.Lo, contrast.Hi, relative, mark)
 	}
 	return b.String()
-}
-
-func unsupportedCell(manifest, variant string) bool {
-	return manifest == "worker-crash" && variant == "asynq"
 }
 
 func summarize(cell experiment.Cell, metric string, decimals int) string {
@@ -246,11 +251,8 @@ func renderFigure(analysis experiment.Analysis, spec figureSpec) ([]byte, bool) 
 		var bars []bar
 		maxValue := 0.0
 		for _, variant := range variantOrder {
-			if unsupportedCell(manifest, variant) {
-				continue
-			}
 			cell, ok := cellFor(analysis, manifest, variant)
-			if !ok {
+			if !ok || cell.Status == "not_measured" {
 				continue
 			}
 			summary, ok := cell.Metrics[spec.metric]

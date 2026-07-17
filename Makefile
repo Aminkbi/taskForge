@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke research-experiments research-analysis research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke research-experiments research-analysis research-check research-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -66,6 +66,9 @@ research-experiments:
 
 research-analysis:
 	$(GO) run ./cmd/experiment-analysis
+
+research-check:
+	$(SHELL) ./scripts/research-check.sh
 
 research-package:
 	$(SHELL) ./scripts/package-artifact.sh

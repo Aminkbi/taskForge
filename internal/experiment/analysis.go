@@ -78,19 +78,28 @@ type MetricSummary struct {
 type Cell struct {
 	Manifest string                   `json:"manifest"`
 	Variant  string                   `json:"variant"`
+	Status   string                   `json:"status,omitempty"`
 	Seeds    []int64                  `json:"seeds"`
 	Metrics  map[string]MetricSummary `json:"metrics"`
 }
 
 type Contrast struct {
-	Manifest   string  `json:"manifest"`
-	Metric     string  `json:"metric"`
-	Base       string  `json:"base"`
-	Against    string  `json:"against"`
-	Difference float64 `json:"difference_of_medians"`
-	Lo         float64 `json:"ci95_lo"`
-	Hi         float64 `json:"ci95_hi"`
-	Detected   bool    `json:"detected"`
+	Manifest       string          `json:"manifest"`
+	Metric         string          `json:"metric"`
+	Base           string          `json:"base"`
+	Against        string          `json:"against"`
+	Difference     float64         `json:"difference_of_medians"`
+	Lo             float64         `json:"ci95_lo"`
+	Hi             float64         `json:"ci95_hi"`
+	Detected       bool            `json:"detected"`
+	RelativeChange *RelativeChange `json:"relative_change_percent,omitempty"`
+}
+
+type RelativeChange struct {
+	Estimate float64 `json:"estimate"`
+	Lo       float64 `json:"ci95_lo"`
+	Hi       float64 `json:"ci95_hi"`
+	Material bool    `json:"material_reduction"`
 }
 
 type Analysis struct {
@@ -389,10 +398,27 @@ func bootstrapDifference(base, against []float64, resamples int, rng *rand.Rand)
 	return percentileSorted(diffs, 0.025), percentileSorted(diffs, 0.975)
 }
 
+func relativeChange(base, against float64) float64 {
+	if against == 0 {
+		return math.NaN()
+	}
+	return 100 * (base/against - 1)
+}
+
+func bootstrapRelativeChange(base, against []float64, resamples int, rng *rand.Rand) (lo, hi float64) {
+	changes := make([]float64, resamples)
+	for i := range changes {
+		changes[i] = relativeChange(resampleMedian(base, rng), resampleMedian(against, rng))
+	}
+	slices.Sort(changes)
+	return percentileSorted(changes, 0.025), percentileSorted(changes, 0.975)
+}
+
 // Analyze aggregates raw runs into the pre-registered cells and contrasts.
 // Iteration order and the seeded generator make the output byte-reproducible.
 func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 	rng := rand.New(rand.NewPCG(bootstrapSeed, bootstrapSeed^0x9e3779b97f4a7c15))
+	relativeRNG := rand.New(rand.NewPCG(bootstrapSeed^0xd1b54a32d192ed03, bootstrapSeed^0x94d049bb133111eb))
 	type key struct{ manifest, variant string }
 	grouped := make(map[key][]Result)
 	var order []key
@@ -410,6 +436,14 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 	for _, k := range order {
 		runs := grouped[k]
 		cell := Cell{Manifest: k.manifest, Variant: k.variant, Metrics: make(map[string]MetricSummary, len(metricNames))}
+		if k.manifest == "worker-crash" && k.variant == "asynq" {
+			cell.Status = "not_measured"
+			for _, run := range runs {
+				cell.Seeds = append(cell.Seeds, run.Seed)
+			}
+			analysis.Cells = append(analysis.Cells, cell)
+			continue
+		}
 		perMetric := make(map[string][]float64, len(metricNames))
 		for _, run := range runs {
 			cell.Seeds = append(cell.Seeds, run.Seed)
@@ -446,7 +480,7 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 			for _, metric := range ContrastMetrics {
 				difference := median(base[metric]) - median(arm[metric])
 				lo, hi := bootstrapDifference(base[metric], arm[metric], resamples, rng)
-				analysis.Contrasts = append(analysis.Contrasts, Contrast{
+				contrast := Contrast{
 					Manifest:   manifest,
 					Metric:     metric,
 					Base:       ContrastBase,
@@ -455,7 +489,17 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 					Lo:         lo,
 					Hi:         hi,
 					Detected:   (lo > 0 && hi > 0) || (lo < 0 && hi < 0),
-				})
+				}
+				if metric == "throughput_per_second" && median(arm[metric]) != 0 {
+					relativeLo, relativeHi := bootstrapRelativeChange(base[metric], arm[metric], resamples, relativeRNG)
+					contrast.RelativeChange = &RelativeChange{
+						Estimate: relativeChange(median(base[metric]), median(arm[metric])),
+						Lo:       relativeLo,
+						Hi:       relativeHi,
+						Material: relativeHi < -10,
+					}
+				}
+				analysis.Contrasts = append(analysis.Contrasts, contrast)
 			}
 		}
 	}

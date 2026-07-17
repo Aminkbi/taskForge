@@ -25,10 +25,23 @@ neighbor, hot dependency, retry storm, delayed backlog, and worker crash.
 Each run executes TaskForge FIFO/static, one TaskForge ablation for each of
 fairness, admission, adaptive concurrency, and dependency budgets, full
 TaskForge, and the separate `asynq` adapter. TaskForge controls are held
-constant except for the named disabled control. Asynq is a Redis-backed Go
-baseline but does not expose equivalent tenant-fairness, admission, adaptive,
-or dependency-budget controls, so its results are marked non-comparable for
-control-specific claims and may only be compared on common delivery metrics.
+constant except for the named disabled control. The TaskForge arms run
+through the public embedded `worker` package, so each control is the real
+product control: fairness policies come from manifest tenants (with an
+optional `fairness_weight` separating entitlement from offered load),
+admission runs in defer mode with manifest-defined caps, dependency budgets
+lease manifest-defined downstream capacity, and adaptive concurrency operates
+within bounds [2, 8] around the static concurrency of 4. Arrival is a
+concurrent multi-publisher stream against the running worker for TaskForge
+and Asynq alike. Correction (2026-07-17): before the research-artifact wave,
+the runner used a bespoke reserve loop that only engaged fairness, so earlier
+raw runs for the admission, adaptive, and dependency-budget ablations
+differed from `taskforge-no-fairness` in name only; regenerate any local raw
+data rather than comparing it across that boundary. Asynq is a Redis-backed
+Go baseline but does not expose equivalent tenant-fairness, admission,
+adaptive, or dependency-budget controls, so its results are marked
+non-comparable for control-specific claims and may only be compared on common
+delivery metrics.
 
 The runner records p50/p95/p99 enqueue-to-start and completion latency,
 throughput, Jain fairness, SLO/starvation violations, retries, duplicates,
@@ -40,6 +53,14 @@ unfair service. Redis CPU and operation counts are per-run deltas; memory is
 the end-of-run footprint. It does not print, publish, or imply a winner.
 Larger repetitions should retain raw outputs outside the repository before a
 result is interpreted.
+
+The registered multi-seed research grid, its pre-registered analysis plan,
+committed raw evidence, and the derived statistical report live under
+[`research/`](../../research/README.md); run it with
+`make research-experiments` and regenerate every table and figure with
+`make research-analysis`. `make research-check` validates the complete grid,
+privacy-safe run log, and byte-reproducibility of every derived result and
+figure without modifying the committed outputs.
 
 ## Preconditions
 

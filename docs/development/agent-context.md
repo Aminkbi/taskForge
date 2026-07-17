@@ -18,6 +18,7 @@ in [runbooks](../operations/runbooks.md).
 | Scheduler/API wiring | `cmd/<role>/`, then `internal/app/<role>/` |
 | Metrics, HTTP, health, logging, shutdown | matching `internal/` package |
 | Redis-backed end-to-end behavior | `test/integration/` |
+| Comparative experiments, research artifact, paper | `cmd/experiment*`, `internal/experiment/`, `research/` |
 
 `taskforge` is dependency-free: it must not import `redis`, `worker`, or
 `internal`. Applications register handlers and embed `worker`; there is no
@@ -52,6 +53,7 @@ generic standalone worker binary.
 | Exhaustive bounded protocol state spaces | `make model-check` |
 | Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
 | Reliability claim/check/artifact linkage | `make certification-check` |
+| Registered research evidence or generated report | `make research-check` |
 | Documentation links | `make docs-check` |
 
 Use `make run-demo` for the public embedded-worker path and `make compose-up`

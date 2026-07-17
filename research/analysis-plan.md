@@ -69,7 +69,35 @@ grid was executed:
    baseline.
 
 No registered results existed when these amendments were made; the registered
-grid was executed once, after this section was written.
+grid was executed after this section was written.
+
+## Post-registration correction and complete replacement
+
+An internal review of the first completed grid found four artifact defects.
+The first grid was discarded in full; no cells were selected or carried into
+the dataset analyzed by the paper.
+
+1. The runner started TaskForge's scheduler on workloads with no delayed,
+   retry, or admission-deferred work, adding irrelevant Redis polling to those
+   arms. The replacement runner starts it only when the workload can produce
+   due work.
+2. The worker-crash manifest still called its trigger `crash_after_starts`,
+   although the registered scenario deterministically abandons one reservation
+   before the replacement worker starts. The schema now describes that exact
+   action; the workload and hypothesis did not change.
+3. The analysis emitted absolute throughput differences but omitted the
+   relative bootstrap interval required by the pre-registered -10%
+   materiality rule. The replacement analysis reports both.
+4. The first grid identified only the parent commit of a dirty worktree and
+   its log captured local worker identities. The replacement grid was produced
+   from clean source commit `ac19e98ce8190bf962798e35f45052f0a76c4f91`,
+   uses schema `taskforge-experiment/v2`, and records only privacy-safe cell
+   status in the run log.
+
+These corrections implement the frozen design rather than change a hypothesis,
+workload, seed, task count, control parameter, or outcome rule. As required by
+the exclusion policy below, all 504 cells were rerun; the replacement raw
+directory contains no result from the discarded grid.
 
 ## Experimental units and grid
 
@@ -147,9 +175,9 @@ Secondary, computed by the analysis tool from raw samples:
 - Reruns are permitted only for infrastructure failure external to the system
   under test (Redis unavailable, host out of memory) and every rerun is
   logged. Results are never selected by outcome.
-- The registered grid is executed once. If a code defect is found after
-  execution, the fix and a full re-execution replace the entire grid; partial
-  replacement of cells is prohibited.
+- If a code defect is found after execution, the fix and a full re-execution
+  replace the entire grid; partial replacement of cells is prohibited. The
+  disclosed full replacement above followed this rule.
 
 ## Environment
 

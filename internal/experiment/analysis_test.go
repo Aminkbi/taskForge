@@ -1,7 +1,9 @@
 package experiment
 
 import (
+	"math"
 	"math/rand/v2"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -86,12 +88,42 @@ func TestAnalyzeIsDeterministicAndDetectsSeparatedArms(t *testing.T) {
 		t.Fatalf("contrast = %+v, want detected difference of -40 with negative interval", *contrast)
 	}
 	for i := range first.Contrasts {
-		if first.Contrasts[i] != second.Contrasts[i] {
+		if !reflect.DeepEqual(first.Contrasts[i], second.Contrasts[i]) {
 			t.Fatalf("bootstrap not deterministic: %+v != %+v", first.Contrasts[i], second.Contrasts[i])
 		}
 	}
 	if len(first.Cells) != 2 || first.Cells[0].Metrics["completion_p99_ms"].N != 12 {
 		t.Fatalf("unexpected cells: %+v", first.Cells)
+	}
+}
+
+func TestAnalyzeAppliesRegisteredThroughputMaterialityBound(t *testing.T) {
+	var results []Result
+	for seed := int64(1); seed <= 12; seed++ {
+		full := testResult("wl", "taskforge-full", seed, 10*time.Millisecond)
+		full.Summary.Throughput = 80
+		fifo := testResult("wl", "taskforge-fifo-static", seed, 10*time.Millisecond)
+		fifo.Summary.Throughput = 100
+		results = append(results, full, fifo)
+	}
+	analysis := Analyze(results, 20260717, 2000)
+	for _, contrast := range analysis.Contrasts {
+		if contrast.Metric != "throughput_per_second" || contrast.Against != "taskforge-fifo-static" {
+			continue
+		}
+		if contrast.RelativeChange == nil || math.Abs(contrast.RelativeChange.Estimate-(-20)) > 1e-9 || !contrast.RelativeChange.Material {
+			t.Fatalf("relative throughput contrast = %+v, want a material -20%% reduction", contrast.RelativeChange)
+		}
+		return
+	}
+	t.Fatal("missing throughput contrast")
+}
+
+func TestAnalyzeMarksUnsupportedBaselineCrashCellNotMeasured(t *testing.T) {
+	result := testResult("worker-crash", "asynq", 1, time.Millisecond)
+	analysis := Analyze([]Result{result}, 1, 10)
+	if len(analysis.Cells) != 1 || analysis.Cells[0].Status != "not_measured" || len(analysis.Cells[0].Metrics) != 0 {
+		t.Fatalf("unsupported crash cell = %+v, want status not_measured without metrics", analysis.Cells)
 	}
 }
 

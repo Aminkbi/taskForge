@@ -23,6 +23,7 @@ func TestMarkdownHasCompleteTablesAndMarksUnsupportedCrashCell(t *testing.T) {
 		Cells: []experiment.Cell{{
 			Manifest: "worker-crash",
 			Variant:  "asynq",
+			Status:   "not_measured",
 			Metrics:  metrics,
 		}},
 	})

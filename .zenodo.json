@@ -1,0 +1,30 @@
+{
+  "title": "TaskForge research artifact: pre-registered ablation study of overload controls for multi-tenant background task execution",
+  "upload_type": "dataset",
+  "description": "Reproducible research artifact for TaskForge, a Redis-backed Go task runtime: pre-registered analysis plan, 504 raw experiment runs (6 workloads x 7 variants x 12 seeds), deterministic bootstrap analysis code, derived figures, and the paper draft. Every table and figure regenerates from the committed raw data with one documented command. Not yet archived; this metadata is prepared for a future, human-approved Zenodo deposit.",
+  "creators": [
+    {
+      "name": "Khanbabaei, Mohammadamin"
+    }
+  ],
+  "access_right": "open",
+  "license": "MIT",
+  "keywords": [
+    "task queue",
+    "background jobs",
+    "multi-tenant",
+    "overload control",
+    "admission control",
+    "fairness",
+    "ablation study",
+    "Redis",
+    "Go"
+  ],
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "https://github.com/aminkbi/taskforge",
+      "resource_type": "software"
+    }
+  ]
+}

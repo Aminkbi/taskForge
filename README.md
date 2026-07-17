@@ -156,6 +156,7 @@ test/integration/     opt-in Redis integration tests
 - [Operator runbooks](./docs/operations/runbooks.md)
 - [Redis operating model](./docs/operations/redis.md)
 - [Benchmark guide](./docs/operations/benchmarks.md)
+- [Research artifact: pre-registered overload-control ablation study](./research/README.md)
 - [Logical routing guide](./docs/operations/cluster-routing.md)
 - [Toolchain and CI policy](./docs/development/toolchain.md)
 - [Redis v2 development reset](./docs/development/redis-v2-development-migration.md)

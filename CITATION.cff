@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use TaskForge or its research artifact, please cite it as below."
+title: "TaskForge: overload-safe multi-tenant background task execution for Go"
+type: software
+authors:
+  - family-names: Khanbabaei
+    given-names: Mohammadamin
+    email: ezoomtech@gmail.com
+repository-code: "https://github.com/aminkbi/taskforge"
+license: MIT
+keywords:
+  - task queue
+  - background jobs
+  - multi-tenant
+  - overload control
+  - admission control
+  - fairness
+  - Redis
+  - Go
+preferred-citation:
+  type: report
+  title: "Overload Controls for Multi-Tenant Background Task Execution: A Pre-Registered Ablation Study of TaskForge"
+  authors:
+    - family-names: Khanbabaei
+      given-names: Mohammadamin
+  year: 2026
+  notes: "Draft; not submitted or published. Source: research/paper/paper.md in the repository."
