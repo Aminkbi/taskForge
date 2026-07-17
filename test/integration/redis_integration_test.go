@@ -477,6 +477,43 @@ func TestRedisFairnessPreventsTenantStarvationOnSharedQueue(t *testing.T) {
 	}
 }
 
+func TestRedisFairnessReclaimPreservesLeaseOwnership(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, ciLeaseTTL)
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+	})
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), ciLeaseTTL, nil, taskforgeredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
+	})
+	message := taskforge.Task{
+		ID: "fairness-reclaim", Name: "integration.fairness", Queue: "default",
+		FairnessKey: "tenant-a", CreatedAt: time.Now().UTC(),
+	}
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	first, err := brokerInstance.Reserve(ctx, "default", "fairness-owner-a")
+	if err != nil {
+		t.Fatalf("Reserve() first owner error = %v", err)
+	}
+	time.Sleep(ciWaitForExpiry)
+	reclaimed, err := brokerInstance.Reserve(ctx, "default", "fairness-owner-b")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed owner error = %v", err)
+	}
+	if reclaimed.Message.ID != first.Message.ID || reclaimed.Execution.DeliveryCount < 2 {
+		t.Fatalf("reclaimed delivery = %+v, want task %q with delivery count >= 2", reclaimed, first.Message.ID)
+	}
+	if err := brokerInstance.Ack(ctx, first); !errors.Is(err, taskforge.ErrStaleDelivery) {
+		t.Fatalf("Ack() stale owner error = %v, want %v", err, taskforge.ErrStaleDelivery)
+	}
+	if err := brokerInstance.Ack(ctx, reclaimed); err != nil {
+		t.Fatalf("Ack() reclaimed owner error = %v", err)
+	}
+}
+
 func TestRedisConcurrentFairReserveDoesNotBlockOnStaleSnapshot(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,11 +30,44 @@ const (
 )
 
 type benchEnv struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	client *redis.Client
-	broker *taskforgeredis.Broker
-	logger *slog.Logger
+	ctx        context.Context
+	cancel     context.CancelFunc
+	client     *redis.Client
+	broker     *taskforgeredis.Broker
+	logger     *slog.Logger
+	redisStats *redisRoundTripCounter
+}
+
+type redisRoundTripCounter struct {
+	roundTrips atomic.Int64
+	commands   atomic.Int64
+}
+
+func (c *redisRoundTripCounter) DialHook(next redis.DialHook) redis.DialHook {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return next(ctx, network, addr)
+	}
+}
+
+func (c *redisRoundTripCounter) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		c.roundTrips.Add(1)
+		c.commands.Add(1)
+		return next(ctx, cmd)
+	}
+}
+
+func (c *redisRoundTripCounter) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		c.roundTrips.Add(1)
+		c.commands.Add(int64(len(cmds)))
+		return next(ctx, cmds)
+	}
+}
+
+func (c *redisRoundTripCounter) reset() {
+	c.roundTrips.Store(0)
+	c.commands.Store(0)
 }
 
 func benchLeadershipFence(owner string, epoch int64) taskforge.LeadershipFence {
@@ -302,6 +337,8 @@ func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
 		ReserveTimeout:   benchReserveTimeout,
 		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
 	})
+	env.redisStats = &redisRoundTripCounter{}
+	env.client.AddHook(env.redisStats)
 
 	for i := 0; i < b.N; i++ {
 		msg := benchmarkMessage("skewed-fairness", i)
@@ -318,6 +355,7 @@ func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
 		}
 	}
 
+	env.redisStats.reset()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		delivery, err := env.broker.Reserve(env.ctx, "default", "bench-skewed-fairness")
@@ -328,6 +366,9 @@ func BenchmarkSkewedFairnessReserveAck(b *testing.B) {
 			b.Fatalf("Ack() error = %v", err)
 		}
 	}
+	b.StopTimer()
+	b.ReportMetric(float64(env.redisStats.commands.Load())/float64(b.N), "redis_commands/op")
+	b.ReportMetric(float64(env.redisStats.roundTrips.Load())/float64(b.N), "redis_round_trips/op")
 }
 
 func BenchmarkSchedulerCatchUpAfterDowntime(b *testing.B) {

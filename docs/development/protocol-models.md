@@ -132,7 +132,7 @@ receipt expiry are documented gaps, not silently covered cases.
 | expiry and `Reclaim` | pending idle threshold and `XCLAIM` ownership transfer | `TestRedisReclaimsExpiredDelivery`, `TestWorkerLeaseRenewFailureAbandonsAndAllowsRedisRedelivery` |
 | stale `Ack`/`Nack`/extend rejection | `redis.Broker.validatePendingDelivery` owner and expiry checks | `TestRedisRejectsStaleOwnerOperationsAfterReclaim`, `TestRedisExpiresCurrentOwnerAck` |
 | retry publish before source ack | `worker.processTask`, delivery-scoped `retry:<delivery-id>` key | `TestWorkerProcessTaskRetriesFailedTask`, `TestWorkerDoesNotAcknowledgeBeforeReplacementPublishSucceeds` |
-| ambiguous retry deduplication | atomic publish-receipt scripts and replay using the same key | `TestRedisPublishDeduplicationKeyPublishesOnce`; T10 seed `ambiguous_publish_deduplicates` covers the lost-reply schedule |
+| ambiguous retry deduplication | atomic publish-receipt scripts and replay using the same key | `TestRedisPublishDeduplicationKeyPublishesOnce`; simulation seed `ambiguous_publish_deduplicates` covers the lost-reply schedule |
 | terminal monotonicity | canonical state transition table and worker terminal writes | `TestAcceptedTransitionsNeverLeaveATerminalState`, `TestWorkerProcessTaskRecordsRunningAndTerminalState` |
 | epoch `Acquire`, renewal, expiry, turnover | `scheduler.RedisLeaderElector` token/epoch scripts | `TestSchedulerLeaderElectionDispatchesRecurringOnce`, `TestSchedulerFastFailoverDoesNotDuplicateRecurringRun` |
 | stale fenced due write | fenced delayed-release Lua scripts | `TestRedisMoveDueRejectsStaleFenceWithoutMutatingDelayedTask` |

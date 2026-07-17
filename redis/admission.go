@@ -210,7 +210,7 @@ func (b *Broker) loadAdmissionSignals(ctx context.Context, queue, fairnessKey st
 
 func (b *Broker) oldestQueueReadyAge(ctx context.Context, queue string, now time.Time) time.Duration {
 	if b.fairnessPolicy(queue) != nil {
-		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now)
+		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now, true)
 		if err != nil {
 			return 0
 		}

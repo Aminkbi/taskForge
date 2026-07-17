@@ -252,8 +252,8 @@ TaskForge does not hot-reload configuration.
 Environment JSON rejects unknown fields so misspelled or retired settings fail
 at startup instead of being silently ignored.
 
-For the T05 configuration migration, replace per-pool `lease_ttl` with the
-global `TASKFORGE_LEASE_TTL` and rename fairness `default_rule` to `default`.
+When migrating older configuration, replace per-pool `lease_ttl` with the global
+`TASKFORGE_LEASE_TTL` and rename fairness `default_rule` to `default`.
 Fairness soft quotas/burst, admission DLQ thresholds, and adaptive cooldown,
 step, and healthy-window fields are controller internals and are no longer
 accepted by the supported environment schema.

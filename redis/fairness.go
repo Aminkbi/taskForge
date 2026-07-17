@@ -139,7 +139,7 @@ func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (tas
 
 	for {
 		now := time.Now().UTC()
-		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now)
+		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now, false)
 		if err != nil {
 			return taskforge.Delivery{}, err
 		}
@@ -307,22 +307,42 @@ func (b *Broker) reclaimFairExpiredDelivery(ctx context.Context, queue, consumer
 		return taskforge.Delivery{}, false, err
 	}
 
+	type pendingCommand struct {
+		fairnessKey string
+		streamKey   string
+		pending     *redis.XPendingExtCmd
+	}
+	commands := make([]pendingCommand, 0, len(keys))
+	pipe := b.client.Pipeline()
 	for _, fairnessKey := range keys {
 		streamKey := b.fairnessStreamKey(queue, fairnessKey)
-		exists, err := b.client.Exists(ctx, streamKey).Result()
+		commands = append(commands, pendingCommand{
+			fairnessKey: fairnessKey,
+			streamKey:   streamKey,
+			pending: pipe.XPendingExt(ctx, &redis.XPendingExtArgs{
+				Stream: streamKey,
+				Group:  b.groupName(queue),
+				Start:  "-",
+				End:    "+",
+				Count:  1,
+			}),
+		})
+	}
+	_, _ = pipe.Exec(ctx)
+
+	for _, command := range commands {
+		pending, err := command.pending.Result()
 		if err != nil {
-			return taskforge.Delivery{}, false, fmt.Errorf("reclaim task: fairness inspect stream: %w", err)
-		}
-		if exists == 0 {
-			if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
-				return taskforge.Delivery{}, false, err
+			if errors.Is(err, redis.Nil) || isMissingGroup(err) || isMissingStream(err) {
+				continue
 			}
+			return taskforge.Delivery{}, false, fmt.Errorf("reclaim task: fairness inspect pending %q: %w", command.fairnessKey, err)
+		}
+		if len(pending) == 0 {
 			continue
 		}
-		if err := b.ensureGroup(ctx, streamKey, b.groupName(queue)); err != nil {
-			return taskforge.Delivery{}, false, err
-		}
-		delivery, ok, err := b.reclaimExpiredDelivery(ctx, queue, streamKey, b.groupName(queue), consumerName)
+
+		delivery, ok, err := b.reclaimExpiredDelivery(ctx, queue, command.streamKey, b.groupName(queue), consumerName)
 		if err != nil {
 			return taskforge.Delivery{}, false, err
 		}
@@ -334,7 +354,7 @@ func (b *Broker) reclaimFairExpiredDelivery(ctx context.Context, queue, consumer
 	return taskforge.Delivery{}, false, nil
 }
 
-func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now time.Time) ([]fairnessKeySnapshot, error) {
+func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now time.Time, includeOldestReadyAge bool) ([]fairnessKeySnapshot, error) {
 	policy := b.fairnessPolicy(queue)
 	if policy == nil {
 		return nil, nil
@@ -345,16 +365,67 @@ func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now ti
 		return nil, err
 	}
 
-	snapshots := make([]fairnessKeySnapshot, 0, len(keys))
+	type snapshotCommands struct {
+		fairnessKey string
+		streamKey   string
+		streamInfo  *redis.XInfoStreamCmd
+		pending     *redis.XPendingCmd
+	}
+	commands := make([]snapshotCommands, 0, len(keys))
+	pipe := b.client.Pipeline()
 	for _, fairnessKey := range keys {
-		snapshot, ok, err := b.loadFairnessKeySnapshot(ctx, queue, fairnessKey, now)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+		streamKey := b.fairnessStreamKey(queue, fairnessKey)
+		commands = append(commands, snapshotCommands{
+			fairnessKey: fairnessKey,
+			streamKey:   streamKey,
+			streamInfo:  pipe.XInfoStream(ctx, streamKey),
+			pending:     pipe.XPending(ctx, streamKey, b.groupName(queue)),
+		})
+	}
+	_, _ = pipe.Exec(ctx)
+
+	snapshots := make([]fairnessKeySnapshot, 0, len(keys))
+	for _, command := range commands {
+		streamInfo, err := command.streamInfo.Result()
+		if err != nil || streamInfo == nil {
+			if err != nil && !isMissingStream(err) {
+				return nil, fmt.Errorf("fairness metrics: stream %q: %w", command.fairnessKey, err)
+			}
+			if err := b.removeIdleFairnessKey(ctx, queue, command.fairnessKey); err != nil {
+				return nil, err
+			}
 			continue
 		}
-		snapshot.Rule = policy.Resolve(fairnessKey)
+
+		pendingCount := int64(0)
+		pending, err := command.pending.Result()
+		if err != nil {
+			if !isMissingGroup(err) && !isMissingStream(err) {
+				return nil, fmt.Errorf("fairness metrics: pending %q: %w", command.fairnessKey, err)
+			}
+		} else if pending != nil {
+			pendingCount = pending.Count
+		}
+
+		ready := streamInfo.Length - pendingCount
+		if ready < 0 {
+			ready = 0
+		}
+		if ready == 0 && pendingCount == 0 {
+			if err := b.removeIdleFairnessKey(ctx, queue, command.fairnessKey); err != nil {
+				return nil, err
+			}
+		}
+
+		snapshot := fairnessKeySnapshot{
+			Key:      command.fairnessKey,
+			Ready:    ready,
+			Reserved: pendingCount,
+		}
+		if includeOldestReadyAge && ready > 0 {
+			snapshot.OldestReadyAge = b.oldestFairnessReadyAge(ctx, command.streamKey, b.groupName(queue), now)
+		}
+		snapshot.Rule = policy.Resolve(command.fairnessKey)
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots, nil
@@ -449,7 +520,7 @@ func (b *Broker) FairnessMetricsSnapshot(ctx context.Context, queue string, now 
 		}
 	}
 
-	snapshots, err := b.loadFairnessSnapshots(ctx, queue, now)
+	snapshots, err := b.loadFairnessSnapshots(ctx, queue, now, true)
 	if err != nil {
 		return nil, err
 	}
