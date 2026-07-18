@@ -1,0 +1,3692 @@
+{
+  "schema": "taskforge-open-loop-trace/v1",
+  "id": "recovery-contract-20260719",
+  "sha256": "cbcc609485a2a850e8355f841b73862edb893508104b7e46e9dcbd2a000e18c2",
+  "seed": 20260719,
+  "start_at": "2000-01-01T11:58:39Z",
+  "profile": {
+    "name": "recovery-contract",
+    "warmup": 1000000000,
+    "steady_state": 4000000000,
+    "cooldown": 1000000000,
+    "phases": [
+      {
+        "name": "warmup",
+        "duration": 1000000000,
+        "rate_per_second": 50
+      },
+      {
+        "name": "steady",
+        "duration": 4000000000,
+        "rate_per_second": 50
+      },
+      {
+        "name": "cooldown",
+        "duration": 1000000000,
+        "rate_per_second": 50
+      }
+    ],
+    "tenants": [
+      {
+        "name": "common",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      }
+    ],
+    "service_times": [
+      {
+        "duration": 10000000,
+        "weight": 1
+      }
+    ],
+    "payload_sizes": [
+      {
+        "bytes": 1024,
+        "weight": 1
+      }
+    ],
+    "delayed_fraction": 0,
+    "delay": 0,
+    "slo": 1000000000,
+    "max_attempts": 2,
+    "retry_backoff": 50000000,
+    "downstream": {
+      "name": "recovery-dependency",
+      "capacity": 16,
+      "base_latency": 1000000,
+      "max_latency": 100000000,
+      "base_failure_rate": 0,
+      "latency_slope": 1,
+      "failure_slope": 0.1,
+      "collapse_at": 2,
+      "collapse_failure_rate": 0.5
+    },
+    "faults": [
+      {
+        "at": 2000000000,
+        "kind": "worker_crash",
+        "target": "worker-pool"
+      },
+      {
+        "at": 3000000000,
+        "kind": "worker_recover",
+        "target": "worker-pool"
+      }
+    ],
+    "minimum_tail_count": 100
+  },
+  "arrivals": [
+    {
+      "id": "recovery-contract-20260719-000000000",
+      "at": "2000-01-01T11:58:39Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39Z",
+      "attempt_failure_draws": [
+        0.7777307083676342,
+        0.30588755823194913
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000001",
+      "at": "2000-01-01T11:58:39.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.02Z",
+      "attempt_failure_draws": [
+        0.4932099073396097,
+        0.8591287390958946
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000002",
+      "at": "2000-01-01T11:58:39.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.04Z",
+      "attempt_failure_draws": [
+        0.7235394498997463,
+        0.976338081922578
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000003",
+      "at": "2000-01-01T11:58:39.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.06Z",
+      "attempt_failure_draws": [
+        0.8864980504980119,
+        0.1288935208211004
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000004",
+      "at": "2000-01-01T11:58:39.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.08Z",
+      "attempt_failure_draws": [
+        0.9438147620185802,
+        0.7431773299808658
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000005",
+      "at": "2000-01-01T11:58:39.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.1Z",
+      "attempt_failure_draws": [
+        0.3099557180360746,
+        0.5603681526538681
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000006",
+      "at": "2000-01-01T11:58:39.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.12Z",
+      "attempt_failure_draws": [
+        0.543552563799345,
+        0.8124568923441309
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000007",
+      "at": "2000-01-01T11:58:39.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.14Z",
+      "attempt_failure_draws": [
+        0.24912541947206257,
+        0.4113930994526458
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000008",
+      "at": "2000-01-01T11:58:39.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.16Z",
+      "attempt_failure_draws": [
+        0.7644443990897626,
+        0.13424933662105243
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000009",
+      "at": "2000-01-01T11:58:39.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.18Z",
+      "attempt_failure_draws": [
+        0.4489378373963824,
+        0.051584097586239164
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000010",
+      "at": "2000-01-01T11:58:39.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.2Z",
+      "attempt_failure_draws": [
+        0.051984845652578104,
+        0.6087530995842619
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000011",
+      "at": "2000-01-01T11:58:39.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.22Z",
+      "attempt_failure_draws": [
+        0.3797795866917548,
+        0.8798745226361515
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000012",
+      "at": "2000-01-01T11:58:39.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.24Z",
+      "attempt_failure_draws": [
+        0.9284410435163146,
+        0.4984902498412226
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000013",
+      "at": "2000-01-01T11:58:39.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.26Z",
+      "attempt_failure_draws": [
+        0.7427093711177147,
+        0.6425962418468836
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000014",
+      "at": "2000-01-01T11:58:39.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.28Z",
+      "attempt_failure_draws": [
+        0.15753603710670838,
+        0.5083522777767113
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000015",
+      "at": "2000-01-01T11:58:39.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.3Z",
+      "attempt_failure_draws": [
+        0.2684652612860564,
+        0.7411800242136353
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000016",
+      "at": "2000-01-01T11:58:39.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.32Z",
+      "attempt_failure_draws": [
+        0.2901721890271902,
+        0.5412425873068711
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000017",
+      "at": "2000-01-01T11:58:39.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.34Z",
+      "attempt_failure_draws": [
+        0.6621642735703193,
+        0.7342727461843636
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000018",
+      "at": "2000-01-01T11:58:39.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.36Z",
+      "attempt_failure_draws": [
+        0.5712598972922394,
+        0.2705860481105892
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000019",
+      "at": "2000-01-01T11:58:39.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.38Z",
+      "attempt_failure_draws": [
+        0.635211834108216,
+        0.9025303610710835
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000020",
+      "at": "2000-01-01T11:58:39.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.4Z",
+      "attempt_failure_draws": [
+        0.07584654742071939,
+        0.17297195537738908
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000021",
+      "at": "2000-01-01T11:58:39.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.42Z",
+      "attempt_failure_draws": [
+        0.2822877152276255,
+        0.7608352304324719
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000022",
+      "at": "2000-01-01T11:58:39.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.44Z",
+      "attempt_failure_draws": [
+        0.20466963315519504,
+        0.6162576350516249
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000023",
+      "at": "2000-01-01T11:58:39.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.46Z",
+      "attempt_failure_draws": [
+        0.6986481778795297,
+        0.02717841276287314
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000024",
+      "at": "2000-01-01T11:58:39.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.48Z",
+      "attempt_failure_draws": [
+        0.3454612562936158,
+        0.12365784974968874
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000025",
+      "at": "2000-01-01T11:58:39.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.5Z",
+      "attempt_failure_draws": [
+        0.965735370490442,
+        0.765175609735796
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000026",
+      "at": "2000-01-01T11:58:39.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.52Z",
+      "attempt_failure_draws": [
+        0.3474049002663139,
+        0.850393171670685
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000027",
+      "at": "2000-01-01T11:58:39.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.54Z",
+      "attempt_failure_draws": [
+        0.1356341530023446,
+        0.92308329880869
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000028",
+      "at": "2000-01-01T11:58:39.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.56Z",
+      "attempt_failure_draws": [
+        0.5295780146529677,
+        0.597852399754777
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000029",
+      "at": "2000-01-01T11:58:39.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.58Z",
+      "attempt_failure_draws": [
+        0.896655799253995,
+        0.6104863084420502
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000030",
+      "at": "2000-01-01T11:58:39.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.6Z",
+      "attempt_failure_draws": [
+        0.7286548775747927,
+        0.4703450306092426
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000031",
+      "at": "2000-01-01T11:58:39.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.62Z",
+      "attempt_failure_draws": [
+        0.6786910238798574,
+        0.08689406633673413
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000032",
+      "at": "2000-01-01T11:58:39.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.64Z",
+      "attempt_failure_draws": [
+        0.05835659546817673,
+        0.9895466847616641
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000033",
+      "at": "2000-01-01T11:58:39.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.66Z",
+      "attempt_failure_draws": [
+        0.20477230358759957,
+        0.35867856665219366
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000034",
+      "at": "2000-01-01T11:58:39.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.68Z",
+      "attempt_failure_draws": [
+        0.09653716999358875,
+        0.9618632870713905
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000035",
+      "at": "2000-01-01T11:58:39.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.7Z",
+      "attempt_failure_draws": [
+        0.38785407447097564,
+        0.8721148152360974
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000036",
+      "at": "2000-01-01T11:58:39.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.72Z",
+      "attempt_failure_draws": [
+        0.5871488306996385,
+        0.33197611521005077
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000037",
+      "at": "2000-01-01T11:58:39.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.74Z",
+      "attempt_failure_draws": [
+        0.3498423259114022,
+        0.21752912631464683
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000038",
+      "at": "2000-01-01T11:58:39.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.76Z",
+      "attempt_failure_draws": [
+        0.44643669990721746,
+        0.8085710332197239
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000039",
+      "at": "2000-01-01T11:58:39.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.78Z",
+      "attempt_failure_draws": [
+        0.08453164534793867,
+        0.2818143896707307
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000040",
+      "at": "2000-01-01T11:58:39.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.8Z",
+      "attempt_failure_draws": [
+        0.6032968778435153,
+        0.5989434550250016
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000041",
+      "at": "2000-01-01T11:58:39.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.82Z",
+      "attempt_failure_draws": [
+        0.6322849985305433,
+        0.8971952189850056
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000042",
+      "at": "2000-01-01T11:58:39.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.84Z",
+      "attempt_failure_draws": [
+        0.6763985244631396,
+        0.9591840805453521
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000043",
+      "at": "2000-01-01T11:58:39.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.86Z",
+      "attempt_failure_draws": [
+        0.9471159701889231,
+        0.06217793217076184
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000044",
+      "at": "2000-01-01T11:58:39.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.88Z",
+      "attempt_failure_draws": [
+        0.4535134617683324,
+        0.3576227847806692
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000045",
+      "at": "2000-01-01T11:58:39.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.9Z",
+      "attempt_failure_draws": [
+        0.9958553551156606,
+        0.554720717078753
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000046",
+      "at": "2000-01-01T11:58:39.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.92Z",
+      "attempt_failure_draws": [
+        0.7163377796304129,
+        0.20330617994768818
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000047",
+      "at": "2000-01-01T11:58:39.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.94Z",
+      "attempt_failure_draws": [
+        0.46332653404073465,
+        0.6887040415164536
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000048",
+      "at": "2000-01-01T11:58:39.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.96Z",
+      "attempt_failure_draws": [
+        0.7357331837715667,
+        0.8012555506847046
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000049",
+      "at": "2000-01-01T11:58:39.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:39.98Z",
+      "attempt_failure_draws": [
+        0.49235633265568113,
+        0.7889722148802238
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000050",
+      "at": "2000-01-01T11:58:40Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40Z",
+      "attempt_failure_draws": [
+        0.7962765249499437,
+        0.14376790012828433
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000051",
+      "at": "2000-01-01T11:58:40.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.02Z",
+      "attempt_failure_draws": [
+        0.24735334463827363,
+        0.002369398460703609
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000052",
+      "at": "2000-01-01T11:58:40.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.04Z",
+      "attempt_failure_draws": [
+        0.5333825360690102,
+        0.36440688014734735
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000053",
+      "at": "2000-01-01T11:58:40.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.06Z",
+      "attempt_failure_draws": [
+        0.5662050858039737,
+        0.06725119120603862
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000054",
+      "at": "2000-01-01T11:58:40.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.08Z",
+      "attempt_failure_draws": [
+        0.31258777602609333,
+        0.038935715596801534
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000055",
+      "at": "2000-01-01T11:58:40.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.1Z",
+      "attempt_failure_draws": [
+        0.1499493533072238,
+        0.2516172680733759
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000056",
+      "at": "2000-01-01T11:58:40.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.12Z",
+      "attempt_failure_draws": [
+        0.3064897366956174,
+        0.7999385977119886
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000057",
+      "at": "2000-01-01T11:58:40.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.14Z",
+      "attempt_failure_draws": [
+        0.2672304888882848,
+        0.5201342077619044
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000058",
+      "at": "2000-01-01T11:58:40.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.16Z",
+      "attempt_failure_draws": [
+        0.11159583275569251,
+        0.9202065779981603
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000059",
+      "at": "2000-01-01T11:58:40.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.18Z",
+      "attempt_failure_draws": [
+        0.2993268163089756,
+        0.7868322897532899
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000060",
+      "at": "2000-01-01T11:58:40.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.2Z",
+      "attempt_failure_draws": [
+        0.389842335855884,
+        0.023326028897155515
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000061",
+      "at": "2000-01-01T11:58:40.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.22Z",
+      "attempt_failure_draws": [
+        0.304653485448372,
+        0.5557180408001751
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000062",
+      "at": "2000-01-01T11:58:40.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.24Z",
+      "attempt_failure_draws": [
+        0.4223123256793201,
+        0.4924024489754172
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000063",
+      "at": "2000-01-01T11:58:40.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.26Z",
+      "attempt_failure_draws": [
+        0.9006119641264546,
+        0.7757672040443557
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000064",
+      "at": "2000-01-01T11:58:40.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.28Z",
+      "attempt_failure_draws": [
+        0.5025460257447731,
+        0.9076253729609566
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000065",
+      "at": "2000-01-01T11:58:40.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.3Z",
+      "attempt_failure_draws": [
+        0.5794510015431708,
+        0.6270791080366344
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000066",
+      "at": "2000-01-01T11:58:40.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.32Z",
+      "attempt_failure_draws": [
+        0.20319801047397934,
+        0.7656435924488055
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000067",
+      "at": "2000-01-01T11:58:40.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.34Z",
+      "attempt_failure_draws": [
+        0.4046401331616898,
+        0.7422053370553824
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000068",
+      "at": "2000-01-01T11:58:40.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.36Z",
+      "attempt_failure_draws": [
+        0.39068997878168765,
+        0.8274867334078095
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000069",
+      "at": "2000-01-01T11:58:40.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.38Z",
+      "attempt_failure_draws": [
+        0.9654683787865735,
+        0.675085486189043
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000070",
+      "at": "2000-01-01T11:58:40.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.4Z",
+      "attempt_failure_draws": [
+        0.555520107196016,
+        0.9264189469581
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000071",
+      "at": "2000-01-01T11:58:40.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.42Z",
+      "attempt_failure_draws": [
+        0.6931445949796087,
+        0.29440379998301225
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000072",
+      "at": "2000-01-01T11:58:40.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.44Z",
+      "attempt_failure_draws": [
+        0.4266614126848156,
+        0.7149258844205127
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000073",
+      "at": "2000-01-01T11:58:40.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.46Z",
+      "attempt_failure_draws": [
+        0.01115096188881759,
+        0.4682628555013778
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000074",
+      "at": "2000-01-01T11:58:40.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.48Z",
+      "attempt_failure_draws": [
+        0.4920259877953156,
+        0.3543804196818494
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000075",
+      "at": "2000-01-01T11:58:40.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.5Z",
+      "attempt_failure_draws": [
+        0.5798869580561108,
+        0.14956535322949016
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000076",
+      "at": "2000-01-01T11:58:40.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.52Z",
+      "attempt_failure_draws": [
+        0.012403718608436365,
+        0.6785941976557702
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000077",
+      "at": "2000-01-01T11:58:40.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.54Z",
+      "attempt_failure_draws": [
+        0.8677380579888061,
+        0.7271795699509851
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000078",
+      "at": "2000-01-01T11:58:40.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.56Z",
+      "attempt_failure_draws": [
+        0.7136236621445178,
+        0.8470639749738952
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000079",
+      "at": "2000-01-01T11:58:40.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.58Z",
+      "attempt_failure_draws": [
+        0.530329355317603,
+        0.2684474514735632
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000080",
+      "at": "2000-01-01T11:58:40.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.6Z",
+      "attempt_failure_draws": [
+        0.23989529148328437,
+        0.821231615472852
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000081",
+      "at": "2000-01-01T11:58:40.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.62Z",
+      "attempt_failure_draws": [
+        0.5771236258346415,
+        0.6639153569033539
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000082",
+      "at": "2000-01-01T11:58:40.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.64Z",
+      "attempt_failure_draws": [
+        0.5721002930211269,
+        0.540700983488096
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000083",
+      "at": "2000-01-01T11:58:40.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.66Z",
+      "attempt_failure_draws": [
+        0.6408183229281236,
+        0.1863875516022877
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000084",
+      "at": "2000-01-01T11:58:40.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.68Z",
+      "attempt_failure_draws": [
+        0.7263964749129744,
+        0.702282436632259
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000085",
+      "at": "2000-01-01T11:58:40.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.7Z",
+      "attempt_failure_draws": [
+        0.3497167636322097,
+        0.9221028793125229
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000086",
+      "at": "2000-01-01T11:58:40.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.72Z",
+      "attempt_failure_draws": [
+        0.2546396160287221,
+        0.17649187234291863
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000087",
+      "at": "2000-01-01T11:58:40.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.74Z",
+      "attempt_failure_draws": [
+        0.352161663016787,
+        0.5051385567504167
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000088",
+      "at": "2000-01-01T11:58:40.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.76Z",
+      "attempt_failure_draws": [
+        0.4820314259378977,
+        0.31179386771869866
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000089",
+      "at": "2000-01-01T11:58:40.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.78Z",
+      "attempt_failure_draws": [
+        0.47174405955978393,
+        0.5293876388685302
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000090",
+      "at": "2000-01-01T11:58:40.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.8Z",
+      "attempt_failure_draws": [
+        0.27964353522701,
+        0.46688535654433916
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000091",
+      "at": "2000-01-01T11:58:40.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.82Z",
+      "attempt_failure_draws": [
+        0.23198732014617995,
+        0.2958976217213468
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000092",
+      "at": "2000-01-01T11:58:40.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.84Z",
+      "attempt_failure_draws": [
+        0.5866473012182053,
+        0.26567859252238113
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000093",
+      "at": "2000-01-01T11:58:40.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.86Z",
+      "attempt_failure_draws": [
+        0.7971924351073036,
+        0.8432771419641855
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000094",
+      "at": "2000-01-01T11:58:40.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.88Z",
+      "attempt_failure_draws": [
+        0.7576266179116022,
+        0.9948432659862907
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000095",
+      "at": "2000-01-01T11:58:40.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.9Z",
+      "attempt_failure_draws": [
+        0.9278189721306904,
+        0.9573497368335598
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000096",
+      "at": "2000-01-01T11:58:40.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.92Z",
+      "attempt_failure_draws": [
+        0.8075299091789253,
+        0.37189146603999734
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000097",
+      "at": "2000-01-01T11:58:40.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.94Z",
+      "attempt_failure_draws": [
+        0.6252212329783178,
+        0.9639949160740289
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000098",
+      "at": "2000-01-01T11:58:40.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.96Z",
+      "attempt_failure_draws": [
+        0.008281604937843245,
+        0.1838798393101495
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000099",
+      "at": "2000-01-01T11:58:40.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:40.98Z",
+      "attempt_failure_draws": [
+        0.7462818288159654,
+        0.820125174821178
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000100",
+      "at": "2000-01-01T11:58:41Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41Z",
+      "attempt_failure_draws": [
+        0.8174429005319356,
+        0.529732760122825
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000101",
+      "at": "2000-01-01T11:58:41.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.02Z",
+      "attempt_failure_draws": [
+        0.14910311251384878,
+        0.15646313219294916
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000102",
+      "at": "2000-01-01T11:58:41.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.04Z",
+      "attempt_failure_draws": [
+        0.26811798520241636,
+        0.7301771616195669
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000103",
+      "at": "2000-01-01T11:58:41.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.06Z",
+      "attempt_failure_draws": [
+        0.45775130285829047,
+        0.278769250712692
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000104",
+      "at": "2000-01-01T11:58:41.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.08Z",
+      "attempt_failure_draws": [
+        0.43751600190778606,
+        0.6172538311157469
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000105",
+      "at": "2000-01-01T11:58:41.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.1Z",
+      "attempt_failure_draws": [
+        0.7898554394841758,
+        0.1001482903169163
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000106",
+      "at": "2000-01-01T11:58:41.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.12Z",
+      "attempt_failure_draws": [
+        0.5294745463510417,
+        0.15174516744195055
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000107",
+      "at": "2000-01-01T11:58:41.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.14Z",
+      "attempt_failure_draws": [
+        0.41821090611063116,
+        0.06772208122194046
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000108",
+      "at": "2000-01-01T11:58:41.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.16Z",
+      "attempt_failure_draws": [
+        0.8860029513748547,
+        0.35708531197325355
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000109",
+      "at": "2000-01-01T11:58:41.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.18Z",
+      "attempt_failure_draws": [
+        0.03755854416302229,
+        0.9601625407618507
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000110",
+      "at": "2000-01-01T11:58:41.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.2Z",
+      "attempt_failure_draws": [
+        0.11624719433047359,
+        0.7097964035928452
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000111",
+      "at": "2000-01-01T11:58:41.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.22Z",
+      "attempt_failure_draws": [
+        0.6010346861241552,
+        0.29235425742952226
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000112",
+      "at": "2000-01-01T11:58:41.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.24Z",
+      "attempt_failure_draws": [
+        0.7059451821245886,
+        0.884838881935653
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000113",
+      "at": "2000-01-01T11:58:41.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.26Z",
+      "attempt_failure_draws": [
+        0.7226482637870961,
+        0.4723890207244146
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000114",
+      "at": "2000-01-01T11:58:41.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.28Z",
+      "attempt_failure_draws": [
+        0.00900985542026822,
+        0.10541238803520836
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000115",
+      "at": "2000-01-01T11:58:41.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.3Z",
+      "attempt_failure_draws": [
+        0.9963767007275612,
+        0.05643974392775453
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000116",
+      "at": "2000-01-01T11:58:41.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.32Z",
+      "attempt_failure_draws": [
+        0.7547053835500962,
+        0.12032196655368377
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000117",
+      "at": "2000-01-01T11:58:41.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.34Z",
+      "attempt_failure_draws": [
+        0.005345670938348368,
+        0.31151752107452757
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000118",
+      "at": "2000-01-01T11:58:41.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.36Z",
+      "attempt_failure_draws": [
+        0.5204115496853529,
+        0.35926423316687717
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000119",
+      "at": "2000-01-01T11:58:41.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.38Z",
+      "attempt_failure_draws": [
+        0.14078156672795705,
+        0.11524468458828507
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000120",
+      "at": "2000-01-01T11:58:41.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.4Z",
+      "attempt_failure_draws": [
+        0.9694814337578349,
+        0.3121958643317678
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000121",
+      "at": "2000-01-01T11:58:41.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.42Z",
+      "attempt_failure_draws": [
+        0.818566697022987,
+        0.9909184422726366
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000122",
+      "at": "2000-01-01T11:58:41.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.44Z",
+      "attempt_failure_draws": [
+        0.2037549368581495,
+        0.7795503754365022
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000123",
+      "at": "2000-01-01T11:58:41.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.46Z",
+      "attempt_failure_draws": [
+        0.09069510240019596,
+        0.8711385891672924
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000124",
+      "at": "2000-01-01T11:58:41.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.48Z",
+      "attempt_failure_draws": [
+        0.4261675693955167,
+        0.6583921779118832
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000125",
+      "at": "2000-01-01T11:58:41.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.5Z",
+      "attempt_failure_draws": [
+        0.035279894154436775,
+        0.18696963963154367
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000126",
+      "at": "2000-01-01T11:58:41.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.52Z",
+      "attempt_failure_draws": [
+        0.016423349723051373,
+        0.32975212781223495
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000127",
+      "at": "2000-01-01T11:58:41.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.54Z",
+      "attempt_failure_draws": [
+        0.11971673016193629,
+        0.34645610244183467
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000128",
+      "at": "2000-01-01T11:58:41.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.56Z",
+      "attempt_failure_draws": [
+        0.314916255435004,
+        0.13424420495713696
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000129",
+      "at": "2000-01-01T11:58:41.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.58Z",
+      "attempt_failure_draws": [
+        0.5504173382108225,
+        0.47404552737528705
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000130",
+      "at": "2000-01-01T11:58:41.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.6Z",
+      "attempt_failure_draws": [
+        0.03295911947768093,
+        0.45888735038595707
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000131",
+      "at": "2000-01-01T11:58:41.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.62Z",
+      "attempt_failure_draws": [
+        0.9572213013198521,
+        0.30706075593653703
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000132",
+      "at": "2000-01-01T11:58:41.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.64Z",
+      "attempt_failure_draws": [
+        0.06150761202838517,
+        0.43076653586647207
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000133",
+      "at": "2000-01-01T11:58:41.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.66Z",
+      "attempt_failure_draws": [
+        0.3119577785607587,
+        0.9545788174976292
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000134",
+      "at": "2000-01-01T11:58:41.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.68Z",
+      "attempt_failure_draws": [
+        0.6277872558337698,
+        0.6306948769428603
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000135",
+      "at": "2000-01-01T11:58:41.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.7Z",
+      "attempt_failure_draws": [
+        0.6140911643050307,
+        0.15351981402310888
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000136",
+      "at": "2000-01-01T11:58:41.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.72Z",
+      "attempt_failure_draws": [
+        0.07565342758525606,
+        0.11700524502841969
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000137",
+      "at": "2000-01-01T11:58:41.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.74Z",
+      "attempt_failure_draws": [
+        0.19821593092576806,
+        0.03861191998274893
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000138",
+      "at": "2000-01-01T11:58:41.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.76Z",
+      "attempt_failure_draws": [
+        0.8142878253419723,
+        0.13958850967847836
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000139",
+      "at": "2000-01-01T11:58:41.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.78Z",
+      "attempt_failure_draws": [
+        0.07346246647362098,
+        0.6529857230505661
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000140",
+      "at": "2000-01-01T11:58:41.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.8Z",
+      "attempt_failure_draws": [
+        0.9674070310645763,
+        0.9745530341441876
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000141",
+      "at": "2000-01-01T11:58:41.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.82Z",
+      "attempt_failure_draws": [
+        0.5739505350884337,
+        0.1315895277612148
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000142",
+      "at": "2000-01-01T11:58:41.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.84Z",
+      "attempt_failure_draws": [
+        0.3036145274694302,
+        0.029841686472054985
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000143",
+      "at": "2000-01-01T11:58:41.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.86Z",
+      "attempt_failure_draws": [
+        0.3897012790651613,
+        0.7780823853284408
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000144",
+      "at": "2000-01-01T11:58:41.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.88Z",
+      "attempt_failure_draws": [
+        0.23672605787263712,
+        0.4247587973275885
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000145",
+      "at": "2000-01-01T11:58:41.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.9Z",
+      "attempt_failure_draws": [
+        0.5906413413903724,
+        0.728244425348284
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000146",
+      "at": "2000-01-01T11:58:41.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.92Z",
+      "attempt_failure_draws": [
+        0.5384243703161381,
+        0.5568115032416564
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000147",
+      "at": "2000-01-01T11:58:41.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.94Z",
+      "attempt_failure_draws": [
+        0.1364885545647686,
+        0.3617528875545384
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000148",
+      "at": "2000-01-01T11:58:41.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.96Z",
+      "attempt_failure_draws": [
+        0.44885551188660866,
+        0.8918540273628083
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000149",
+      "at": "2000-01-01T11:58:41.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:41.98Z",
+      "attempt_failure_draws": [
+        0.71174110795941,
+        0.5336990468322793
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000150",
+      "at": "2000-01-01T11:58:42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42Z",
+      "attempt_failure_draws": [
+        0.9238761707686307,
+        0.4329845505553297
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000151",
+      "at": "2000-01-01T11:58:42.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.02Z",
+      "attempt_failure_draws": [
+        0.41423487434012296,
+        0.5893743557891737
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000152",
+      "at": "2000-01-01T11:58:42.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.04Z",
+      "attempt_failure_draws": [
+        0.5012840412951852,
+        0.7827286471471373
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000153",
+      "at": "2000-01-01T11:58:42.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.06Z",
+      "attempt_failure_draws": [
+        0.8689430094882261,
+        0.7360710539725231
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000154",
+      "at": "2000-01-01T11:58:42.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.08Z",
+      "attempt_failure_draws": [
+        0.53298518614863,
+        0.5744147213245171
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000155",
+      "at": "2000-01-01T11:58:42.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.1Z",
+      "attempt_failure_draws": [
+        0.1317526815906902,
+        0.7232072299136512
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000156",
+      "at": "2000-01-01T11:58:42.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.12Z",
+      "attempt_failure_draws": [
+        0.6670084489118283,
+        0.5110458737728916
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000157",
+      "at": "2000-01-01T11:58:42.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.14Z",
+      "attempt_failure_draws": [
+        0.515329741906883,
+        0.0781984901702455
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000158",
+      "at": "2000-01-01T11:58:42.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.16Z",
+      "attempt_failure_draws": [
+        0.10576968126521091,
+        0.508218448291571
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000159",
+      "at": "2000-01-01T11:58:42.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.18Z",
+      "attempt_failure_draws": [
+        0.09346871506934795,
+        0.6074980898538441
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000160",
+      "at": "2000-01-01T11:58:42.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.2Z",
+      "attempt_failure_draws": [
+        0.5051131080971949,
+        0.8626371150156005
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000161",
+      "at": "2000-01-01T11:58:42.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.22Z",
+      "attempt_failure_draws": [
+        0.2669090105707872,
+        0.13070673804431177
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000162",
+      "at": "2000-01-01T11:58:42.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.24Z",
+      "attempt_failure_draws": [
+        0.09178029675971722,
+        0.62135458421351
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000163",
+      "at": "2000-01-01T11:58:42.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.26Z",
+      "attempt_failure_draws": [
+        0.19207288096367725,
+        0.29365252890645743
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000164",
+      "at": "2000-01-01T11:58:42.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.28Z",
+      "attempt_failure_draws": [
+        0.10747894549658987,
+        0.564634633365124
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000165",
+      "at": "2000-01-01T11:58:42.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.3Z",
+      "attempt_failure_draws": [
+        0.23982702981469417,
+        0.27912808874415984
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000166",
+      "at": "2000-01-01T11:58:42.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.32Z",
+      "attempt_failure_draws": [
+        0.6846305400600503,
+        0.5048455199406016
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000167",
+      "at": "2000-01-01T11:58:42.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.34Z",
+      "attempt_failure_draws": [
+        0.09100895118986208,
+        0.7662287382326625
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000168",
+      "at": "2000-01-01T11:58:42.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.36Z",
+      "attempt_failure_draws": [
+        0.7615632758334054,
+        0.13469213643673716
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000169",
+      "at": "2000-01-01T11:58:42.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.38Z",
+      "attempt_failure_draws": [
+        0.7223241364960894,
+        0.9468751952477548
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000170",
+      "at": "2000-01-01T11:58:42.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.4Z",
+      "attempt_failure_draws": [
+        0.8454198842971548,
+        0.8628824230054136
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000171",
+      "at": "2000-01-01T11:58:42.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.42Z",
+      "attempt_failure_draws": [
+        0.2405732810265131,
+        0.42555814759817334
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000172",
+      "at": "2000-01-01T11:58:42.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.44Z",
+      "attempt_failure_draws": [
+        0.4298373586465134,
+        0.6853219594558283
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000173",
+      "at": "2000-01-01T11:58:42.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.46Z",
+      "attempt_failure_draws": [
+        0.9387589317478503,
+        0.11438011236083956
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000174",
+      "at": "2000-01-01T11:58:42.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.48Z",
+      "attempt_failure_draws": [
+        0.9577166375901495,
+        0.6564054215114554
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000175",
+      "at": "2000-01-01T11:58:42.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.5Z",
+      "attempt_failure_draws": [
+        0.35632408363363754,
+        0.5723180552270191
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000176",
+      "at": "2000-01-01T11:58:42.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.52Z",
+      "attempt_failure_draws": [
+        0.7304739073024207,
+        0.923898835140854
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000177",
+      "at": "2000-01-01T11:58:42.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.54Z",
+      "attempt_failure_draws": [
+        0.5066368424399569,
+        0.8547733479586951
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000178",
+      "at": "2000-01-01T11:58:42.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.56Z",
+      "attempt_failure_draws": [
+        0.8013794378819711,
+        0.19632862467454548
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000179",
+      "at": "2000-01-01T11:58:42.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.58Z",
+      "attempt_failure_draws": [
+        0.6638474557314321,
+        0.952962349382822
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000180",
+      "at": "2000-01-01T11:58:42.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.6Z",
+      "attempt_failure_draws": [
+        0.21972360298688176,
+        0.9149088311538437
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000181",
+      "at": "2000-01-01T11:58:42.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.62Z",
+      "attempt_failure_draws": [
+        0.20845882015973638,
+        0.09220795664862858
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000182",
+      "at": "2000-01-01T11:58:42.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.64Z",
+      "attempt_failure_draws": [
+        0.20509774891882226,
+        0.561808285080233
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000183",
+      "at": "2000-01-01T11:58:42.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.66Z",
+      "attempt_failure_draws": [
+        0.03141699041942403,
+        0.5952061577742148
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000184",
+      "at": "2000-01-01T11:58:42.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.68Z",
+      "attempt_failure_draws": [
+        0.23895217928686352,
+        0.9852492185980959
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000185",
+      "at": "2000-01-01T11:58:42.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.7Z",
+      "attempt_failure_draws": [
+        0.24745128872311406,
+        0.30841950800693585
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000186",
+      "at": "2000-01-01T11:58:42.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.72Z",
+      "attempt_failure_draws": [
+        0.5628404620581375,
+        0.8808051143114223
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000187",
+      "at": "2000-01-01T11:58:42.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.74Z",
+      "attempt_failure_draws": [
+        0.09976021811816604,
+        0.2121226154139445
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000188",
+      "at": "2000-01-01T11:58:42.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.76Z",
+      "attempt_failure_draws": [
+        0.5198849376821182,
+        0.20697404529091956
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000189",
+      "at": "2000-01-01T11:58:42.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.78Z",
+      "attempt_failure_draws": [
+        0.49779165007299986,
+        0.3606593244969769
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000190",
+      "at": "2000-01-01T11:58:42.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.8Z",
+      "attempt_failure_draws": [
+        0.040289191337218755,
+        0.22238026948967038
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000191",
+      "at": "2000-01-01T11:58:42.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.82Z",
+      "attempt_failure_draws": [
+        0.8367163363994449,
+        0.12180611006654285
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000192",
+      "at": "2000-01-01T11:58:42.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.84Z",
+      "attempt_failure_draws": [
+        0.7427750742817101,
+        0.9275017211862998
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000193",
+      "at": "2000-01-01T11:58:42.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.86Z",
+      "attempt_failure_draws": [
+        0.23141082425308623,
+        0.3448139134946795
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000194",
+      "at": "2000-01-01T11:58:42.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.88Z",
+      "attempt_failure_draws": [
+        0.7310911845977472,
+        0.7259602460228443
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000195",
+      "at": "2000-01-01T11:58:42.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.9Z",
+      "attempt_failure_draws": [
+        0.2652734661430368,
+        0.09167200515049945
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000196",
+      "at": "2000-01-01T11:58:42.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.92Z",
+      "attempt_failure_draws": [
+        0.1578425809020524,
+        0.9579500465505418
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000197",
+      "at": "2000-01-01T11:58:42.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.94Z",
+      "attempt_failure_draws": [
+        0.6760810297799212,
+        0.35858782321590776
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000198",
+      "at": "2000-01-01T11:58:42.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.96Z",
+      "attempt_failure_draws": [
+        0.6242022415861797,
+        0.05651033464457611
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000199",
+      "at": "2000-01-01T11:58:42.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:42.98Z",
+      "attempt_failure_draws": [
+        0.8270387528437356,
+        0.23342360590745226
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000200",
+      "at": "2000-01-01T11:58:43Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43Z",
+      "attempt_failure_draws": [
+        0.34127408681272375,
+        0.8513546383129523
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000201",
+      "at": "2000-01-01T11:58:43.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.02Z",
+      "attempt_failure_draws": [
+        0.32688989003599633,
+        0.3437968966750944
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000202",
+      "at": "2000-01-01T11:58:43.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.04Z",
+      "attempt_failure_draws": [
+        0.3559706736199548,
+        0.25970999848490217
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000203",
+      "at": "2000-01-01T11:58:43.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.06Z",
+      "attempt_failure_draws": [
+        0.4423744805426527,
+        0.3485918636528508
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000204",
+      "at": "2000-01-01T11:58:43.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.08Z",
+      "attempt_failure_draws": [
+        0.47745230946785033,
+        0.6991320059015093
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000205",
+      "at": "2000-01-01T11:58:43.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.1Z",
+      "attempt_failure_draws": [
+        0.4376828415463967,
+        0.6791091075468229
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000206",
+      "at": "2000-01-01T11:58:43.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.12Z",
+      "attempt_failure_draws": [
+        0.386239400790206,
+        0.7507172717973356
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000207",
+      "at": "2000-01-01T11:58:43.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.14Z",
+      "attempt_failure_draws": [
+        0.9115371659058652,
+        0.8612684083232216
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000208",
+      "at": "2000-01-01T11:58:43.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.16Z",
+      "attempt_failure_draws": [
+        0.2430709565247119,
+        0.7510878115021189
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000209",
+      "at": "2000-01-01T11:58:43.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.18Z",
+      "attempt_failure_draws": [
+        0.6758083414737015,
+        0.02274372923404233
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000210",
+      "at": "2000-01-01T11:58:43.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.2Z",
+      "attempt_failure_draws": [
+        0.5201386350900508,
+        0.40670456122017684
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000211",
+      "at": "2000-01-01T11:58:43.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.22Z",
+      "attempt_failure_draws": [
+        0.16201360090716088,
+        0.9511325502930456
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000212",
+      "at": "2000-01-01T11:58:43.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.24Z",
+      "attempt_failure_draws": [
+        0.0862809269687339,
+        0.8582156498356892
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000213",
+      "at": "2000-01-01T11:58:43.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.26Z",
+      "attempt_failure_draws": [
+        0.6922726929416301,
+        0.2522502291398032
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000214",
+      "at": "2000-01-01T11:58:43.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.28Z",
+      "attempt_failure_draws": [
+        0.5013646535188315,
+        0.0315825498702198
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000215",
+      "at": "2000-01-01T11:58:43.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.3Z",
+      "attempt_failure_draws": [
+        0.8283615888641583,
+        0.18998114846763758
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000216",
+      "at": "2000-01-01T11:58:43.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.32Z",
+      "attempt_failure_draws": [
+        0.6246626974040942,
+        0.7886849353822238
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000217",
+      "at": "2000-01-01T11:58:43.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.34Z",
+      "attempt_failure_draws": [
+        0.18017788603358453,
+        0.6833727242281984
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000218",
+      "at": "2000-01-01T11:58:43.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.36Z",
+      "attempt_failure_draws": [
+        0.5638347245661341,
+        0.6785063967350584
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000219",
+      "at": "2000-01-01T11:58:43.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.38Z",
+      "attempt_failure_draws": [
+        0.2504169184463779,
+        0.8155541970330752
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000220",
+      "at": "2000-01-01T11:58:43.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.4Z",
+      "attempt_failure_draws": [
+        0.40338671583074814,
+        0.5129687212044769
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000221",
+      "at": "2000-01-01T11:58:43.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.42Z",
+      "attempt_failure_draws": [
+        0.6440015177172244,
+        0.44453397516226056
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000222",
+      "at": "2000-01-01T11:58:43.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.44Z",
+      "attempt_failure_draws": [
+        0.2903746296380726,
+        0.4924085508642366
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000223",
+      "at": "2000-01-01T11:58:43.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.46Z",
+      "attempt_failure_draws": [
+        0.1379369682436945,
+        0.7813615255057412
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000224",
+      "at": "2000-01-01T11:58:43.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.48Z",
+      "attempt_failure_draws": [
+        0.5513436686548748,
+        0.6831731153428149
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000225",
+      "at": "2000-01-01T11:58:43.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.5Z",
+      "attempt_failure_draws": [
+        0.17395996023950422,
+        0.7281496080230359
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000226",
+      "at": "2000-01-01T11:58:43.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.52Z",
+      "attempt_failure_draws": [
+        0.7983724898172652,
+        0.12379273672137225
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000227",
+      "at": "2000-01-01T11:58:43.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.54Z",
+      "attempt_failure_draws": [
+        0.6897778821960566,
+        0.810414238592675
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000228",
+      "at": "2000-01-01T11:58:43.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.56Z",
+      "attempt_failure_draws": [
+        0.14779602475992382,
+        0.2009398286388001
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000229",
+      "at": "2000-01-01T11:58:43.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.58Z",
+      "attempt_failure_draws": [
+        0.9658261171093564,
+        0.9205644380240972
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000230",
+      "at": "2000-01-01T11:58:43.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.6Z",
+      "attempt_failure_draws": [
+        0.8367883719678781,
+        0.2942351592774598
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000231",
+      "at": "2000-01-01T11:58:43.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.62Z",
+      "attempt_failure_draws": [
+        0.08448305139826218,
+        0.3570807018193425
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000232",
+      "at": "2000-01-01T11:58:43.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.64Z",
+      "attempt_failure_draws": [
+        0.6447268961475001,
+        0.7523614217855578
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000233",
+      "at": "2000-01-01T11:58:43.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.66Z",
+      "attempt_failure_draws": [
+        0.24558731056547778,
+        0.6000398299728288
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000234",
+      "at": "2000-01-01T11:58:43.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.68Z",
+      "attempt_failure_draws": [
+        0.41847137852241245,
+        0.19014331013436692
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000235",
+      "at": "2000-01-01T11:58:43.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.7Z",
+      "attempt_failure_draws": [
+        0.6245587435344997,
+        0.42737310483505553
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000236",
+      "at": "2000-01-01T11:58:43.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.72Z",
+      "attempt_failure_draws": [
+        0.23085301362049382,
+        0.2281597752792549
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000237",
+      "at": "2000-01-01T11:58:43.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.74Z",
+      "attempt_failure_draws": [
+        0.8491150118240197,
+        0.7593211038608626
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000238",
+      "at": "2000-01-01T11:58:43.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.76Z",
+      "attempt_failure_draws": [
+        0.11709779486835292,
+        0.7336829858511446
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000239",
+      "at": "2000-01-01T11:58:43.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.78Z",
+      "attempt_failure_draws": [
+        0.9129600850931783,
+        0.16293925363776418
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000240",
+      "at": "2000-01-01T11:58:43.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.8Z",
+      "attempt_failure_draws": [
+        0.6762634513899468,
+        0.923348933459339
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000241",
+      "at": "2000-01-01T11:58:43.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.82Z",
+      "attempt_failure_draws": [
+        0.490712677930208,
+        0.3166292680284283
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000242",
+      "at": "2000-01-01T11:58:43.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.84Z",
+      "attempt_failure_draws": [
+        0.5650183937960811,
+        0.7649510710148476
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000243",
+      "at": "2000-01-01T11:58:43.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.86Z",
+      "attempt_failure_draws": [
+        0.23848186377231018,
+        0.9900043284265257
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000244",
+      "at": "2000-01-01T11:58:43.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.88Z",
+      "attempt_failure_draws": [
+        0.18070970783961227,
+        0.3226715187514778
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000245",
+      "at": "2000-01-01T11:58:43.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.9Z",
+      "attempt_failure_draws": [
+        0.7538501216584731,
+        0.6577191320854633
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000246",
+      "at": "2000-01-01T11:58:43.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.92Z",
+      "attempt_failure_draws": [
+        0.7281617146930096,
+        0.42438145372706104
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000247",
+      "at": "2000-01-01T11:58:43.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.94Z",
+      "attempt_failure_draws": [
+        0.22518740703066642,
+        0.0886647842283046
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000248",
+      "at": "2000-01-01T11:58:43.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.96Z",
+      "attempt_failure_draws": [
+        0.6925461187262126,
+        0.7013387549964213
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000249",
+      "at": "2000-01-01T11:58:43.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:43.98Z",
+      "attempt_failure_draws": [
+        0.4093125881431894,
+        0.8315500346713552
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000250",
+      "at": "2000-01-01T11:58:44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44Z",
+      "attempt_failure_draws": [
+        0.8963487202045434,
+        0.9430788919368973
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000251",
+      "at": "2000-01-01T11:58:44.02Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.02Z",
+      "attempt_failure_draws": [
+        0.8185331929960663,
+        0.9019046803513349
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000252",
+      "at": "2000-01-01T11:58:44.04Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.04Z",
+      "attempt_failure_draws": [
+        0.7943497606326405,
+        0.8737228183958613
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000253",
+      "at": "2000-01-01T11:58:44.06Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.06Z",
+      "attempt_failure_draws": [
+        0.8571282638422794,
+        0.49755613880401894
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000254",
+      "at": "2000-01-01T11:58:44.08Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.08Z",
+      "attempt_failure_draws": [
+        0.010399285976239958,
+        0.7140985857154709
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000255",
+      "at": "2000-01-01T11:58:44.1Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.1Z",
+      "attempt_failure_draws": [
+        0.6794417479115348,
+        0.2638708043679098
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000256",
+      "at": "2000-01-01T11:58:44.12Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.12Z",
+      "attempt_failure_draws": [
+        0.27119576171224613,
+        0.5720697264545256
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000257",
+      "at": "2000-01-01T11:58:44.14Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.14Z",
+      "attempt_failure_draws": [
+        0.050352368309340534,
+        0.15728914268242877
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000258",
+      "at": "2000-01-01T11:58:44.16Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.16Z",
+      "attempt_failure_draws": [
+        0.6934099392693881,
+        0.8755856663902308
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000259",
+      "at": "2000-01-01T11:58:44.18Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.18Z",
+      "attempt_failure_draws": [
+        0.8729004965615651,
+        0.7579972689956429
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000260",
+      "at": "2000-01-01T11:58:44.2Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.2Z",
+      "attempt_failure_draws": [
+        0.24305764449771172,
+        0.029441836428861
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000261",
+      "at": "2000-01-01T11:58:44.22Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.22Z",
+      "attempt_failure_draws": [
+        0.724552262903147,
+        0.5675754371247895
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000262",
+      "at": "2000-01-01T11:58:44.24Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.24Z",
+      "attempt_failure_draws": [
+        0.8920899517448414,
+        0.2828723170620846
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000263",
+      "at": "2000-01-01T11:58:44.26Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.26Z",
+      "attempt_failure_draws": [
+        0.4667509614723032,
+        0.11828714412597918
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000264",
+      "at": "2000-01-01T11:58:44.28Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.28Z",
+      "attempt_failure_draws": [
+        0.19629662553920713,
+        0.47092248277552573
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000265",
+      "at": "2000-01-01T11:58:44.3Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.3Z",
+      "attempt_failure_draws": [
+        0.6092854326516748,
+        0.8410681243464543
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000266",
+      "at": "2000-01-01T11:58:44.32Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.32Z",
+      "attempt_failure_draws": [
+        0.9913303746666893,
+        0.8867162238171351
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000267",
+      "at": "2000-01-01T11:58:44.34Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.34Z",
+      "attempt_failure_draws": [
+        0.4753913079669825,
+        0.34584582006541864
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000268",
+      "at": "2000-01-01T11:58:44.36Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.36Z",
+      "attempt_failure_draws": [
+        0.0569020079183713,
+        0.6659675570730165
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000269",
+      "at": "2000-01-01T11:58:44.38Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.38Z",
+      "attempt_failure_draws": [
+        0.01869557697784463,
+        0.07928270934850667
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000270",
+      "at": "2000-01-01T11:58:44.4Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.4Z",
+      "attempt_failure_draws": [
+        0.6176402403700122,
+        0.7824592506040052
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000271",
+      "at": "2000-01-01T11:58:44.42Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.42Z",
+      "attempt_failure_draws": [
+        0.138188290763663,
+        0.5000472870343914
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000272",
+      "at": "2000-01-01T11:58:44.44Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.44Z",
+      "attempt_failure_draws": [
+        0.8644283517535976,
+        0.9457853179258163
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000273",
+      "at": "2000-01-01T11:58:44.46Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.46Z",
+      "attempt_failure_draws": [
+        0.8570883522355746,
+        0.612753885925582
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000274",
+      "at": "2000-01-01T11:58:44.48Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.48Z",
+      "attempt_failure_draws": [
+        0.6169397070810517,
+        0.4903827561847197
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000275",
+      "at": "2000-01-01T11:58:44.5Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.5Z",
+      "attempt_failure_draws": [
+        0.6625546720936886,
+        0.8593270387363199
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000276",
+      "at": "2000-01-01T11:58:44.52Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.52Z",
+      "attempt_failure_draws": [
+        0.35378363560855874,
+        0.8207244178875279
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000277",
+      "at": "2000-01-01T11:58:44.54Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.54Z",
+      "attempt_failure_draws": [
+        0.252695244132188,
+        0.5764714849672721
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000278",
+      "at": "2000-01-01T11:58:44.56Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.56Z",
+      "attempt_failure_draws": [
+        0.43231361691417547,
+        0.45580481811777784
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000279",
+      "at": "2000-01-01T11:58:44.58Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.58Z",
+      "attempt_failure_draws": [
+        0.5428836364414886,
+        0.251318625801103
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000280",
+      "at": "2000-01-01T11:58:44.6Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.6Z",
+      "attempt_failure_draws": [
+        0.3529914695473091,
+        0.8453379990984389
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000281",
+      "at": "2000-01-01T11:58:44.62Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.62Z",
+      "attempt_failure_draws": [
+        0.6392438693376108,
+        0.22088262381312096
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000282",
+      "at": "2000-01-01T11:58:44.64Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.64Z",
+      "attempt_failure_draws": [
+        0.7951749337253368,
+        0.5179843490892768
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000283",
+      "at": "2000-01-01T11:58:44.66Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.66Z",
+      "attempt_failure_draws": [
+        0.8652096250688411,
+        0.1635948910046685
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000284",
+      "at": "2000-01-01T11:58:44.68Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.68Z",
+      "attempt_failure_draws": [
+        0.7759127920764727,
+        0.42585359326189776
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000285",
+      "at": "2000-01-01T11:58:44.7Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.7Z",
+      "attempt_failure_draws": [
+        0.5099056192214262,
+        0.6738979886188557
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000286",
+      "at": "2000-01-01T11:58:44.72Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.72Z",
+      "attempt_failure_draws": [
+        0.8376143031761332,
+        0.5282902899148717
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000287",
+      "at": "2000-01-01T11:58:44.74Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.74Z",
+      "attempt_failure_draws": [
+        0.8213433810834505,
+        0.013103445154555082
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000288",
+      "at": "2000-01-01T11:58:44.76Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.76Z",
+      "attempt_failure_draws": [
+        0.1543933094234301,
+        0.7230461628907767
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000289",
+      "at": "2000-01-01T11:58:44.78Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.78Z",
+      "attempt_failure_draws": [
+        0.45866140138419076,
+        0.7732787140517337
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000290",
+      "at": "2000-01-01T11:58:44.8Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.8Z",
+      "attempt_failure_draws": [
+        0.1186200014608334,
+        0.8873992591267807
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000291",
+      "at": "2000-01-01T11:58:44.82Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.82Z",
+      "attempt_failure_draws": [
+        0.9328155212995564,
+        0.06399047811264291
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000292",
+      "at": "2000-01-01T11:58:44.84Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.84Z",
+      "attempt_failure_draws": [
+        0.13596616470224998,
+        0.9436066144432463
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000293",
+      "at": "2000-01-01T11:58:44.86Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.86Z",
+      "attempt_failure_draws": [
+        0.9738683632550525,
+        0.09731544205071041
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000294",
+      "at": "2000-01-01T11:58:44.88Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.88Z",
+      "attempt_failure_draws": [
+        0.07383568761953574,
+        0.05504482456573212
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000295",
+      "at": "2000-01-01T11:58:44.9Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.9Z",
+      "attempt_failure_draws": [
+        0.6156886250730879,
+        0.5154716997051677
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000296",
+      "at": "2000-01-01T11:58:44.92Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.92Z",
+      "attempt_failure_draws": [
+        0.6108079843948856,
+        0.4951299539015871
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000297",
+      "at": "2000-01-01T11:58:44.94Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.94Z",
+      "attempt_failure_draws": [
+        0.31095552592105824,
+        0.7777357529893878
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000298",
+      "at": "2000-01-01T11:58:44.96Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.96Z",
+      "attempt_failure_draws": [
+        0.19423140081438228,
+        0.8950522253302885
+      ]
+    },
+    {
+      "id": "recovery-contract-20260719-000000299",
+      "at": "2000-01-01T11:58:44.98Z",
+      "tenant": "common",
+      "service_time": 10000000,
+      "payload_bytes": 1024,
+      "not_before": "2000-01-01T11:58:44.98Z",
+      "attempt_failure_draws": [
+        0.5706412741962718,
+        0.31852684064529724
+      ]
+    }
+  ],
+  "faults": [
+    {
+      "at": "2000-01-01T11:58:41Z",
+      "kind": "worker_crash",
+      "target": "worker-pool"
+    },
+    {
+      "at": "2000-01-01T11:58:42Z",
+      "kind": "worker_recover",
+      "target": "worker-pool"
+    }
+  ]
+}

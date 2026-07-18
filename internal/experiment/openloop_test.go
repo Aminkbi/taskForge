@@ -47,6 +47,7 @@ func testOpenLoopProfile() OpenLoopProfile {
 		},
 		Tenants:         []OpenLoopTenant{{Name: "hot", OfferedWeight: 9, EntitlementWeight: 1}, {Name: "protected", OfferedWeight: 1, EntitlementWeight: 1}},
 		ServiceTimes:    []ServiceTimeMix{{Duration: time.Millisecond, Weight: 1}, {Duration: time.Second, Weight: 1}},
+		PayloadSizes:    []PayloadSizeMix{{Bytes: 256, Weight: 1}, {Bytes: 4096, Weight: 1}},
 		DelayedFraction: .25,
 		Delay:           2 * time.Millisecond,
 		SLO:             time.Second,
@@ -57,6 +58,50 @@ func testOpenLoopProfile() OpenLoopProfile {
 			BaseFailureRate: .01, LatencySlope: 2, FailureSlope: .25, CollapseAt: 2, CollapseFailureRate: .9,
 		},
 		MinimumTailCount: 10,
+	}
+}
+
+func TestArrivalPayloadHasDeclaredBodySize(t *testing.T) {
+	arrival := TraceArrival{ID: "payload", PayloadBytes: 4096}
+	data, err := MarshalArrivalPayload(arrival)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := UnmarshalArrivalPayload(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.PayloadBytes != 4096 || len(data) < decoded.PayloadBytes {
+		t.Fatalf("payload bytes = %d, wire bytes = %d", decoded.PayloadBytes, len(data))
+	}
+}
+
+func TestTenantServiceDeficitUsesSLOCompliantService(t *testing.T) {
+	trace, err := GenerateOpenLoopTrace(testOpenLoopProfile(), 44)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch := time.Now().UTC()
+	accepted := map[string]bool{}
+	var tasks []TaskObservation
+	steadyStart := trace.StartAt.Add(trace.Profile.Warmup)
+	steadyEnd := steadyStart.Add(trace.Profile.SteadyState)
+	for _, arrival := range trace.Arrivals {
+		if arrival.At.Before(steadyStart) || !arrival.At.Before(steadyEnd) {
+			continue
+		}
+		accepted[arrival.ID] = true
+		completed := epoch.Add(arrival.At.Sub(trace.StartAt)).Add(10 * time.Millisecond)
+		if arrival.Tenant == "protected" {
+			completed = completed.Add(2 * trace.Profile.SLO)
+		}
+		tasks = append(tasks, TaskObservation{TaskID: arrival.ID, Tenant: arrival.Tenant, Outcome: "completed", CompletedAt: completed})
+	}
+	outcomes := summarizeTenantOutcomes(trace, accepted, tasks, epoch)
+	for _, outcome := range outcomes {
+		if outcome.Tenant == "protected" && outcome.NormalizedDeficit != 1 {
+			t.Fatalf("protected normalized deficit = %v, want 1", outcome.NormalizedDeficit)
+		}
 	}
 }
 

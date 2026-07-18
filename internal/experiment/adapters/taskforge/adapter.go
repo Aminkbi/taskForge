@@ -4,11 +4,10 @@ package taskforge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -98,7 +97,7 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.runtime = runtime
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	budgetCapacity := a.config.DependencyBudgetCapacity
 	if budgetCapacity <= 0 {
 		budgetCapacity = runtime.Trace.Profile.Downstream.Capacity
@@ -136,13 +135,13 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	}
 
 	handler := taskforge.HandlerFunc(func(ctx context.Context, task taskforge.Task) error {
-		var arrival experiment.TraceArrival
-		if err := json.Unmarshal(task.Payload, &arrival); err != nil {
+		arrival, err := experiment.UnmarshalArrivalPayload(task.Payload)
+		if err != nil {
 			return taskforge.Decode(err)
 		}
 		attempt := task.Attempt + 1
 		runtime.Recorder.TaskStarted(arrival, attempt, time.Now().UTC())
-		err := runtime.Downstream.Call(ctx, arrival, attempt)
+		err = runtime.Downstream.Call(ctx, arrival, attempt)
 		if err == nil {
 			runtime.Recorder.TaskFinished(arrival, attempt, time.Now().UTC(), "completed")
 			return nil
@@ -213,7 +212,7 @@ func (a *Adapter) needsScheduler(trace experiment.OpenLoopTrace) bool {
 }
 
 func (a *Adapter) Enqueue(ctx context.Context, arrival experiment.TraceArrival) (experiment.EnqueueResult, error) {
-	payload, err := json.Marshal(arrival)
+	payload, err := experiment.MarshalArrivalPayload(arrival)
 	if err != nil {
 		return experiment.EnqueueResult{}, err
 	}

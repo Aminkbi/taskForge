@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ type OpenLoopProfile struct {
 	Phases           []ArrivalPhase    `json:"phases"`
 	Tenants          []OpenLoopTenant  `json:"tenants"`
 	ServiceTimes     []ServiceTimeMix  `json:"service_times"`
+	PayloadSizes     []PayloadSizeMix  `json:"payload_sizes,omitempty"`
 	DelayedFraction  float64           `json:"delayed_fraction"`
 	Delay            time.Duration     `json:"delay"`
 	SLO              time.Duration     `json:"slo"`
@@ -59,6 +61,13 @@ type OpenLoopTenant struct {
 type ServiceTimeMix struct {
 	Duration time.Duration `json:"duration"`
 	Weight   float64       `json:"weight"`
+}
+
+// PayloadSizeMix controls application payload bytes independently of trace
+// metadata. Profiles that omit it retain the original metadata-only payload.
+type PayloadSizeMix struct {
+	Bytes  int     `json:"bytes"`
+	Weight float64 `json:"weight"`
 }
 
 // DownstreamProfile is a capacity model, not merely handler sleep. Once
@@ -107,6 +116,7 @@ type TraceArrival struct {
 	At                  time.Time     `json:"at"`
 	Tenant              string        `json:"tenant"`
 	ServiceTime         time.Duration `json:"service_time"`
+	PayloadBytes        int           `json:"payload_bytes,omitempty"`
 	NotBefore           time.Time     `json:"not_before"`
 	AttemptFailureDraws []float64     `json:"attempt_failure_draws"`
 }
@@ -148,6 +158,16 @@ func (p OpenLoopProfile) Validate() error {
 		}
 		serviceWeight += service.Weight
 	}
+	var payloadWeight float64
+	for _, payload := range p.PayloadSizes {
+		if payload.Bytes < 0 || payload.Bytes > 4<<20 || payload.Weight <= 0 {
+			return fmt.Errorf("payload sizes must stay within 0..4MiB in %q", p.Name)
+		}
+		payloadWeight += payload.Weight
+	}
+	if len(p.PayloadSizes) > 0 && payloadWeight <= 0 {
+		return fmt.Errorf("invalid payload mix in %q", p.Name)
+	}
 	if offered <= 0 || entitlement <= 0 || serviceWeight <= 0 || p.DelayedFraction < 0 || p.DelayedFraction > 1 || (p.DelayedFraction > 0 && p.Delay <= 0) || p.RetryBackoff < 0 {
 		return fmt.Errorf("invalid load mix in %q", p.Name)
 	}
@@ -187,6 +207,7 @@ func GenerateOpenLoopTrace(profile OpenLoopProfile, seed int64) (OpenLoopTrace, 
 		for at := offset; at < phaseEnd; at += interval {
 			tenant := weightedTenant(rng.Float64(), profile.Tenants)
 			service := weightedService(rng.Float64(), profile.ServiceTimes)
+			payloadBytes := weightedPayload(rng.Float64(), profile.PayloadSizes)
 			notBefore := anchor.Add(at)
 			if rng.Float64() < profile.DelayedFraction {
 				notBefore = notBefore.Add(profile.Delay)
@@ -195,7 +216,7 @@ func GenerateOpenLoopTrace(profile OpenLoopProfile, seed int64) (OpenLoopTrace, 
 			for i := range draws {
 				draws[i] = rng.Float64()
 			}
-			trace.Arrivals = append(trace.Arrivals, TraceArrival{ID: fmt.Sprintf("%s-%09d", trace.ID, index), At: anchor.Add(at), Tenant: tenant, ServiceTime: service, NotBefore: notBefore, AttemptFailureDraws: draws})
+			trace.Arrivals = append(trace.Arrivals, TraceArrival{ID: fmt.Sprintf("%s-%09d", trace.ID, index), At: anchor.Add(at), Tenant: tenant, ServiceTime: service, PayloadBytes: payloadBytes, NotBefore: notBefore, AttemptFailureDraws: draws})
 			index++
 		}
 		offset = phaseEnd
@@ -241,6 +262,24 @@ func weightedService(draw float64, services []ServiceTimeMix) time.Duration {
 	return services[len(services)-1].Duration
 }
 
+func weightedPayload(draw float64, payloads []PayloadSizeMix) int {
+	if len(payloads) == 0 {
+		return 0
+	}
+	var total float64
+	for _, payload := range payloads {
+		total += payload.Weight
+	}
+	pick := draw * total
+	for _, payload := range payloads {
+		pick -= payload.Weight
+		if pick <= 0 {
+			return payload.Bytes
+		}
+	}
+	return payloads[len(payloads)-1].Bytes
+}
+
 func (t OpenLoopTrace) Validate() error {
 	if t.Schema != OpenLoopTraceSchema || t.ID == "" || t.StartAt.IsZero() || len(t.Arrivals) == 0 {
 		return errors.New("invalid open-loop trace identity")
@@ -257,7 +296,7 @@ func (t OpenLoopTrace) Validate() error {
 	steadyStart := t.StartAt.Add(t.Profile.Warmup)
 	steadyEnd := steadyStart.Add(t.Profile.SteadyState)
 	for _, arrival := range t.Arrivals {
-		if arrival.ID == "" || seen[arrival.ID] || arrival.At.Before(last) || arrival.At.Before(t.StartAt) || arrival.NotBefore.Before(arrival.At) || arrival.Tenant == "" || arrival.ServiceTime < time.Millisecond || arrival.ServiceTime > time.Second || len(arrival.AttemptFailureDraws) != t.Profile.MaxAttempts {
+		if arrival.ID == "" || seen[arrival.ID] || arrival.At.Before(last) || arrival.At.Before(t.StartAt) || arrival.NotBefore.Before(arrival.At) || arrival.Tenant == "" || arrival.ServiceTime < time.Millisecond || arrival.ServiceTime > time.Second || arrival.PayloadBytes < 0 || arrival.PayloadBytes > 4<<20 || len(arrival.AttemptFailureDraws) != t.Profile.MaxAttempts {
 			return fmt.Errorf("invalid arrival %q", arrival.ID)
 		}
 		seen[arrival.ID] = true
@@ -300,6 +339,27 @@ func (t OpenLoopTrace) Validate() error {
 		}
 	}
 	return nil
+}
+
+type arrivalPayload struct {
+	Arrival TraceArrival `json:"arrival"`
+	Body    string       `json:"body,omitempty"`
+}
+
+// MarshalArrivalPayload gives every adapter the same application payload.
+func MarshalArrivalPayload(arrival TraceArrival) ([]byte, error) {
+	return json.Marshal(arrivalPayload{Arrival: arrival, Body: strings.Repeat("p", arrival.PayloadBytes)})
+}
+
+func UnmarshalArrivalPayload(data []byte) (TraceArrival, error) {
+	var payload arrivalPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return TraceArrival{}, err
+	}
+	if len(payload.Body) != payload.Arrival.PayloadBytes {
+		return TraceArrival{}, fmt.Errorf("payload body has %d bytes, want %d", len(payload.Body), payload.Arrival.PayloadBytes)
+	}
+	return payload.Arrival, nil
 }
 
 func traceDigest(trace OpenLoopTrace) string {
@@ -489,15 +549,16 @@ type DownstreamObservation struct {
 }
 
 type TenantOutcome struct {
-	Tenant           string  `json:"tenant"`
-	Offered          int     `json:"offered"`
-	Accepted         int     `json:"accepted"`
-	Completed        int     `json:"completed"`
-	SLOCompliant     int     `json:"slo_compliant"`
-	EntitlementShare float64 `json:"entitlement_share"`
-	ServiceShare     float64 `json:"service_share"`
-	ServiceDeficit   float64 `json:"service_deficit"`
-	SLOAttainment    float64 `json:"slo_attainment"`
+	Tenant            string  `json:"tenant"`
+	Offered           int     `json:"offered"`
+	Accepted          int     `json:"accepted"`
+	Completed         int     `json:"completed"`
+	SLOCompliant      int     `json:"slo_compliant"`
+	EntitlementShare  float64 `json:"entitlement_share"`
+	ServiceShare      float64 `json:"service_share"`
+	ServiceDeficit    float64 `json:"service_deficit"`
+	NormalizedDeficit float64 `json:"entitlement_normalized_service_deficit"`
+	SLOAttainment     float64 `json:"slo_attainment"`
 }
 
 type HarnessTiming struct {
@@ -896,17 +957,20 @@ func summarizeTenantOutcomes(trace OpenLoopTrace, accepted map[string]bool, task
 			value.SLOCompliant++
 		}
 	}
-	var completed float64
+	var compliant float64
 	for _, value := range values {
-		completed += float64(value.Completed)
+		compliant += float64(value.SLOCompliant)
 	}
 	result := make([]TenantOutcome, 0, len(values))
 	for _, tenant := range trace.Profile.Tenants {
 		value := values[tenant.Name]
-		if completed > 0 {
-			value.ServiceShare = float64(value.Completed) / completed
+		if compliant > 0 {
+			value.ServiceShare = float64(value.SLOCompliant) / compliant
 		}
 		value.ServiceDeficit = max(value.EntitlementShare-value.ServiceShare, 0)
+		if value.EntitlementShare > 0 {
+			value.NormalizedDeficit = value.ServiceDeficit / value.EntitlementShare
+		}
 		if value.Accepted > 0 {
 			value.SLOAttainment = float64(value.SLOCompliant) / float64(value.Accepted)
 		}

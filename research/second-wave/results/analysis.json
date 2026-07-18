@@ -1,0 +1,669 @@
+{
+  "schema": "taskforge-paired-study-analysis/v1",
+  "plan_sha256": "4496367ef141e676aa9e984794deed7017203f31ef91f4e1151d47f075bd5401",
+  "dataset_sha256": "e5ad21847a45090238408663145b14ce56a58c26bc9b287e85f74f76d436dfa8",
+  "contrasts": [
+    {
+      "name": "common-contract",
+      "family": "common_delivery",
+      "environment": "native-local-direct",
+      "profiles": [
+        "common-below",
+        "common-knee",
+        "common-overload"
+      ],
+      "left": "taskforge-fifo-static",
+      "right": "asynq",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": 2.1146832208652313,
+          "paired_median_relative_percent": 0.14566557747571096,
+          "interval_lower": 0.5876155837801207,
+          "interval_upper": 7.949173199969209,
+          "confidence": 0.975,
+          "pairs": 6,
+          "paired_standardized_effect": 0.780342290697896,
+          "left_higher_fraction": 0.8333333333333334
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": 1.8701477141736455e-7,
+          "paired_median_relative_percent": 32.52611952364051,
+          "interval_lower": 4.875856362261199e-8,
+          "interval_upper": 2.1448576360118893e-7,
+          "confidence": 0.975,
+          "pairs": 6,
+          "paired_standardized_effect": 1.8799960855247935,
+          "left_higher_fraction": 1
+        }
+      ]
+    },
+    {
+      "name": "common-contract",
+      "family": "common_delivery",
+      "environment": "constrained-emulated-network",
+      "profiles": [
+        "common-below",
+        "common-knee",
+        "common-overload"
+      ],
+      "left": "taskforge-fifo-static",
+      "right": "asynq",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": 704.7290646740065,
+          "paired_median_relative_percent": 248.00137048876223,
+          "interval_lower": 159.32391097133748,
+          "interval_upper": 1048.3528559172105,
+          "confidence": 0.975,
+          "pairs": 6,
+          "paired_standardized_effect": 1.5893640955274937,
+          "left_higher_fraction": 1
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": 0,
+          "interval_lower": -0.000003988151609404726,
+          "interval_upper": 7.385418607360006e-7,
+          "confidence": 0.975,
+          "pairs": 6,
+          "paired_standardized_effect": -0.47119671658269774,
+          "left_higher_fraction": 0.3333333333333333
+        }
+      ]
+    },
+    {
+      "name": "admission-capability",
+      "family": "overload_protection",
+      "environment": "native-local-direct",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-admission",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": 0,
+          "interval_upper": 0.15384615384615385,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0.408248290463863,
+          "left_higher_fraction": 0.16666666666666666
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -0.004239664067842597,
+          "paired_median_relative_percent": -0.024574287973378357,
+          "interval_lower": -1.6026399642113915,
+          "interval_upper": 3.933470024631376,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0.21097005144671385,
+          "left_higher_fraction": 0.3333333333333333
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": 0.00003455226650912307,
+          "paired_median_relative_percent": 87.69621051319697,
+          "interval_lower": 0.000013967879905755947,
+          "interval_upper": 0.00045156465602446327,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0.7677539840572664,
+          "left_higher_fraction": 1
+        }
+      ]
+    },
+    {
+      "name": "admission-capability",
+      "family": "overload_protection",
+      "environment": "constrained-emulated-network",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-admission",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0.42857142857142855,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0.408248290463863,
+          "left_higher_fraction": 0.16666666666666666
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -0.12713822508414996,
+          "paired_median_relative_percent": -0.7803430052909873,
+          "interval_lower": -3.562549040638821,
+          "interval_upper": 4.470646675956573,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": 0.02404588814925761,
+          "left_higher_fraction": 0.3333333333333333
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": 0.000021412350394411566,
+          "paired_median_relative_percent": 30.507070834899846,
+          "interval_lower": -0.005038104215978157,
+          "interval_upper": 0.0000919619725668999,
+          "confidence": 0.99,
+          "pairs": 6,
+          "paired_standardized_effect": -0.5735525521902193,
+          "left_higher_fraction": 0.6666666666666666
+        }
+      ]
+    },
+    {
+      "name": "budget-capability",
+      "family": "overload_protection",
+      "environment": "native-local-direct",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-dependency-budget",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": -0.030265351113022906,
+          "interval_lower": -0.8753687315634219,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.6796540326301044,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "downstream_failure_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": -0.06454718602652545,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.6393589338464489,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -0.007648688428612438,
+          "paired_median_relative_percent": -0.03054956911153469,
+          "interval_lower": -42.38884042197914,
+          "interval_upper": 0.02277146267111263,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.6113627681079103,
+          "left_higher_fraction": 0.16666666666666666
+        }
+      ]
+    },
+    {
+      "name": "budget-capability",
+      "family": "overload_protection",
+      "environment": "constrained-emulated-network",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-dependency-budget",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "downstream_failure_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -0.04577227718002774,
+          "paired_median_relative_percent": -0.156432993716693,
+          "interval_lower": -1.1342373189209702,
+          "interval_upper": 0.019272701654754698,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.5902888031814949,
+          "left_higher_fraction": 0.5
+        }
+      ]
+    },
+    {
+      "name": "fairness-capability",
+      "family": "overload_protection",
+      "environment": "native-local-direct",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-fairness",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": -0.3076923076923077,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.6187374795904573,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": 0,
+          "interval_upper": 0.03827753183908966,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": 0.6454768323657464,
+          "left_higher_fraction": 0.3333333333333333
+        },
+        {
+          "name": "jain_slo_equality",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "paired_median_relative_percent": 0,
+          "interval_lower": -0.8523853565717192,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.6454286745962077,
+          "left_higher_fraction": 0
+        }
+      ]
+    },
+    {
+      "name": "fairness-capability",
+      "family": "overload_protection",
+      "environment": "constrained-emulated-network",
+      "profiles": [
+        "feature-below",
+        "feature-knee",
+        "feature-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-fairness",
+      "primary": true,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": -0.24759615384615385,
+          "paired_median_relative_percent": -78.57142857142857,
+          "interval_lower": -1,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -0.8925863143339835,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": 0.01982758620689662,
+          "paired_median_relative_percent": 2.064631956912036,
+          "interval_lower": 0,
+          "interval_upper": 0.051832294552169866,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": 0.8960775502798162,
+          "left_higher_fraction": 0.5
+        },
+        {
+          "name": "jain_slo_equality",
+          "unit": "proportion",
+          "paired_median_effect": -0.8255610863586604,
+          "paired_median_relative_percent": -90.08722398210978,
+          "interval_lower": -0.9064053070366456,
+          "interval_upper": 0,
+          "confidence": 0.9833333333333333,
+          "pairs": 6,
+          "paired_standardized_effect": -1.2835192379893356,
+          "left_higher_fraction": 0
+        }
+      ]
+    },
+    {
+      "name": "long-duration-admission",
+      "family": "exploratory",
+      "environment": "native-local-direct",
+      "profiles": [
+        "feature-long-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-admission",
+      "primary": false,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": -0.5092859248509036,
+          "paired_median_relative_percent": -56.52615254476244,
+          "interval_lower": -0.5592417061611374,
+          "interval_upper": -0.45933014354066987,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -7.208765864125589,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": 0.22471096094044385,
+          "paired_median_relative_percent": 35.079560029848395,
+          "interval_lower": 0.16894762826201326,
+          "interval_upper": 0.28047429361887444,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": 2.8494467001143597,
+          "left_higher_fraction": 1
+        },
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -2.234171568665488,
+          "paired_median_relative_percent": -3.812717498075898,
+          "interval_lower": -2.5087892251848487,
+          "interval_upper": -1.9595539121461272,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -5.7527177478705775,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": 0.0033168194268961885,
+          "paired_median_relative_percent": 389.6793784319832,
+          "interval_lower": 0.0030353615810039983,
+          "interval_upper": 0.0035982772727883787,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": 8.332848214961242,
+          "left_higher_fraction": 1
+        }
+      ]
+    },
+    {
+      "name": "long-duration-admission",
+      "family": "exploratory",
+      "environment": "constrained-emulated-network",
+      "profiles": [
+        "feature-long-overload"
+      ],
+      "left": "taskforge-full",
+      "right": "taskforge-no-admission",
+      "primary": false,
+      "metrics": [
+        {
+          "name": "protected_slo_attainment",
+          "unit": "proportion",
+          "paired_median_effect": -0.05540941971473277,
+          "paired_median_relative_percent": 16.754501537110226,
+          "interval_lower": -0.19138755980861244,
+          "interval_upper": 0.0805687203791469,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -0.288137316739653,
+          "left_higher_fraction": 0.5
+        },
+        {
+          "name": "max_normalized_service_deficit",
+          "unit": "proportion",
+          "paired_median_effect": -0.13396908981933386,
+          "paired_median_relative_percent": -13.396908981933386,
+          "interval_lower": -0.1502911208151383,
+          "interval_upper": -0.11764705882352944,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -5.803839724663621,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "downstream_over_capacity_rate",
+          "unit": "proportion",
+          "paired_median_effect": 0,
+          "interval_lower": 0,
+          "interval_upper": 0,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": 0,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "throughput_per_second",
+          "unit": "tasks_per_second",
+          "paired_median_effect": -8.394906501205963,
+          "paired_median_relative_percent": -28.901255040905447,
+          "interval_lower": -8.809215660606132,
+          "interval_upper": -7.980597341805794,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -14.327695103395657,
+          "left_higher_fraction": 0
+        },
+        {
+          "name": "cost_per_slo_completion",
+          "unit": "normalized_cost_units",
+          "paired_median_effect": -0.019566095820130313,
+          "paired_median_relative_percent": -72.95542753968415,
+          "interval_lower": -0.034428184677896136,
+          "interval_upper": -0.00470400696236449,
+          "confidence": 0.95,
+          "pairs": 2,
+          "paired_standardized_effect": -0.9309134919167569,
+          "left_higher_fraction": 0
+        }
+      ]
+    }
+  ],
+  "failures": [
+    {
+      "environment": "native-local-direct",
+      "profile": "recovery-contract",
+      "seed": 20260718,
+      "repetition": 0,
+      "system": "taskforge-fifo-static",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "native-local-direct",
+      "profile": "recovery-contract",
+      "seed": 20260718,
+      "repetition": 0,
+      "system": "asynq",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "native-local-direct",
+      "profile": "recovery-contract",
+      "seed": 20260719,
+      "repetition": 0,
+      "system": "taskforge-fifo-static",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "native-local-direct",
+      "profile": "recovery-contract",
+      "seed": 20260719,
+      "repetition": 0,
+      "system": "asynq",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "constrained-emulated-network",
+      "profile": "recovery-contract",
+      "seed": 20260718,
+      "repetition": 0,
+      "system": "taskforge-fifo-static",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "constrained-emulated-network",
+      "profile": "recovery-contract",
+      "seed": 20260718,
+      "repetition": 0,
+      "system": "asynq",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "constrained-emulated-network",
+      "profile": "recovery-contract",
+      "seed": 20260719,
+      "repetition": 0,
+      "system": "taskforge-fifo-static",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    },
+    {
+      "environment": "constrained-emulated-network",
+      "profile": "recovery-contract",
+      "seed": 20260719,
+      "repetition": 0,
+      "system": "asynq",
+      "status": "not_measured",
+      "reason": "trace contains worker faults without equivalent crash/recovery and delivery semantics"
+    }
+  ],
+  "environment_reversals": [
+    {
+      "contrast": "long-duration-admission",
+      "metric": "max_normalized_service_deficit",
+      "first_environment": "native-local-direct",
+      "second_environment": "constrained-emulated-network",
+      "first_effect": 0.22471096094044385,
+      "second_effect": -0.13396908981933386
+    },
+    {
+      "contrast": "long-duration-admission",
+      "metric": "cost_per_slo_completion",
+      "first_environment": "native-local-direct",
+      "second_environment": "constrained-emulated-network",
+      "first_effect": 0.0033168194268961885,
+      "second_effect": -0.019566095820130313
+    }
+  ]
+}

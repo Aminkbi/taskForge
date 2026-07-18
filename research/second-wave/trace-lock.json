@@ -1,0 +1,101 @@
+{
+  "schema": "taskforge-paired-study-trace-lock/v1",
+  "files": [
+    {
+      "path": "traces/common-below-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "ad249f6ff5e9219e9d4578e4aaef57f2baf43528e642fedecc381f8f96844e6b",
+      "sha256": "19f2dcc262088b43fe3feab93c1f25ecad72dc27dcd08fe098bc857d9aabb4e6"
+    },
+    {
+      "path": "traces/common-below-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "979543bb05b116f29151ea94952271d0af8cbbb9fab2cdb6c12f8dc566cea4cb",
+      "sha256": "4b46ba661072799367b4e2429e8be414565dca47166d090c2df0b42378e7e9e1"
+    },
+    {
+      "path": "traces/common-knee-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "f83c8f10ee4a9a0501f89e6961040ea1fc29d511882e644c4774b81c2b68ee4c",
+      "sha256": "c897a395d4ae80df92bb4a05d9df3e6063b7e1b91243463593a9c577456995a0"
+    },
+    {
+      "path": "traces/common-knee-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "df7104411caaa424b6e690b3e7af78d411768ebe089fcb0c614189b949f9888d",
+      "sha256": "ec0f2e32085223221457de5c7bc7dfae7a8cd83badef2e6dbc03cda515c5820a"
+    },
+    {
+      "path": "traces/common-overload-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "537872b0186b527ee34a3b6953e7e65e1401a47e7059e18c679810b63553b72f",
+      "sha256": "f89bf15069a53b21e99a8c7d59fad393ecf17d5a1b1d5d90b709318585641e5d"
+    },
+    {
+      "path": "traces/common-overload-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "3386eb9652bba451b31795f2910493b304298cde461cec48bcaa7317508eac7f",
+      "sha256": "7b8f424c397e239af04cbdaad91dbbf2e153fc23e0ddfcdf58dae1162397c427"
+    },
+    {
+      "path": "traces/feature-below-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "172b408830fb0f0b65955513b02fe00cf9148bc905330eb8dd6f7497bc2a0c74",
+      "sha256": "e6a5ab348c115e1a631398a8f6ea2b001da2d339dd969a31ce062b36d164beb9"
+    },
+    {
+      "path": "traces/feature-below-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "280fbd5487d45c563a7f68a375a25c19ba80fb87aed476eaffc147e6c66ea822",
+      "sha256": "e569247f648ed8a745e1a3beacc5227b9e28fe9c85b16adba142e3f0c07c590e"
+    },
+    {
+      "path": "traces/feature-knee-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "fc4e362d31597255649a0f91d418347ca1f368b1dd21147782a9a4142a9d15f7",
+      "sha256": "436e8aac2f67e6d8484b3efb4f04b3e060dbbc15adae71d718c11154b497ce6c"
+    },
+    {
+      "path": "traces/feature-knee-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "606fd70da95ee51209a70141f629afdf42f655fea26bceba689d1d82d3386353",
+      "sha256": "84eb1c69604f5bed0b2a606e32132ea6b4d728b04dd77c837a1a80f7e4a26b72"
+    },
+    {
+      "path": "traces/feature-long-overload-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "3dfd44e64f90288f42c0d85e1ca39f2ddfd7b98d38a922f4d92c64c83a74d2b5",
+      "sha256": "680892e9dd35f54bcc42b2da839209cae45cd8c1c948802674c830f6ac3d50b8"
+    },
+    {
+      "path": "traces/feature-long-overload-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "a3432a4c35b4dca5790789afda092f54e7a911eb56438bfea1413299f44ceb62",
+      "sha256": "e6749e638156b93df704fecef2808e12d36554d3be5a062e99bcc41137397b66"
+    },
+    {
+      "path": "traces/feature-overload-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "59f50bd5860bfc12fe27e85dbbe532ded25a55b551a47af5be8c2404006cc96a",
+      "sha256": "8af75e8e60ba2f2e063809dd7ffae7b4ab63ac99ad6d689f1a6e2bc98673ca9b"
+    },
+    {
+      "path": "traces/feature-overload-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "5b8cd849113d9f715a927272c7931caf25b834a02b3237601319e9d8fd09679a",
+      "sha256": "6b4ee623d99687f12c52d79081b084fa8236356fe707d23275ffa952cec95d15"
+    },
+    {
+      "path": "traces/recovery-contract-20260718.json",
+      "seed": 20260718,
+      "trace_digest": "4fd9808e63b666a61167d496886121fdad3796dd57afa10decabe064670de76e",
+      "sha256": "2f62750c0a248edaf126d26f34fae531bed4242b54459d00c49ef3b7554ebde8"
+    },
+    {
+      "path": "traces/recovery-contract-20260719.json",
+      "seed": 20260719,
+      "trace_digest": "cbcc609485a2a850e8355f841b73862edb893508104b7e46e9dcbd2a000e18c2",
+      "sha256": "cb6438aa4a10077eb71ad861167a6b5dc831070580f1eaedb6359113604fd07a"
+    }
+  ]
+}

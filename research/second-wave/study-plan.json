@@ -1,0 +1,40 @@
+{
+  "schema": "taskforge-paired-study-plan/v1",
+  "frozen_at": "2026-07-18T00:10:00Z",
+  "bootstrap_seed": 20260718,
+  "bootstrap_iterations": 10000,
+  "environments": [
+    {
+      "name": "native-local-direct",
+      "gomaxprocs": 12,
+      "redis_topology": "co-resident Redis 7 over direct loopback TCP",
+      "redis_network": "tcp",
+      "description": "The measured 12-logical-CPU workstation with native Go scheduling and co-resident Redis."
+    },
+    {
+      "name": "constrained-emulated-network",
+      "gomaxprocs": 4,
+      "redis_topology": "co-resident Redis 7 through a delayed TCP proxy",
+      "redis_network": "tcp",
+      "description": "The same physical host constrained to four Go processors with a declared 1ms emulated Redis round trip; this is not a remote-hardware claim."
+    }
+  ],
+  "profiles": [
+    {"name":"common-below","file":"common-below.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-fifo-static","asynq"],"duration_class":"standard"},
+    {"name":"common-knee","file":"common-knee.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-fifo-static","asynq"],"duration_class":"standard"},
+    {"name":"common-overload","file":"common-overload.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-fifo-static","asynq"],"duration_class":"standard"},
+    {"name":"feature-below","file":"feature-below.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-full","taskforge-no-admission","taskforge-no-dependency-budget","taskforge-no-fairness"],"protected_tenant":"protected","duration_class":"standard"},
+    {"name":"feature-knee","file":"feature-knee.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-full","taskforge-no-admission","taskforge-no-dependency-budget","taskforge-no-fairness"],"protected_tenant":"protected","duration_class":"standard"},
+    {"name":"feature-overload","file":"feature-overload.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-full","taskforge-no-admission","taskforge-no-dependency-budget","taskforge-no-fairness"],"protected_tenant":"protected","duration_class":"standard"},
+    {"name":"feature-long-overload","file":"feature-long-overload.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-full","taskforge-no-admission","taskforge-no-dependency-budget","taskforge-no-fairness"],"protected_tenant":"protected","duration_class":"long"},
+    {"name":"recovery-contract","file":"recovery-contract.json","seeds":[20260718,20260719],"repetitions":1,"systems":["taskforge-fifo-static","asynq"],"duration_class":"unsupported"}
+  ],
+  "contrasts": [
+    {"name":"common-contract","family":"common_delivery","profiles":["common-below","common-knee","common-overload"],"left":"taskforge-fifo-static","right":"asynq","metrics":["throughput_per_second","cost_per_slo_completion"],"primary":true,"confidence":0.975},
+    {"name":"admission-capability","family":"overload_protection","profiles":["feature-below","feature-knee","feature-overload"],"left":"taskforge-full","right":"taskforge-no-admission","metrics":["protected_slo_attainment","max_normalized_service_deficit","downstream_over_capacity_rate","throughput_per_second","cost_per_slo_completion"],"primary":true,"confidence":0.99},
+    {"name":"budget-capability","family":"overload_protection","profiles":["feature-below","feature-knee","feature-overload"],"left":"taskforge-full","right":"taskforge-no-dependency-budget","metrics":["downstream_over_capacity_rate","downstream_failure_rate","throughput_per_second"],"primary":true,"confidence":0.9833333333333333},
+    {"name":"fairness-capability","family":"overload_protection","profiles":["feature-below","feature-knee","feature-overload"],"left":"taskforge-full","right":"taskforge-no-fairness","metrics":["protected_slo_attainment","max_normalized_service_deficit","jain_slo_equality"],"primary":true,"confidence":0.9833333333333333},
+    {"name":"long-duration-admission","family":"exploratory","profiles":["feature-long-overload"],"left":"taskforge-full","right":"taskforge-no-admission","metrics":["protected_slo_attainment","max_normalized_service_deficit","downstream_over_capacity_rate","throughput_per_second","cost_per_slo_completion"],"primary":false,"confidence":0.95}
+  ],
+  "multiplicity": "Primary intervals use Bonferroni family-wise 95% coverage within each pre-declared endpoint set; exploratory intervals are unadjusted 95% and cannot support confirmatory claims. No interval is converted into a detection count."
+}

@@ -1,0 +1,2503 @@
+{
+  "schema": "taskforge-open-loop-trace/v1",
+  "id": "feature-below-20260719",
+  "sha256": "280fbd5487d45c563a7f68a375a25c19ba80fb87aed476eaffc147e6c66ea822",
+  "seed": 20260719,
+  "start_at": "2000-01-01T11:58:39Z",
+  "profile": {
+    "name": "feature-below",
+    "warmup": 1000000000,
+    "steady_state": 6000000000,
+    "cooldown": 2000000000,
+    "phases": [
+      {
+        "name": "warmup",
+        "duration": 1000000000,
+        "rate_per_second": 20
+      },
+      {
+        "name": "steady",
+        "duration": 6000000000,
+        "rate_per_second": 20
+      },
+      {
+        "name": "cooldown",
+        "duration": 2000000000,
+        "rate_per_second": 20
+      }
+    ],
+    "tenants": [
+      {
+        "name": "noisy",
+        "offered_weight": 48,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "protected",
+        "offered_weight": 1,
+        "entitlement_weight": 8
+      },
+      {
+        "name": "tenant-02",
+        "offered_weight": 4,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-03",
+        "offered_weight": 2,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-04",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-05",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-06",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-07",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-08",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-09",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-10",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-11",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-12",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-13",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-14",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      },
+      {
+        "name": "tenant-15",
+        "offered_weight": 1,
+        "entitlement_weight": 1
+      }
+    ],
+    "service_times": [
+      {
+        "duration": 1000000,
+        "weight": 50
+      },
+      {
+        "duration": 10000000,
+        "weight": 30
+      },
+      {
+        "duration": 100000000,
+        "weight": 15
+      },
+      {
+        "duration": 1000000000,
+        "weight": 5
+      }
+    ],
+    "payload_sizes": [
+      {
+        "bytes": 256,
+        "weight": 50
+      },
+      {
+        "bytes": 4096,
+        "weight": 30
+      },
+      {
+        "bytes": 65536,
+        "weight": 20
+      }
+    ],
+    "delayed_fraction": 0.1,
+    "delay": 500000000,
+    "slo": 2000000000,
+    "max_attempts": 3,
+    "retry_backoff": 50000000,
+    "downstream": {
+      "name": "capacity-eight-api",
+      "capacity": 8,
+      "base_latency": 3000000,
+      "max_latency": 2000000000,
+      "base_failure_rate": 0.01,
+      "latency_slope": 2.5,
+      "failure_slope": 0.2,
+      "collapse_at": 2,
+      "collapse_failure_rate": 0.9
+    },
+    "minimum_tail_count": 100
+  },
+  "arrivals": [
+    {
+      "id": "feature-below-20260719-000000000",
+      "at": "2000-01-01T11:58:39Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:39Z",
+      "attempt_failure_draws": [
+        0.7777307083676342,
+        0.30588755823194913,
+        0.06355074306382502
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000001",
+      "at": "2000-01-01T11:58:39.05Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.05Z",
+      "attempt_failure_draws": [
+        0.8591287390958946,
+        0.40272379683895176,
+        0.08526932830008915
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000002",
+      "at": "2000-01-01T11:58:39.1Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.1Z",
+      "attempt_failure_draws": [
+        0.9532925566661445,
+        0.540073803361202,
+        0.341202593778952
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000003",
+      "at": "2000-01-01T11:58:39.15Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.15Z",
+      "attempt_failure_draws": [
+        0.8255754605963205,
+        0.5038945122515666,
+        0.716546286047284
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000004",
+      "at": "2000-01-01T11:58:39.2Z",
+      "tenant": "tenant-12",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.2Z",
+      "attempt_failure_draws": [
+        0.4080083250599087,
+        0.5357123615408542,
+        0.3099557180360746
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000005",
+      "at": "2000-01-01T11:58:39.25Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.25Z",
+      "attempt_failure_draws": [
+        0.6285744112195736,
+        0.543552563799345,
+        0.8124568923441309
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000006",
+      "at": "2000-01-01T11:58:39.3Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.3Z",
+      "attempt_failure_draws": [
+        0.24912541947206257,
+        0.4113930994526458,
+        0.664899519077392
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000007",
+      "at": "2000-01-01T11:58:39.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.35Z",
+      "attempt_failure_draws": [
+        0.13424933662105243,
+        0.8100090280248665,
+        0.49573794771483604
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000008",
+      "at": "2000-01-01T11:58:39.4Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.9Z",
+      "attempt_failure_draws": [
+        0.617547734118914,
+        0.0783204728246426,
+        0.25549867347593325
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000009",
+      "at": "2000-01-01T11:58:39.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.45Z",
+      "attempt_failure_draws": [
+        0.11705670968796067,
+        0.48093058584488657,
+        0.48725679130908317
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000010",
+      "at": "2000-01-01T11:58:39.5Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.5Z",
+      "attempt_failure_draws": [
+        0.22593464179537404,
+        0.7563480628242274,
+        0.9284410435163146
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000011",
+      "at": "2000-01-01T11:58:39.55Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.55Z",
+      "attempt_failure_draws": [
+        0.4633063400294859,
+        0.7427093711177147,
+        0.6425962418468836
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000012",
+      "at": "2000-01-01T11:58:39.6Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.6Z",
+      "attempt_failure_draws": [
+        0.15753603710670838,
+        0.5083522777767113,
+        0.6645698677552533
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000013",
+      "at": "2000-01-01T11:58:39.65Z",
+      "tenant": "tenant-07",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.65Z",
+      "attempt_failure_draws": [
+        0.7411800242136353,
+        0.4213852925283261,
+        0.3165866630073483
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000014",
+      "at": "2000-01-01T11:58:39.7Z",
+      "tenant": "tenant-12",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.7Z",
+      "attempt_failure_draws": [
+        0.2170572451933006,
+        0.7482054546998981,
+        0.14891050070038114
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000015",
+      "at": "2000-01-01T11:58:39.75Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.75Z",
+      "attempt_failure_draws": [
+        0.8239972852436251,
+        0.2409453213617988,
+        0.953133642027965
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000016",
+      "at": "2000-01-01T11:58:39.8Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.8Z",
+      "attempt_failure_draws": [
+        0.7981803797355356,
+        0.7929790886718528,
+        0.635211834108216
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000017",
+      "at": "2000-01-01T11:58:39.85Z",
+      "tenant": "tenant-09",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.85Z",
+      "attempt_failure_draws": [
+        0.22633676965520522,
+        0.07584654742071939,
+        0.17297195537738908
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000018",
+      "at": "2000-01-01T11:58:39.9Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:39.9Z",
+      "attempt_failure_draws": [
+        0.2822877152276255,
+        0.7608352304324719,
+        0.14592164509909522
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000019",
+      "at": "2000-01-01T11:58:39.95Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:39.95Z",
+      "attempt_failure_draws": [
+        0.6162576350516249,
+        0.7499970055973433,
+        0.6312471248419297
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000020",
+      "at": "2000-01-01T11:58:40Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:40.5Z",
+      "attempt_failure_draws": [
+        0.12638322988059147,
+        0.11680455052336336,
+        0.8698643053211814
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000021",
+      "at": "2000-01-01T11:58:40.05Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.05Z",
+      "attempt_failure_draws": [
+        0.3989051928486298,
+        0.16182621895696425,
+        0.8237208881047372
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000022",
+      "at": "2000-01-01T11:58:40.1Z",
+      "tenant": "tenant-13",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:40.6Z",
+      "attempt_failure_draws": [
+        0.6856139918676043,
+        0.16906393493246186,
+        0.3474049002663139
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000023",
+      "at": "2000-01-01T11:58:40.15Z",
+      "tenant": "tenant-05",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.15Z",
+      "attempt_failure_draws": [
+        0.6090907068587441,
+        0.1356341530023446,
+        0.92308329880869
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000024",
+      "at": "2000-01-01T11:58:40.2Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.7Z",
+      "attempt_failure_draws": [
+        0.5295780146529677,
+        0.597852399754777,
+        0.46211461473269944
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000025",
+      "at": "2000-01-01T11:58:40.25Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.25Z",
+      "attempt_failure_draws": [
+        0.6104863084420502,
+        0.5444683300567708,
+        0.8102535196342305
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000026",
+      "at": "2000-01-01T11:58:40.3Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:40.3Z",
+      "attempt_failure_draws": [
+        0.09042862039181654,
+        0.46032192788688275,
+        0.12068679830632356
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000027",
+      "at": "2000-01-01T11:58:40.35Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.85Z",
+      "attempt_failure_draws": [
+        0.43282299881504394,
+        0.9630583958866507,
+        0.656668906051306
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000028",
+      "at": "2000-01-01T11:58:40.4Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:40.4Z",
+      "attempt_failure_draws": [
+        0.8872811824617552,
+        0.0361296662959929,
+        0.20477230358759957
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000029",
+      "at": "2000-01-01T11:58:40.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:40.45Z",
+      "attempt_failure_draws": [
+        0.7425887010725558,
+        0.09653716999358875,
+        0.9618632870713905
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000030",
+      "at": "2000-01-01T11:58:40.5Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.5Z",
+      "attempt_failure_draws": [
+        0.38785407447097564,
+        0.8721148152360974,
+        0.0616008856091359
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000031",
+      "at": "2000-01-01T11:58:40.55Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.55Z",
+      "attempt_failure_draws": [
+        0.33197611521005077,
+        0.2294405341900767,
+        0.5136658883621527
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000032",
+      "at": "2000-01-01T11:58:40.6Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.6Z",
+      "attempt_failure_draws": [
+        0.021711305016132165,
+        0.06216927408976991,
+        0.630819276349149
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000033",
+      "at": "2000-01-01T11:58:40.65Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:40.65Z",
+      "attempt_failure_draws": [
+        0.0628189238341994,
+        0.04122401385121577,
+        0.12392564220862667
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000034",
+      "at": "2000-01-01T11:58:40.7Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.7Z",
+      "attempt_failure_draws": [
+        0.6837384620208601,
+        0.8576749724953964,
+        0.6032968778435153
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000035",
+      "at": "2000-01-01T11:58:40.75Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.75Z",
+      "attempt_failure_draws": [
+        0.17214795852280118,
+        0.6322849985305433,
+        0.8971952189850056
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000036",
+      "at": "2000-01-01T11:58:40.8Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.3Z",
+      "attempt_failure_draws": [
+        0.6763985244631396,
+        0.9591840805453521,
+        0.5994115821927175
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000037",
+      "at": "2000-01-01T11:58:40.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:40.85Z",
+      "attempt_failure_draws": [
+        0.06217793217076184,
+        0.7316743173128072,
+        0.08818151636489369
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000038",
+      "at": "2000-01-01T11:58:40.9Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:40.9Z",
+      "attempt_failure_draws": [
+        0.06768801015524784,
+        0.16418501267551833,
+        0.8278989785612257
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000039",
+      "at": "2000-01-01T11:58:40.95Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:40.95Z",
+      "attempt_failure_draws": [
+        0.09136322983296796,
+        0.11115513138583233,
+        0.5498932016400073
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000040",
+      "at": "2000-01-01T11:58:41Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41Z",
+      "attempt_failure_draws": [
+        0.6639957559920944,
+        0.20755136008760933,
+        0.46332653404073465
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000041",
+      "at": "2000-01-01T11:58:41.05Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.05Z",
+      "attempt_failure_draws": [
+        0.3554469505636938,
+        0.7357331837715667,
+        0.8012555506847046
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000042",
+      "at": "2000-01-01T11:58:41.1Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.1Z",
+      "attempt_failure_draws": [
+        0.49235633265568113,
+        0.7889722148802238,
+        0.959103184193005
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000043",
+      "at": "2000-01-01T11:58:41.15Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.15Z",
+      "attempt_failure_draws": [
+        0.14376790012828433,
+        0.7627194070322159,
+        0.45500487886579133
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000044",
+      "at": "2000-01-01T11:58:41.2Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.7Z",
+      "attempt_failure_draws": [
+        0.17542638406747146,
+        0.6439628745094679,
+        0.5008888806959666
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000045",
+      "at": "2000-01-01T11:58:41.25Z",
+      "tenant": "tenant-14",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.25Z",
+      "attempt_failure_draws": [
+        0.7834004548190462,
+        0.035413505217087415,
+        0.5004655310570048
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000046",
+      "at": "2000-01-01T11:58:41.3Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.8Z",
+      "attempt_failure_draws": [
+        0.2500329195436727,
+        0.5099332031888676,
+        0.31258777602609333
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000047",
+      "at": "2000-01-01T11:58:41.35Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.35Z",
+      "attempt_failure_draws": [
+        0.24739375140069875,
+        0.1499493533072238,
+        0.2516172680733759
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000048",
+      "at": "2000-01-01T11:58:41.4Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.4Z",
+      "attempt_failure_draws": [
+        0.3064897366956174,
+        0.7999385977119886,
+        0.664081105370033
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000049",
+      "at": "2000-01-01T11:58:41.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.45Z",
+      "attempt_failure_draws": [
+        0.5201342077619044,
+        0.906615341589143,
+        0.10384829078033742
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000050",
+      "at": "2000-01-01T11:58:41.5Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.5Z",
+      "attempt_failure_draws": [
+        0.5716004522514945,
+        0.6117413017440068,
+        0.6408239794351824
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000051",
+      "at": "2000-01-01T11:58:41.55Z",
+      "tenant": "tenant-11",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.55Z",
+      "attempt_failure_draws": [
+        0.9519634167139772,
+        0.5916744022047586,
+        0.3015661183328635
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000052",
+      "at": "2000-01-01T11:58:41.6Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.6Z",
+      "attempt_failure_draws": [
+        0.4121433484564999,
+        0.24632571141813975,
+        0.304653485448372
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000053",
+      "at": "2000-01-01T11:58:41.65Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.65Z",
+      "attempt_failure_draws": [
+        0.060349045265805756,
+        0.4223123256793201,
+        0.4924024489754172
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000054",
+      "at": "2000-01-01T11:58:41.7Z",
+      "tenant": "tenant-10",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.7Z",
+      "attempt_failure_draws": [
+        0.9006119641264546,
+        0.7757672040443557,
+        0.6990981641119028
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000055",
+      "at": "2000-01-01T11:58:41.75Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:41.75Z",
+      "attempt_failure_draws": [
+        0.9076253729609566,
+        0.04529860450068579,
+        0.8827774781601093
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000056",
+      "at": "2000-01-01T11:58:41.8Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.8Z",
+      "attempt_failure_draws": [
+        0.656312107566646,
+        0.38069964547675395,
+        0.40961447384869865
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000057",
+      "at": "2000-01-01T11:58:41.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:41.85Z",
+      "attempt_failure_draws": [
+        0.03953334391922503,
+        0.3688162340795771,
+        0.14108284085495493
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000058",
+      "at": "2000-01-01T11:58:41.9Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.9Z",
+      "attempt_failure_draws": [
+        0.046209774859331976,
+        0.10423434417064703,
+        0.39068997878168765
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000059",
+      "at": "2000-01-01T11:58:41.95Z",
+      "tenant": "tenant-04",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:41.95Z",
+      "attempt_failure_draws": [
+        0.21846077590687307,
+        0.9654683787865735,
+        0.675085486189043
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000060",
+      "at": "2000-01-01T11:58:42Z",
+      "tenant": "tenant-10",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:42Z",
+      "attempt_failure_draws": [
+        0.555520107196016,
+        0.9264189469581,
+        0.47076613888168073
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000061",
+      "at": "2000-01-01T11:58:42.05Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.05Z",
+      "attempt_failure_draws": [
+        0.29440379998301225,
+        0.24176532324711364,
+        0.4715334952450375
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000062",
+      "at": "2000-01-01T11:58:42.1Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.1Z",
+      "attempt_failure_draws": [
+        0.12974177997626157,
+        0.05201283788686384,
+        0.7792694193404713
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000063",
+      "at": "2000-01-01T11:58:42.15Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.15Z",
+      "attempt_failure_draws": [
+        0.11163215938303972,
+        0.6657446785970478,
+        0.4707512375739228
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000064",
+      "at": "2000-01-01T11:58:42.2Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.7Z",
+      "attempt_failure_draws": [
+        0.8862327938671455,
+        0.39926599906158156,
+        0.5798869580561108
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000065",
+      "at": "2000-01-01T11:58:42.25Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.25Z",
+      "attempt_failure_draws": [
+        0.20783100270256805,
+        0.012403718608436365,
+        0.6785941976557702
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000066",
+      "at": "2000-01-01T11:58:42.3Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.3Z",
+      "attempt_failure_draws": [
+        0.8677380579888061,
+        0.7271795699509851,
+        0.11964614477943214
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000067",
+      "at": "2000-01-01T11:58:42.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.35Z",
+      "attempt_failure_draws": [
+        0.8470639749738952,
+        0.69899566522681,
+        0.1287601044752732
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000068",
+      "at": "2000-01-01T11:58:42.4Z",
+      "tenant": "tenant-13",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.4Z",
+      "attempt_failure_draws": [
+        0.4885285176904278,
+        0.19728720760037177,
+        0.0678195712219698
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000069",
+      "at": "2000-01-01T11:58:42.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:42.45Z",
+      "attempt_failure_draws": [
+        0.48236884580090333,
+        0.5757905562492984,
+        0.21433335722448332
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000070",
+      "at": "2000-01-01T11:58:42.5Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.5Z",
+      "attempt_failure_draws": [
+        0.05194824247633256,
+        0.15027573686342055,
+        0.5721002930211269
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000071",
+      "at": "2000-01-01T11:58:42.55Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.05Z",
+      "attempt_failure_draws": [
+        0.36819730633555303,
+        0.6408183229281236,
+        0.1863875516022877
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000072",
+      "at": "2000-01-01T11:58:42.6Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.6Z",
+      "attempt_failure_draws": [
+        0.7263964749129744,
+        0.702282436632259,
+        0.30089717685907114
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000073",
+      "at": "2000-01-01T11:58:42.65Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.65Z",
+      "attempt_failure_draws": [
+        0.9221028793125229,
+        0.9356401522010186,
+        0.267189107447122
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000074",
+      "at": "2000-01-01T11:58:42.7Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.7Z",
+      "attempt_failure_draws": [
+        0.3061975949200265,
+        0.24109489580759824,
+        0.7124225299001298
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000075",
+      "at": "2000-01-01T11:58:42.75Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.75Z",
+      "attempt_failure_draws": [
+        0.7557441008587847,
+        0.8774247106734373,
+        0.07953843386139003
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000076",
+      "at": "2000-01-01T11:58:42.8Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.8Z",
+      "attempt_failure_draws": [
+        0.13056180526886418,
+        0.26613667025323706,
+        0.47174405955978393
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000077",
+      "at": "2000-01-01T11:58:42.85Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:42.85Z",
+      "attempt_failure_draws": [
+        0.924891690993764,
+        0.27964353522701,
+        0.46688535654433916
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000078",
+      "at": "2000-01-01T11:58:42.9Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.9Z",
+      "attempt_failure_draws": [
+        0.23198732014617995,
+        0.2958976217213468,
+        0.18076271829805557
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000079",
+      "at": "2000-01-01T11:58:42.95Z",
+      "tenant": "tenant-13",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:42.95Z",
+      "attempt_failure_draws": [
+        0.26567859252238113,
+        0.1919440778965945,
+        0.11256592144430388
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000080",
+      "at": "2000-01-01T11:58:43Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:43Z",
+      "attempt_failure_draws": [
+        0.9339791390432588,
+        0.8839461048910389,
+        0.0751784252019152
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000081",
+      "at": "2000-01-01T11:58:43.05Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:43.05Z",
+      "attempt_failure_draws": [
+        0.44568477285928376,
+        0.023077227238348375,
+        0.7121327759777544
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000082",
+      "at": "2000-01-01T11:58:43.1Z",
+      "tenant": "tenant-11",
+      "service_time": 1000000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:43.6Z",
+      "attempt_failure_draws": [
+        0.49572015179292417,
+        0.697789604590255,
+        0.8075299091789253
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000083",
+      "at": "2000-01-01T11:58:43.15Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.15Z",
+      "attempt_failure_draws": [
+        0.15486029159996828,
+        0.6252212329783178,
+        0.9639949160740289
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000084",
+      "at": "2000-01-01T11:58:43.2Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:43.2Z",
+      "attempt_failure_draws": [
+        0.008281604937843245,
+        0.1838798393101495,
+        0.5677379303331509
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000085",
+      "at": "2000-01-01T11:58:43.25Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.25Z",
+      "attempt_failure_draws": [
+        0.820125174821178,
+        0.778369999371471,
+        0.2053281739325037
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000086",
+      "at": "2000-01-01T11:58:43.3Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:43.3Z",
+      "attempt_failure_draws": [
+        0.2619821343883634,
+        0.5176371448255893,
+        0.16207226759994042
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000087",
+      "at": "2000-01-01T11:58:43.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.35Z",
+      "attempt_failure_draws": [
+        0.4403502473724378,
+        0.7611102501857694,
+        0.38590272866159325
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000088",
+      "at": "2000-01-01T11:58:43.4Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:43.4Z",
+      "attempt_failure_draws": [
+        0.2911663215772914,
+        0.25931250110600024,
+        0.45775130285829047
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000089",
+      "at": "2000-01-01T11:58:43.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:43.45Z",
+      "attempt_failure_draws": [
+        0.4329069804754383,
+        0.43751600190778606,
+        0.6172538311157469
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000090",
+      "at": "2000-01-01T11:58:43.5Z",
+      "tenant": "tenant-09",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44Z",
+      "attempt_failure_draws": [
+        0.7898554394841758,
+        0.1001482903169163,
+        0.7316210489518783
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000091",
+      "at": "2000-01-01T11:58:43.55Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.55Z",
+      "attempt_failure_draws": [
+        0.15174516744195055,
+        0.019937490180782058,
+        0.32362944584137576
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000092",
+      "at": "2000-01-01T11:58:43.6Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.1Z",
+      "attempt_failure_draws": [
+        0.5650718788811098,
+        0.15009125795308964,
+        0.5620487221306916
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000093",
+      "at": "2000-01-01T11:58:43.65Z",
+      "tenant": "tenant-02",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.65Z",
+      "attempt_failure_draws": [
+        0.05411770890221157,
+        0.3219055059758965,
+        0.9814273245268166
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000094",
+      "at": "2000-01-01T11:58:43.7Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.7Z",
+      "attempt_failure_draws": [
+        0.67476110894158,
+        0.636588212621858,
+        0.11624719433047359
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000095",
+      "at": "2000-01-01T11:58:43.75Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.75Z",
+      "attempt_failure_draws": [
+        0.18141155851785706,
+        0.6010346861241552,
+        0.29235425742952226
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000096",
+      "at": "2000-01-01T11:58:43.8Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:43.8Z",
+      "attempt_failure_draws": [
+        0.7059451821245886,
+        0.884838881935653,
+        0.628171132338613
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000097",
+      "at": "2000-01-01T11:58:43.85Z",
+      "tenant": "tenant-10",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:43.85Z",
+      "attempt_failure_draws": [
+        0.4723890207244146,
+        0.6695111800881617,
+        0.13488009996188055
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000098",
+      "at": "2000-01-01T11:58:43.9Z",
+      "tenant": "tenant-06",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.9Z",
+      "attempt_failure_draws": [
+        0.7778480811401417,
+        0.7426404830850114,
+        0.016313029142249857
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000099",
+      "at": "2000-01-01T11:58:43.95Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:43.95Z",
+      "attempt_failure_draws": [
+        0.2211717146748461,
+        0.353258181879899,
+        0.6674993111904426
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000100",
+      "at": "2000-01-01T11:58:44Z",
+      "tenant": "tenant-02",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:44Z",
+      "attempt_failure_draws": [
+        0.7966174833865587,
+        0.6078997582619668,
+        0.005345670938348368
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000101",
+      "at": "2000-01-01T11:58:44.05Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.05Z",
+      "attempt_failure_draws": [
+        0.5615017385869033,
+        0.5204115496853529,
+        0.35926423316687717
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000102",
+      "at": "2000-01-01T11:58:44.1Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.1Z",
+      "attempt_failure_draws": [
+        0.14078156672795705,
+        0.11524468458828507,
+        0.7456564282193652
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000103",
+      "at": "2000-01-01T11:58:44.15Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.15Z",
+      "attempt_failure_draws": [
+        0.3121958643317678,
+        0.9785678330035138,
+        0.9860078698504748
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000104",
+      "at": "2000-01-01T11:58:44.2Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:44.2Z",
+      "attempt_failure_draws": [
+        0.1789125804290168,
+        0.9307490124111782,
+        0.6705268086864266
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000105",
+      "at": "2000-01-01T11:58:44.25Z",
+      "tenant": "tenant-07",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:44.25Z",
+      "attempt_failure_draws": [
+        0.4847364807199741,
+        0.9791699276864491,
+        0.7342708149696577
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000106",
+      "at": "2000-01-01T11:58:44.3Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:44.8Z",
+      "attempt_failure_draws": [
+        0.5268303857203791,
+        0.25287542188941325,
+        0.4261675693955167
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000107",
+      "at": "2000-01-01T11:58:44.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:44.35Z",
+      "attempt_failure_draws": [
+        0.5224647148373418,
+        0.035279894154436775,
+        0.18696963963154367
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000108",
+      "at": "2000-01-01T11:58:44.4Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.4Z",
+      "attempt_failure_draws": [
+        0.016423349723051373,
+        0.32975212781223495,
+        0.11193661965774848
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000109",
+      "at": "2000-01-01T11:58:44.45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.45Z",
+      "attempt_failure_draws": [
+        0.34645610244183467,
+        0.3208551685772978,
+        0.8778940136867824
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000110",
+      "at": "2000-01-01T11:58:44.5Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.5Z",
+      "attempt_failure_draws": [
+        0.32782822965084946,
+        0.5400128896044784,
+        0.3918741792709488
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000111",
+      "at": "2000-01-01T11:58:44.55Z",
+      "tenant": "tenant-14",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.05Z",
+      "attempt_failure_draws": [
+        0.18693106454629327,
+        0.34290357903965074,
+        0.4546173488830575
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000112",
+      "at": "2000-01-01T11:58:44.6Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.6Z",
+      "attempt_failure_draws": [
+        0.9426667737082725,
+        0.618485262883339,
+        0.9572213013198521
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000113",
+      "at": "2000-01-01T11:58:44.65Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.65Z",
+      "attempt_failure_draws": [
+        0.14692093028343467,
+        0.06150761202838517,
+        0.43076653586647207
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000114",
+      "at": "2000-01-01T11:58:44.7Z",
+      "tenant": "tenant-03",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.7Z",
+      "attempt_failure_draws": [
+        0.3119577785607587,
+        0.9545788174976292,
+        0.8297525067664674
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000115",
+      "at": "2000-01-01T11:58:44.75Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:44.75Z",
+      "attempt_failure_draws": [
+        0.6306948769428603,
+        0.5039630435377318,
+        0.6214414240980856
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000116",
+      "at": "2000-01-01T11:58:44.8Z",
+      "tenant": "tenant-07",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:44.8Z",
+      "attempt_failure_draws": [
+        0.3010095062851109,
+        0.7798158150612653,
+        0.1114731927315662
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000117",
+      "at": "2000-01-01T11:58:44.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.85Z",
+      "attempt_failure_draws": [
+        0.39622340513923526,
+        0.07309951166365014,
+        0.055880411365968774
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000118",
+      "at": "2000-01-01T11:58:44.9Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:44.9Z",
+      "attempt_failure_draws": [
+        0.34746337399735194,
+        0.483505288000031,
+        0.8142878253419723
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000119",
+      "at": "2000-01-01T11:58:44.95Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:44.95Z",
+      "attempt_failure_draws": [
+        0.24453802179372053,
+        0.07346246647362098,
+        0.6529857230505661
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000120",
+      "at": "2000-01-01T11:58:45Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45Z",
+      "attempt_failure_draws": [
+        0.9674070310645763,
+        0.9745530341441876,
+        0.05677826762842064
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000121",
+      "at": "2000-01-01T11:58:45.05Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.05Z",
+      "attempt_failure_draws": [
+        0.1315895277612148,
+        0.4106022489100998,
+        0.3327969336168902
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000122",
+      "at": "2000-01-01T11:58:45.1Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.6Z",
+      "attempt_failure_draws": [
+        0.694154051608126,
+        0.49356327627454444,
+        0.14905898681772645
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000123",
+      "at": "2000-01-01T11:58:45.15Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.15Z",
+      "attempt_failure_draws": [
+        0.024156127400530636,
+        0.48708609109078704,
+        0.9976500869849406
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000124",
+      "at": "2000-01-01T11:58:45.2Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:45.2Z",
+      "attempt_failure_draws": [
+        0.8654482605308584,
+        0.7189288135112067,
+        0.5906413413903724
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000125",
+      "at": "2000-01-01T11:58:45.25Z",
+      "tenant": "protected",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:45.25Z",
+      "attempt_failure_draws": [
+        0.7092725478040472,
+        0.5384243703161381,
+        0.5568115032416564
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000126",
+      "at": "2000-01-01T11:58:45.3Z",
+      "tenant": "protected",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.8Z",
+      "attempt_failure_draws": [
+        0.1364885545647686,
+        0.3617528875545384,
+        0.08234744490938717
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000127",
+      "at": "2000-01-01T11:58:45.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.35Z",
+      "attempt_failure_draws": [
+        0.8918540273628083,
+        0.6194797701675813,
+        0.08374408776191322
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000128",
+      "at": "2000-01-01T11:58:45.4Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.4Z",
+      "attempt_failure_draws": [
+        0.09177698140726509,
+        0.683100675287445,
+        0.6437413094977503
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000129",
+      "at": "2000-01-01T11:58:45.45Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.45Z",
+      "attempt_failure_draws": [
+        0.6137885307242523,
+        0.8814249793670293,
+        0.546803074333335
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000130",
+      "at": "2000-01-01T11:58:45.5Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:45.5Z",
+      "attempt_failure_draws": [
+        0.5653266929047288,
+        0.28615577874392817,
+        0.5012840412951852
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000131",
+      "at": "2000-01-01T11:58:45.55Z",
+      "tenant": "tenant-02",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.55Z",
+      "attempt_failure_draws": [
+        0.2240702120532232,
+        0.8689430094882261,
+        0.7360710539725231
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000132",
+      "at": "2000-01-01T11:58:45.6Z",
+      "tenant": "protected",
+      "service_time": 1000000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:45.6Z",
+      "attempt_failure_draws": [
+        0.53298518614863,
+        0.5744147213245171,
+        0.12446051703826488
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000133",
+      "at": "2000-01-01T11:58:45.65Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.65Z",
+      "attempt_failure_draws": [
+        0.7232072299136512,
+        0.5414102571758952,
+        0.21506007310261288
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000134",
+      "at": "2000-01-01T11:58:45.7Z",
+      "tenant": "tenant-09",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.7Z",
+      "attempt_failure_draws": [
+        0.4269776248200755,
+        0.8481783606081392,
+        0.6122786293133523
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000135",
+      "at": "2000-01-01T11:58:45.75Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.75Z",
+      "attempt_failure_draws": [
+        0.80250597374809,
+        0.3904788481105016,
+        0.5474534709079701
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000136",
+      "at": "2000-01-01T11:58:45.8Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:45.8Z",
+      "attempt_failure_draws": [
+        0.3397071834748877,
+        0.4846927233566014,
+        0.09346871506934795
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000137",
+      "at": "2000-01-01T11:58:45.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:45.85Z",
+      "attempt_failure_draws": [
+        0.5409589524060237,
+        0.5051131080971949,
+        0.8626371150156005
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000138",
+      "at": "2000-01-01T11:58:45.9Z",
+      "tenant": "tenant-15",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:45.9Z",
+      "attempt_failure_draws": [
+        0.2669090105707872,
+        0.13070673804431177,
+        0.39009517359169454
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000139",
+      "at": "2000-01-01T11:58:45.95Z",
+      "tenant": "tenant-04",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.45Z",
+      "attempt_failure_draws": [
+        0.62135458421351,
+        0.6706549724415127,
+        0.21673977402651234
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000140",
+      "at": "2000-01-01T11:58:46Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46Z",
+      "attempt_failure_draws": [
+        0.48012767932059097,
+        0.6836786457823062,
+        0.46703038831089405
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000141",
+      "at": "2000-01-01T11:58:46.05Z",
+      "tenant": "tenant-08",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:46.05Z",
+      "attempt_failure_draws": [
+        0.8202796997836205,
+        0.15690965041297056,
+        0.26401061748686805
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000142",
+      "at": "2000-01-01T11:58:46.1Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.1Z",
+      "attempt_failure_draws": [
+        0.5037764932078743,
+        0.5951771519493675,
+        0.6846305400600503
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000143",
+      "at": "2000-01-01T11:58:46.15Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.15Z",
+      "attempt_failure_draws": [
+        0.9061425775451255,
+        0.09100895118986208,
+        0.7662287382326625
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000144",
+      "at": "2000-01-01T11:58:46.2Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:46.7Z",
+      "attempt_failure_draws": [
+        0.7615632758334054,
+        0.13469213643673716,
+        0.4557931549285984
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000145",
+      "at": "2000-01-01T11:58:46.25Z",
+      "tenant": "protected",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.25Z",
+      "attempt_failure_draws": [
+        0.9468751952477548,
+        0.444631988095577,
+        0.12304624004893472
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000146",
+      "at": "2000-01-01T11:58:46.3Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:46.3Z",
+      "attempt_failure_draws": [
+        0.8055491856137611,
+        0.737322325442128,
+        0.892004529424632
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000147",
+      "at": "2000-01-01T11:58:46.35Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.35Z",
+      "attempt_failure_draws": [
+        0.07700549572391846,
+        0.22324455149393496,
+        0.09570300871073534
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000148",
+      "at": "2000-01-01T11:58:46.4Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.9Z",
+      "attempt_failure_draws": [
+        0.5182725012034516,
+        0.30299977148226576,
+        0.9387589317478503
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000149",
+      "at": "2000-01-01T11:58:46.45Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.45Z",
+      "attempt_failure_draws": [
+        0.4826628923908466,
+        0.9577166375901495,
+        0.6564054215114554
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000150",
+      "at": "2000-01-01T11:58:46.5Z",
+      "tenant": "tenant-07",
+      "service_time": 100000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:46.5Z",
+      "attempt_failure_draws": [
+        0.35632408363363754,
+        0.5723180552270191,
+        0.8353595573218148
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000151",
+      "at": "2000-01-01T11:58:46.55Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.55Z",
+      "attempt_failure_draws": [
+        0.923898835140854,
+        0.5915945680543127,
+        0.459782842332195
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000152",
+      "at": "2000-01-01T11:58:46.6Z",
+      "tenant": "tenant-13",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:46.6Z",
+      "attempt_failure_draws": [
+        0.3474329410171839,
+        0.11578606129687607,
+        0.972136622631107
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000153",
+      "at": "2000-01-01T11:58:46.65Z",
+      "tenant": "tenant-11",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.15Z",
+      "attempt_failure_draws": [
+        0.981262136436962,
+        0.17261308707477596,
+        0.5936878751261987
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000154",
+      "at": "2000-01-01T11:58:46.7Z",
+      "tenant": "noisy",
+      "service_time": 1000000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.7Z",
+      "attempt_failure_draws": [
+        0.3324635386106253,
+        0.786532653909449,
+        0.21972360298688176
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000155",
+      "at": "2000-01-01T11:58:46.75Z",
+      "tenant": "tenant-10",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.75Z",
+      "attempt_failure_draws": [
+        0.4864324381854176,
+        0.20845882015973638,
+        0.09220795664862858
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000156",
+      "at": "2000-01-01T11:58:46.8Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:46.8Z",
+      "attempt_failure_draws": [
+        0.20509774891882226,
+        0.561808285080233,
+        0.649431811311679
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000157",
+      "at": "2000-01-01T11:58:46.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:47.35Z",
+      "attempt_failure_draws": [
+        0.5952061577742148,
+        0.03479371115554597,
+        0.5899906809197684
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000158",
+      "at": "2000-01-01T11:58:46.9Z",
+      "tenant": "tenant-10",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.9Z",
+      "attempt_failure_draws": [
+        0.26341221436397766,
+        0.5478149707599251,
+        0.33357496510102436
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000159",
+      "at": "2000-01-01T11:58:46.95Z",
+      "tenant": "tenant-03",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:46.95Z",
+      "attempt_failure_draws": [
+        0.8114191904140617,
+        0.4519091923342725,
+        0.35429586272153635
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000160",
+      "at": "2000-01-01T11:58:47Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.5Z",
+      "attempt_failure_draws": [
+        0.21891310802111263,
+        0.3377988890043636,
+        0.09976021811816604
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000161",
+      "at": "2000-01-01T11:58:47.05Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.05Z",
+      "attempt_failure_draws": [
+        0.9896632436364544,
+        0.5198849376821182,
+        0.20697404529091956
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000162",
+      "at": "2000-01-01T11:58:47.1Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.1Z",
+      "attempt_failure_draws": [
+        0.49779165007299986,
+        0.3606593244969769,
+        0.23355062557067663
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000163",
+      "at": "2000-01-01T11:58:47.15Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.65Z",
+      "attempt_failure_draws": [
+        0.22238026948967038,
+        0.17466541292953053,
+        0.022337224946677336
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000164",
+      "at": "2000-01-01T11:58:47.2Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.2Z",
+      "attempt_failure_draws": [
+        0.20516423704086806,
+        0.26709249689942205,
+        0.16877186673702638
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000165",
+      "at": "2000-01-01T11:58:47.25Z",
+      "tenant": "tenant-02",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.75Z",
+      "attempt_failure_draws": [
+        0.2994217470364301,
+        0.9826865622497055,
+        0.11033605291843684
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000166",
+      "at": "2000-01-01T11:58:47.3Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.8Z",
+      "attempt_failure_draws": [
+        0.8261498992095042,
+        0.09612943259598217,
+        0.7310911845977472
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000167",
+      "at": "2000-01-01T11:58:47.35Z",
+      "tenant": "protected",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:47.85Z",
+      "attempt_failure_draws": [
+        0.33034742477001255,
+        0.2652734661430368,
+        0.09167200515049945
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000168",
+      "at": "2000-01-01T11:58:47.4Z",
+      "tenant": "protected",
+      "service_time": 1000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.4Z",
+      "attempt_failure_draws": [
+        0.1578425809020524,
+        0.9579500465505418,
+        0.48661927530625515
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000169",
+      "at": "2000-01-01T11:58:47.45Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.45Z",
+      "attempt_failure_draws": [
+        0.35858782321590776,
+        0.9539148098966114,
+        0.9265823592843827
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000170",
+      "at": "2000-01-01T11:58:47.5Z",
+      "tenant": "tenant-13",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:48Z",
+      "attempt_failure_draws": [
+        0.15524025621802273,
+        0.10973529679924687,
+        0.5578762706653361
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000171",
+      "at": "2000-01-01T11:58:47.55Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.55Z",
+      "attempt_failure_draws": [
+        0.6568909906302208,
+        0.3256535571287491,
+        0.035709479540837696
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000172",
+      "at": "2000-01-01T11:58:47.6Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.6Z",
+      "attempt_failure_draws": [
+        0.36579635435526026,
+        0.9510842758712996,
+        0.32688989003599633
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000173",
+      "at": "2000-01-01T11:58:47.65Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.65Z",
+      "attempt_failure_draws": [
+        0.5773248042226324,
+        0.3559706736199548,
+        0.25970999848490217
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000174",
+      "at": "2000-01-01T11:58:47.7Z",
+      "tenant": "noisy",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:47.7Z",
+      "attempt_failure_draws": [
+        0.4423744805426527,
+        0.3485918636528508,
+        0.7062381647983565
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000175",
+      "at": "2000-01-01T11:58:47.75Z",
+      "tenant": "tenant-12",
+      "service_time": 1000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.75Z",
+      "attempt_failure_draws": [
+        0.6991320059015093,
+        0.24801541285529027,
+        0.18494068449650825
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000176",
+      "at": "2000-01-01T11:58:47.8Z",
+      "tenant": "noisy",
+      "service_time": 10000000,
+      "payload_bytes": 256,
+      "not_before": "2000-01-01T11:58:47.8Z",
+      "attempt_failure_draws": [
+        0.021885324093283365,
+        0.6306064374694088,
+        0.3840007923848078
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000177",
+      "at": "2000-01-01T11:58:47.85Z",
+      "tenant": "noisy",
+      "service_time": 1000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:47.85Z",
+      "attempt_failure_draws": [
+        0.5123530207670569,
+        0.44784534251675745,
+        0.4052897910018627
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000178",
+      "at": "2000-01-01T11:58:47.9Z",
+      "tenant": "tenant-10",
+      "service_time": 100000000,
+      "payload_bytes": 4096,
+      "not_before": "2000-01-01T11:58:47.9Z",
+      "attempt_failure_draws": [
+        0.2785693105452133,
+        0.22691321559340472,
+        0.2430709565247119
+      ]
+    },
+    {
+      "id": "feature-below-20260719-000000179",
+      "at": "2000-01-01T11:58:47.95Z",
+      "tenant": "tenant-02",
+      "service_time": 100000000,
+      "payload_bytes": 65536,
+      "not_before": "2000-01-01T11:58:47.95Z",
+      "attempt_failure_draws": [
+        0.3441815820224634,
+        0.6758083414737015,
+        0.02274372923404233
+      ]
+    }
+  ]
+}

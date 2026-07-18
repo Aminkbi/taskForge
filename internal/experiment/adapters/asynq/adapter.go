@@ -4,7 +4,6 @@ package asynq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"sync"
@@ -66,14 +65,14 @@ func (a *Adapter) Start(_ context.Context, runtime experiment.AdapterRuntime) er
 	})
 	mux := basynq.NewServeMux()
 	mux.HandleFunc("neutral.task", func(ctx context.Context, task *basynq.Task) error {
-		var arrival experiment.TraceArrival
-		if err := json.Unmarshal(task.Payload(), &arrival); err != nil {
+		arrival, err := experiment.UnmarshalArrivalPayload(task.Payload())
+		if err != nil {
 			return err
 		}
 		retried, _ := basynq.GetRetryCount(ctx)
 		attempt := retried + 1
 		runtime.Recorder.TaskStarted(arrival, attempt, time.Now().UTC())
-		err := runtime.Downstream.Call(ctx, arrival, attempt)
+		err = runtime.Downstream.Call(ctx, arrival, attempt)
 		if err == nil {
 			runtime.Recorder.TaskFinished(arrival, attempt, time.Now().UTC(), "completed")
 			return nil
@@ -91,7 +90,7 @@ func (a *Adapter) Start(_ context.Context, runtime experiment.AdapterRuntime) er
 }
 
 func (a *Adapter) Enqueue(ctx context.Context, arrival experiment.TraceArrival) (experiment.EnqueueResult, error) {
-	payload, err := json.Marshal(arrival)
+	payload, err := experiment.MarshalArrivalPayload(arrival)
 	if err != nil {
 		return experiment.EnqueueResult{}, err
 	}
@@ -131,13 +130,10 @@ func (a *Adapter) Stop(ctx context.Context) error {
 		return nil
 	}
 	a.stopped = true
-	server, client, inspector := a.server, a.client, a.inspector
+	server, inspector := a.server, a.inspector
 	a.mu.Unlock()
 	if server != nil {
 		server.Shutdown()
-	}
-	if client != nil {
-		_ = client.Close()
 	}
 	if inspector != nil {
 		_ = inspector.Close()

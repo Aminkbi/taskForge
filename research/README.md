@@ -7,6 +7,11 @@ Pre-Registered Ablation Study of TaskForge"
 evaluation and Zenodo archiving; nothing here has been submitted or uploaded
 anywhere.
 
+The registered paired follow-up, including its separately frozen plan, trace
+corpus, raw ledger, and bounded two-class claims, lives in
+[`second-wave/`](second-wave/README.md). It regenerates with
+`make second-wave-check` and is packaged with `make second-wave-package`.
+
 ## Contents
 
 | Path | Role |
