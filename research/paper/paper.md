@@ -76,8 +76,18 @@ medians of measured runs with a seeded 10000-resample percentile
 bootstrap interval. Registered contrasts subtract each TaskForge ablation
 from the full TaskForge arm. A contrast is called detected only when its
 interval excludes zero. Throughput materiality uses the frozen relative-change
-rule. The unsupported Asynq worker-crash cells contain no equivalent injected
-fault, are marked not measured, and contribute neither zeroes nor baseline
+rule. That detection rule is marginal and remains the primary reported outcome:
+it bounds the error of one contrast, not the chance of at least one spurious
+detection across the 210 contrasts. Added after registration, and
+disclosed here rather than folded into the frozen plan, the generated report
+also reads the same resampled difference distributions at Bonferroni coverage
+over the complete confirmatory set (99.976% per contrast) and
+marks a contrast whose bootstrap distribution is a point mass as degenerate, so
+that a difference with no variability cannot masquerade as an interval claim.
+52 of the 79 marginal detections survive
+that criterion, and 5 of them are point-mass contrasts.
+The unsupported Asynq worker-crash cells contain no equivalent injected fault,
+are marked not measured, and contribute neither zeroes nor baseline
 comparisons.
 
 ## 5. Generated results
@@ -180,6 +190,15 @@ byte-compares them with the committed outputs.
   entitlement satisfaction; per-tenant SLO outcomes remain necessary.
 - The Asynq adapter is not expert-tuned and cannot express the evaluated
   controls or the registered crash schedule.
+- The pre-registered detection rule is marginal, so it does not bound the
+  probability of at least one spurious detection across the 210
+  contrasts. The generated family-wise column bounds that exposure at
+  99.976% per contrast, and only 52 of
+  the 79 detections survive it. 19 contrasts
+  have point-mass bootstrap distributions, and 5 of the
+  detections are of that kind: no confidence level can resolve them into an
+  interval claim, so they are held out of the survivor count instead of being
+  resolved by it.
 
 ## 8. Conclusion
 

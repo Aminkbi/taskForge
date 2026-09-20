@@ -20,7 +20,7 @@ corpus, raw ledger, and bounded two-class claims, lives in
 | [`data/dataset.json`](data/dataset.json) | Per-cell provenance ledger: source/tree, binary and result digests, dependency locks, exact arguments, Redis configuration, sanitized environment, and measured/not-measured status |
 | [`data/raw/`](data/raw/) | Committed raw evidence: exactly 504 gzipped cell results (6 workloads x 7 variants x 12 seeds) |
 | [`data/run-log.txt`](data/run-log.txt) | Privacy-safe per-cell status log; unsupported Asynq crash cells are `not_measured` |
-| [`results/`](results/) | Derived statistical report (`analysis.md`, `analysis.json`) — generated, never hand-edited |
+| [`results/`](results/) | Derived statistical report (`analysis.md`, `analysis.json`) — generated, never hand-edited; includes the post-registration family-wise sensitivity criterion beside the frozen marginal rule |
 | [`figures/`](figures/) | Derived SVG figures — generated, never hand-edited |
 | [`paper/paper.template.md`](paper/paper.template.md) | Narrative paper source with strict generated-evidence tokens |
 | [`paper/paper.md`](paper/paper.md) | Generated paper; its complete numeric result table comes from `analysis.json` |
@@ -54,6 +54,13 @@ Prerequisites: Go 1.26.5+, Docker with Compose (or a local Redis 7 on
    directory, byte-compares every result, figure, and the paper, validates all
    raw result digests and the complete provenance ledger, and checks the
    privacy-safe 504-cell run log without modifying committed outputs.
+
+   The frozen pre-registered detection rule is marginal, so the report also
+   carries a post-registration family-wise criterion over the complete
+   confirmatory set, reads the same resampled distributions at Bonferroni
+   coverage, and marks point-mass contrasts that carry no interval claim. The
+   paper's threats-to-validity section discloses it; the pre-registered plan is
+   deliberately left unedited.
 
 2. Run an explicitly non-publishable pilot grid against Redis:
 

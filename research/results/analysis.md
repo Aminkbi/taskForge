@@ -93,219 +93,227 @@ Descriptions and parameters below are copied from the machine-readable raw manif
 
 Recovery time after the crashed reservation (TaskForge only): taskforge-fifo-static 703 [201, 1255] ms; taskforge-no-fairness 201 [201, 1199] ms; taskforge-no-admission 202 [201, 202] ms; taskforge-no-adaptive 202 [201, 202] ms; taskforge-no-dependency-budget 201 [201, 202] ms; taskforge-full 201 [201, 202] ms
 
+## Multiplicity of the confirmatory set
+
+The pre-registered rule is marginal: each of the 210 intervals is a 95% interval, so the rule bounds the error of one contrast at a time and does not bound the probability of at least one spurious detection across the set. The `Family-wise` columns are a sensitivity criterion added after registration and disclosed in the paper's threats to validity; they never replace the frozen rule. They read the same resampled difference distribution at Bonferroni coverage over the complete confirmatory set (K = 210, 99.976% per contrast), so a family-wise interval always contains its corresponding marginal interval.
+
+A point-mass distribution is marked `degenerate`: the registered seeds show no variability in that difference, so no confidence level can support an interval claim from it and it is held out of the survivor count as a separate status rather than resolved by it. The family-wise tail is read from the same 10000 resamples as the marginal interval, so the survivor count is resolution-limited at that resample count and moves by a few contrasts across generator seeds.
+
+Of the 79 marginal detections, 52 survive the family-wise criterion. 19 contrasts are point-mass, 5 of them marginal detections.
+
 ## Pre-registered contrasts
 
-Difference of medians, `taskforge-full` minus the listed arm; an interval excluding zero is marked detected. Every pre-registered contrast is listed, including unfavorable and inconclusive ones.
+Difference of medians, `taskforge-full` minus the listed arm; an interval excluding zero is marked detected. Every pre-registered contrast is listed, including unfavorable and inconclusive ones. `Family-wise` repeats the marginal rule at 99.976% per contrast: `survives` means the family-wise interval excludes zero, `not distinguished` means it does not, and `degenerate` means the bootstrap distribution is a point mass and carries no interval claim.
 
-| Workload | Metric | Against | Difference | 95% interval | Relative change | Detected/material |
-| --- | --- | --- | --- | --- | --- | --- |
-| delayed-backlog | completion_p99_ms | taskforge-fifo-static | +49.62 | [+11.83, +95.24] | - | yes |
-| delayed-backlog | enqueue_to_start_p99_ms | taskforge-fifo-static | +49.71 | [+10.78, +94.63] | - | yes |
-| delayed-backlog | throughput_per_second | taskforge-fifo-static | -234.19 | [-293.56, -166.07] | -33.3% [-39.5%, -24.6%] | material reduction |
-| delayed-backlog | jain_fairness | taskforge-fifo-static | -0.00 | [-0.00, +0.00] | - |  |
-| delayed-backlog | slo_violations | taskforge-fifo-static | +1.50 | [+0.00, +8.50] | - |  |
-| delayed-backlog | nondominant_slo_violations | taskforge-fifo-static | +0.00 | [+0.00, +1.00] | - |  |
-| delayed-backlog | peak_concurrency | taskforge-fifo-static | +0.00 | [-1.00, +0.00] | - |  |
-| delayed-backlog | completion_p99_ms | taskforge-no-fairness | +21.05 | [-14.41, +67.25] | - |  |
-| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-fairness | +20.95 | [-13.79, +67.26] | - |  |
-| delayed-backlog | throughput_per_second | taskforge-no-fairness | -139.67 | [-203.31, -87.83] | -22.9% [-31.5%, -14.4%] | material reduction |
-| delayed-backlog | jain_fairness | taskforge-no-fairness | -0.00 | [-0.00, +0.00] | - |  |
-| delayed-backlog | slo_violations | taskforge-no-fairness | +1.50 | [-1.00, +8.50] | - |  |
-| delayed-backlog | nondominant_slo_violations | taskforge-no-fairness | +0.00 | [-0.50, +1.00] | - |  |
-| delayed-backlog | peak_concurrency | taskforge-no-fairness | +0.00 | [-1.00, +0.00] | - |  |
-| delayed-backlog | completion_p99_ms | taskforge-no-admission | -90.78 | [-120.35, -16.99] | - | yes |
-| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-admission | -90.88 | [-120.38, -18.51] | - | yes |
-| delayed-backlog | throughput_per_second | taskforge-no-admission | +33.24 | [-54.87, +86.70] | +7.6% [-11.5%, +20.0%] |  |
-| delayed-backlog | jain_fairness | taskforge-no-admission | +0.00 | [+0.00, +0.01] | - | yes |
-| delayed-backlog | slo_violations | taskforge-no-admission | -38.00 | [-44.00, -22.50] | - | yes |
-| delayed-backlog | nondominant_slo_violations | taskforge-no-admission | -15.00 | [-19.00, -8.00] | - | yes |
-| delayed-backlog | peak_concurrency | taskforge-no-admission | +0.00 | [-1.00, +0.50] | - |  |
-| delayed-backlog | completion_p99_ms | taskforge-no-adaptive | +21.99 | [-8.94, +70.67] | - |  |
-| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-adaptive | +21.92 | [-8.58, +72.44] | - |  |
-| delayed-backlog | throughput_per_second | taskforge-no-adaptive | -10.59 | [-62.45, +49.10] | -2.2% [-12.1%, +10.6%] |  |
-| delayed-backlog | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.00, +0.00] | - |  |
-| delayed-backlog | slo_violations | taskforge-no-adaptive | +1.50 | [-0.50, +8.50] | - |  |
-| delayed-backlog | nondominant_slo_violations | taskforge-no-adaptive | +0.00 | [+0.00, +1.00] | - |  |
-| delayed-backlog | peak_concurrency | taskforge-no-adaptive | +0.00 | [-1.00, +0.50] | - |  |
-| delayed-backlog | completion_p99_ms | taskforge-no-dependency-budget | +0.90 | [-26.35, +46.90] | - |  |
-| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +0.80 | [-26.28, +47.46] | - |  |
-| delayed-backlog | throughput_per_second | taskforge-no-dependency-budget | -14.26 | [-58.33, +46.42] | -2.9% [-11.5%, +9.8%] |  |
-| delayed-backlog | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.00, +0.00] | - |  |
-| delayed-backlog | slo_violations | taskforge-no-dependency-budget | +0.00 | [-6.50, +7.00] | - |  |
-| delayed-backlog | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [+0.00, +1.00] | - |  |
-| delayed-backlog | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [-1.00, +0.00] | - |  |
-| hot-dependency | completion_p99_ms | taskforge-fifo-static | +225.37 | [+208.30, +253.10] | - | yes |
-| hot-dependency | enqueue_to_start_p99_ms | taskforge-fifo-static | +225.28 | [+208.49, +254.07] | - | yes |
-| hot-dependency | throughput_per_second | taskforge-fifo-static | -237.17 | [-257.47, -222.70] | -43.9% [-46.8%, -41.4%] | material reduction |
-| hot-dependency | jain_fairness | taskforge-fifo-static | -0.00 | [-0.01, +0.00] | - |  |
-| hot-dependency | slo_violations | taskforge-fifo-static | +39.50 | [+34.50, +45.00] | - | yes |
-| hot-dependency | nondominant_slo_violations | taskforge-fifo-static | +23.50 | [+17.50, +29.00] | - | yes |
-| hot-dependency | peak_concurrency | taskforge-fifo-static | -2.00 | [-2.00, -1.00] | - | yes |
-| hot-dependency | completion_p99_ms | taskforge-no-fairness | -9.97 | [-31.60, +16.93] | - |  |
-| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-fairness | -10.13 | [-31.70, +17.47] | - |  |
-| hot-dependency | throughput_per_second | taskforge-no-fairness | +4.14 | [-12.01, +15.85] | +1.4% [-3.8%, +5.6%] |  |
-| hot-dependency | jain_fairness | taskforge-no-fairness | +0.01 | [-0.00, +0.02] | - |  |
-| hot-dependency | slo_violations | taskforge-no-fairness | +0.50 | [-3.00, +6.00] | - |  |
-| hot-dependency | nondominant_slo_violations | taskforge-no-fairness | -1.00 | [-5.50, +5.50] | - |  |
-| hot-dependency | peak_concurrency | taskforge-no-fairness | +0.00 | [+0.00, +0.00] | - |  |
-| hot-dependency | completion_p99_ms | taskforge-no-admission | -13.45 | [-31.49, +12.42] | - |  |
-| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-admission | -13.47 | [-32.36, +13.05] | - |  |
-| hot-dependency | throughput_per_second | taskforge-no-admission | +5.28 | [-8.20, +16.61] | +1.8% [-2.8%, +5.7%] |  |
-| hot-dependency | jain_fairness | taskforge-no-admission | -0.00 | [-0.01, +0.01] | - |  |
-| hot-dependency | slo_violations | taskforge-no-admission | -1.50 | [-5.00, +3.00] | - |  |
-| hot-dependency | nondominant_slo_violations | taskforge-no-admission | +0.50 | [-5.50, +6.00] | - |  |
-| hot-dependency | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.00] | - |  |
-| hot-dependency | completion_p99_ms | taskforge-no-adaptive | +86.04 | [+68.37, +118.71] | - | yes |
-| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-adaptive | +85.76 | [+68.80, +118.75] | - | yes |
-| hot-dependency | throughput_per_second | taskforge-no-adaptive | -71.78 | [-86.61, -55.13] | -19.1% [-22.8%, -14.9%] | material reduction |
-| hot-dependency | jain_fairness | taskforge-no-adaptive | +0.00 | [-0.01, +0.01] | - |  |
-| hot-dependency | slo_violations | taskforge-no-adaptive | +9.50 | [+4.50, +15.00] | - | yes |
-| hot-dependency | nondominant_slo_violations | taskforge-no-adaptive | +5.00 | [+1.00, +13.50] | - | yes |
-| hot-dependency | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | - |  |
-| hot-dependency | completion_p99_ms | taskforge-no-dependency-budget | +153.72 | [+125.23, +208.49] | - | yes |
-| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +153.92 | [+124.91, +208.61] | - | yes |
-| hot-dependency | throughput_per_second | taskforge-no-dependency-budget | -128.33 | [-184.74, -102.69] | -29.7% [-37.9%, -24.9%] | material reduction |
-| hot-dependency | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.01, +0.01] | - |  |
-| hot-dependency | slo_violations | taskforge-no-dependency-budget | +17.00 | [+8.00, +32.50] | - | yes |
-| hot-dependency | nondominant_slo_violations | taskforge-no-dependency-budget | +11.50 | [+7.00, +20.00] | - | yes |
-| hot-dependency | peak_concurrency | taskforge-no-dependency-budget | -1.00 | [-1.00, -1.00] | - | yes |
-| noisy-neighbor | completion_p99_ms | taskforge-fifo-static | +9.45 | [-26.75, +55.29] | - |  |
-| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-fifo-static | +9.11 | [-25.75, +55.72] | - |  |
-| noisy-neighbor | throughput_per_second | taskforge-fifo-static | -161.71 | [-234.54, -131.82] | -27.3% [-35.8%, -23.1%] | material reduction |
-| noisy-neighbor | jain_fairness | taskforge-fifo-static | -0.13 | [-0.19, -0.09] | - | yes |
-| noisy-neighbor | slo_violations | taskforge-fifo-static | -14.00 | [-30.50, -2.00] | - | yes |
-| noisy-neighbor | nondominant_slo_violations | taskforge-fifo-static | -7.50 | [-11.00, -6.00] | - | yes |
-| noisy-neighbor | peak_concurrency | taskforge-fifo-static | -1.00 | [-1.00, -1.00] | - | yes |
-| noisy-neighbor | completion_p99_ms | taskforge-no-fairness | +72.05 | [+35.85, +105.32] | - | yes |
-| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-fairness | +71.77 | [+35.97, +106.25] | - | yes |
-| noisy-neighbor | throughput_per_second | taskforge-no-fairness | -217.65 | [-254.41, -184.98] | -33.6% [-37.9%, -29.9%] | material reduction |
-| noisy-neighbor | jain_fairness | taskforge-no-fairness | -0.13 | [-0.19, -0.10] | - | yes |
-| noisy-neighbor | slo_violations | taskforge-no-fairness | -2.50 | [-13.00, +8.00] | - |  |
-| noisy-neighbor | nondominant_slo_violations | taskforge-no-fairness | -5.50 | [-11.50, -5.00] | - | yes |
-| noisy-neighbor | peak_concurrency | taskforge-no-fairness | -1.00 | [-1.00, -1.00] | - | yes |
-| noisy-neighbor | completion_p99_ms | taskforge-no-admission | -97.81 | [-142.85, -52.48] | - | yes |
-| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-admission | -97.85 | [-141.86, -50.84] | - | yes |
-| noisy-neighbor | throughput_per_second | taskforge-no-admission | -10.16 | [-67.00, +15.58] | -2.3% [-12.9%, +3.7%] |  |
-| noisy-neighbor | jain_fairness | taskforge-no-admission | +0.19 | [+0.13, +0.22] | - | yes |
-| noisy-neighbor | slo_violations | taskforge-no-admission | -39.50 | [-48.00, -29.00] | - | yes |
-| noisy-neighbor | nondominant_slo_violations | taskforge-no-admission | +0.00 | [+0.00, +0.00] | - |  |
-| noisy-neighbor | peak_concurrency | taskforge-no-admission | +0.00 | [-0.50, +0.00] | - |  |
-| noisy-neighbor | completion_p99_ms | taskforge-no-adaptive | +15.37 | [-34.93, +49.72] | - |  |
-| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-adaptive | +15.00 | [-33.14, +49.78] | - |  |
-| noisy-neighbor | throughput_per_second | taskforge-no-adaptive | -7.40 | [-44.60, +17.96] | -1.7% [-9.6%, +4.1%] |  |
-| noisy-neighbor | jain_fairness | taskforge-no-adaptive | -0.01 | [-0.06, +0.03] | - |  |
-| noisy-neighbor | slo_violations | taskforge-no-adaptive | +2.00 | [-6.00, +12.00] | - |  |
-| noisy-neighbor | nondominant_slo_violations | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | - |  |
-| noisy-neighbor | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | - |  |
-| noisy-neighbor | completion_p99_ms | taskforge-no-dependency-budget | -20.02 | [-61.93, +26.68] | - |  |
-| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | -20.20 | [-61.91, +27.39] | - |  |
-| noisy-neighbor | throughput_per_second | taskforge-no-dependency-budget | +11.55 | [-18.43, +33.30] | +2.8% [-4.0%, +8.2%] |  |
-| noisy-neighbor | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.05, +0.02] | - |  |
-| noisy-neighbor | slo_violations | taskforge-no-dependency-budget | +2.50 | [-5.00, +12.00] | - |  |
-| noisy-neighbor | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | - |  |
-| noisy-neighbor | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | - |  |
-| retry-storm | completion_p99_ms | taskforge-fifo-static | +106.58 | [+69.29, +122.72] | - | yes |
-| retry-storm | enqueue_to_start_p99_ms | taskforge-fifo-static | +85.58 | [+50.13, +118.70] | - | yes |
-| retry-storm | throughput_per_second | taskforge-fifo-static | -230.32 | [-272.10, -164.15] | -40.1% [-45.3%, -32.0%] | material reduction |
-| retry-storm | jain_fairness | taskforge-fifo-static | -0.01 | [-0.04, -0.00] | - | yes |
-| retry-storm | slo_violations | taskforge-fifo-static | +43.00 | [+32.00, +46.50] | - | yes |
-| retry-storm | nondominant_slo_violations | taskforge-fifo-static | +15.50 | [+6.50, +25.00] | - | yes |
-| retry-storm | peak_concurrency | taskforge-fifo-static | -15.00 | [-16.00, -13.50] | - | yes |
-| retry-storm | completion_p99_ms | taskforge-no-fairness | +35.33 | [-28.16, +67.19] | - |  |
-| retry-storm | enqueue_to_start_p99_ms | taskforge-no-fairness | -30.38 | [-86.57, +20.35] | - |  |
-| retry-storm | throughput_per_second | taskforge-no-fairness | -108.90 | [-151.60, -44.94] | -24.0% [-31.1%, -11.6%] | material reduction |
-| retry-storm | jain_fairness | taskforge-no-fairness | -0.01 | [-0.04, -0.00] | - | yes |
-| retry-storm | slo_violations | taskforge-no-fairness | +15.00 | [-3.50, +29.50] | - |  |
-| retry-storm | nondominant_slo_violations | taskforge-no-fairness | +3.50 | [-9.00, +13.00] | - |  |
-| retry-storm | peak_concurrency | taskforge-no-fairness | -1.00 | [-4.50, +0.50] | - |  |
-| retry-storm | completion_p99_ms | taskforge-no-admission | -69.78 | [-102.93, -30.52] | - | yes |
-| retry-storm | enqueue_to_start_p99_ms | taskforge-no-admission | -77.67 | [-114.33, -32.16] | - | yes |
-| retry-storm | throughput_per_second | taskforge-no-admission | -9.75 | [-50.11, +15.20] | -2.8% [-13.2%, +4.7%] |  |
-| retry-storm | jain_fairness | taskforge-no-admission | +0.00 | [-0.03, +0.01] | - |  |
-| retry-storm | slo_violations | taskforge-no-admission | -6.50 | [-14.50, -1.50] | - | yes |
-| retry-storm | nondominant_slo_violations | taskforge-no-admission | -4.00 | [-12.50, +5.00] | - |  |
-| retry-storm | peak_concurrency | taskforge-no-admission | -18.00 | [-19.00, -17.50] | - | yes |
-| retry-storm | completion_p99_ms | taskforge-no-adaptive | +23.30 | [-29.05, +40.71] | - |  |
-| retry-storm | enqueue_to_start_p99_ms | taskforge-no-adaptive | -16.71 | [-48.49, +23.05] | - |  |
-| retry-storm | throughput_per_second | taskforge-no-adaptive | -20.25 | [-50.15, +12.67] | -5.6% [-13.3%, +3.8%] |  |
-| retry-storm | jain_fairness | taskforge-no-adaptive | +0.01 | [-0.03, +0.03] | - |  |
-| retry-storm | slo_violations | taskforge-no-adaptive | +13.00 | [+5.00, +22.00] | - | yes |
-| retry-storm | nondominant_slo_violations | taskforge-no-adaptive | +8.50 | [-4.00, +18.50] | - |  |
-| retry-storm | peak_concurrency | taskforge-no-adaptive | +1.00 | [+0.00, +1.50] | - |  |
-| retry-storm | completion_p99_ms | taskforge-no-dependency-budget | +4.01 | [-24.32, +19.62] | - |  |
-| retry-storm | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +3.54 | [-35.92, +35.25] | - |  |
-| retry-storm | throughput_per_second | taskforge-no-dependency-budget | +3.23 | [-23.50, +17.01] | +0.9% [-6.7%, +5.1%] |  |
-| retry-storm | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.03, +0.03] | - |  |
-| retry-storm | slo_violations | taskforge-no-dependency-budget | +4.50 | [-3.50, +15.00] | - |  |
-| retry-storm | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [-6.50, +11.00] | - |  |
-| retry-storm | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [-1.00, +1.00] | - |  |
-| tenant-skew | completion_p99_ms | taskforge-fifo-static | +102.41 | [+86.86, +131.99] | - | yes |
-| tenant-skew | enqueue_to_start_p99_ms | taskforge-fifo-static | +102.33 | [+86.80, +133.10] | - | yes |
-| tenant-skew | throughput_per_second | taskforge-fifo-static | -167.86 | [-234.38, -149.11] | -25.2% [-32.6%, -22.9%] | material reduction |
-| tenant-skew | jain_fairness | taskforge-fifo-static | -0.00 | [-0.03, +0.03] | - |  |
-| tenant-skew | slo_violations | taskforge-fifo-static | +22.00 | [+14.00, +33.50] | - | yes |
-| tenant-skew | nondominant_slo_violations | taskforge-fifo-static | +5.50 | [-2.00, +14.50] | - |  |
-| tenant-skew | peak_concurrency | taskforge-fifo-static | +0.00 | [+0.00, +0.00] | - |  |
-| tenant-skew | completion_p99_ms | taskforge-no-fairness | +127.30 | [+110.19, +151.16] | - | yes |
-| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-fairness | +127.22 | [+110.42, +150.71] | - | yes |
-| tenant-skew | throughput_per_second | taskforge-no-fairness | -234.05 | [-267.78, -206.11] | -31.9% [-35.7%, -29.1%] | material reduction |
-| tenant-skew | jain_fairness | taskforge-no-fairness | +0.01 | [-0.02, +0.02] | - |  |
-| tenant-skew | slo_violations | taskforge-no-fairness | +36.00 | [+24.50, +43.00] | - | yes |
-| tenant-skew | nondominant_slo_violations | taskforge-no-fairness | +10.50 | [+4.00, +17.00] | - | yes |
-| tenant-skew | peak_concurrency | taskforge-no-fairness | +0.00 | [+0.00, +0.00] | - |  |
-| tenant-skew | completion_p99_ms | taskforge-no-admission | -26.47 | [-63.92, +4.59] | - |  |
-| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-admission | -26.59 | [-64.53, +4.89] | - |  |
-| tenant-skew | throughput_per_second | taskforge-no-admission | +41.36 | [+1.96, +78.31] | +9.0% [+0.4%, +18.5%] | yes |
-| tenant-skew | jain_fairness | taskforge-no-admission | +0.00 | [-0.02, +0.02] | - |  |
-| tenant-skew | slo_violations | taskforge-no-admission | -0.50 | [-11.00, +7.00] | - |  |
-| tenant-skew | nondominant_slo_violations | taskforge-no-admission | +1.00 | [-9.00, +9.00] | - |  |
-| tenant-skew | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.50] | - |  |
-| tenant-skew | completion_p99_ms | taskforge-no-adaptive | -17.66 | [-43.17, +9.46] | - |  |
-| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-adaptive | -17.70 | [-43.63, +9.86] | - |  |
-| tenant-skew | throughput_per_second | taskforge-no-adaptive | +27.04 | [-6.70, +44.49] | +5.7% [-1.5%, +9.8%] |  |
-| tenant-skew | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.03, +0.01] | - |  |
-| tenant-skew | slo_violations | taskforge-no-adaptive | -0.50 | [-8.00, +5.50] | - |  |
-| tenant-skew | nondominant_slo_violations | taskforge-no-adaptive | +1.50 | [-9.00, +9.00] | - |  |
-| tenant-skew | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | - |  |
-| tenant-skew | completion_p99_ms | taskforge-no-dependency-budget | -15.75 | [-49.63, +42.65] | - |  |
-| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | -15.87 | [-49.42, +43.19] | - |  |
-| tenant-skew | throughput_per_second | taskforge-no-dependency-budget | +18.36 | [-66.85, +58.59] | +3.8% [-11.7%, +13.3%] |  |
-| tenant-skew | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.03, +0.02] | - |  |
-| tenant-skew | slo_violations | taskforge-no-dependency-budget | -6.00 | [-13.50, +1.00] | - |  |
-| tenant-skew | nondominant_slo_violations | taskforge-no-dependency-budget | -2.00 | [-11.00, +8.00] | - |  |
-| tenant-skew | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | - |  |
-| worker-crash | completion_p99_ms | taskforge-fifo-static | +107.16 | [+74.12, +128.53] | - | yes |
-| worker-crash | enqueue_to_start_p99_ms | taskforge-fifo-static | +108.34 | [+75.83, +129.35] | - | yes |
-| worker-crash | throughput_per_second | taskforge-fifo-static | +95.55 | [-158.13, +325.73] | +30.2% [-28.3%, +314.2%] |  |
-| worker-crash | jain_fairness | taskforge-fifo-static | -0.00 | [-0.01, -0.00] | - | yes |
-| worker-crash | slo_violations | taskforge-fifo-static | +14.00 | [+6.00, +22.00] | - | yes |
-| worker-crash | nondominant_slo_violations | taskforge-fifo-static | +2.00 | [+1.00, +4.50] | - | yes |
-| worker-crash | peak_concurrency | taskforge-fifo-static | -1.00 | [-1.00, -1.00] | - | yes |
-| worker-crash | completion_p99_ms | taskforge-no-fairness | +97.22 | [+77.55, +114.78] | - | yes |
-| worker-crash | enqueue_to_start_p99_ms | taskforge-no-fairness | +98.91 | [+79.03, +116.28] | - | yes |
-| worker-crash | throughput_per_second | taskforge-no-fairness | -151.80 | [-183.03, +309.02] | -26.9% [-31.8%, +290.1%] |  |
-| worker-crash | jain_fairness | taskforge-no-fairness | -0.00 | [-0.01, -0.00] | - | yes |
-| worker-crash | slo_violations | taskforge-no-fairness | +14.50 | [+6.50, +22.50] | - | yes |
-| worker-crash | nondominant_slo_violations | taskforge-no-fairness | +2.00 | [+1.00, +4.50] | - | yes |
-| worker-crash | peak_concurrency | taskforge-no-fairness | -1.00 | [-1.00, -1.00] | - | yes |
-| worker-crash | completion_p99_ms | taskforge-no-admission | +13.50 | [-3.81, +37.60] | - |  |
-| worker-crash | enqueue_to_start_p99_ms | taskforge-no-admission | +13.61 | [-3.26, +37.92] | - |  |
-| worker-crash | throughput_per_second | taskforge-no-admission | -17.10 | [-53.68, +13.46] | -4.0% [-11.6%, +3.2%] |  |
-| worker-crash | jain_fairness | taskforge-no-admission | -0.00 | [-0.01, +0.01] | - |  |
-| worker-crash | slo_violations | taskforge-no-admission | +9.00 | [-1.50, +19.50] | - |  |
-| worker-crash | nondominant_slo_violations | taskforge-no-admission | +2.00 | [+0.00, +4.50] | - |  |
-| worker-crash | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.00] | - |  |
-| worker-crash | completion_p99_ms | taskforge-no-adaptive | +24.71 | [-5.92, +44.22] | - |  |
-| worker-crash | enqueue_to_start_p99_ms | taskforge-no-adaptive | +24.75 | [-2.61, +44.27] | - |  |
-| worker-crash | throughput_per_second | taskforge-no-adaptive | -45.19 | [-77.37, -0.75] | -9.9% [-16.4%, -0.3%] | yes |
-| worker-crash | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.01, -0.00] | - | yes |
-| worker-crash | slo_violations | taskforge-no-adaptive | +14.50 | [-1.50, +21.50] | - |  |
-| worker-crash | nondominant_slo_violations | taskforge-no-adaptive | +2.00 | [-4.50, +4.50] | - |  |
-| worker-crash | peak_concurrency | taskforge-no-adaptive | +0.00 | [-1.00, +0.00] | - |  |
-| worker-crash | completion_p99_ms | taskforge-no-dependency-budget | +11.97 | [-13.18, +34.45] | - |  |
-| worker-crash | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +11.96 | [-19.56, +36.49] | - |  |
-| worker-crash | throughput_per_second | taskforge-no-dependency-budget | -7.65 | [-60.38, +22.75] | -1.8% [-12.9%, +5.7%] |  |
-| worker-crash | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.01, +0.00] | - |  |
-| worker-crash | slo_violations | taskforge-no-dependency-budget | +7.50 | [-6.50, +16.50] | - |  |
-| worker-crash | nondominant_slo_violations | taskforge-no-dependency-budget | +1.00 | [-1.00, +4.00] | - |  |
-| worker-crash | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | - |  |
+| Workload | Metric | Against | Difference | 95% interval | Family-wise interval | Family-wise | Relative change | Detected/material |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delayed-backlog | completion_p99_ms | taskforge-fifo-static | +49.62 | [+11.83, +95.24] | [-17.45, +116.90] | not distinguished | - | yes |
+| delayed-backlog | enqueue_to_start_p99_ms | taskforge-fifo-static | +49.71 | [+10.78, +94.63] | [-11.94, +121.15] | not distinguished | - | yes |
+| delayed-backlog | throughput_per_second | taskforge-fifo-static | -234.19 | [-293.56, -166.07] | [-365.05, -101.37] | survives | -33.3% [-39.5%, -24.6%] | material reduction |
+| delayed-backlog | jain_fairness | taskforge-fifo-static | -0.00 | [-0.00, +0.00] | [-0.00, +0.00] | not distinguished | - |  |
+| delayed-backlog | slo_violations | taskforge-fifo-static | +1.50 | [+0.00, +8.50] | [+0.00, +35.50] | not distinguished | - |  |
+| delayed-backlog | nondominant_slo_violations | taskforge-fifo-static | +0.00 | [+0.00, +1.00] | [+0.00, +13.00] | not distinguished | - |  |
+| delayed-backlog | peak_concurrency | taskforge-fifo-static | +0.00 | [-1.00, +0.00] | [-1.00, +0.00] | not distinguished | - |  |
+| delayed-backlog | completion_p99_ms | taskforge-no-fairness | +21.05 | [-14.41, +67.25] | [-31.74, +95.32] | not distinguished | - |  |
+| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-fairness | +20.95 | [-13.79, +67.26] | [-43.93, +94.71] | not distinguished | - |  |
+| delayed-backlog | throughput_per_second | taskforge-no-fairness | -139.67 | [-203.31, -87.83] | [-253.02, -46.20] | survives | -22.9% [-31.5%, -14.4%] | material reduction |
+| delayed-backlog | jain_fairness | taskforge-no-fairness | -0.00 | [-0.00, +0.00] | [-0.00, +0.00] | not distinguished | - |  |
+| delayed-backlog | slo_violations | taskforge-no-fairness | +1.50 | [-1.00, +8.50] | [-6.50, +9.00] | not distinguished | - |  |
+| delayed-backlog | nondominant_slo_violations | taskforge-no-fairness | +0.00 | [-0.50, +1.00] | [-3.00, +14.50] | not distinguished | - |  |
+| delayed-backlog | peak_concurrency | taskforge-no-fairness | +0.00 | [-1.00, +0.00] | [-1.00, +0.00] | not distinguished | - |  |
+| delayed-backlog | completion_p99_ms | taskforge-no-admission | -90.78 | [-120.35, -16.99] | [-135.30, +27.19] | not distinguished | - | yes |
+| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-admission | -90.88 | [-120.38, -18.51] | [-137.04, +21.16] | not distinguished | - | yes |
+| delayed-backlog | throughput_per_second | taskforge-no-admission | +33.24 | [-54.87, +86.70] | [-109.08, +138.22] | not distinguished | +7.6% [-11.5%, +20.0%] |  |
+| delayed-backlog | jain_fairness | taskforge-no-admission | +0.00 | [+0.00, +0.01] | [-0.00, +0.02] | not distinguished | - | yes |
+| delayed-backlog | slo_violations | taskforge-no-admission | -38.00 | [-44.00, -22.50] | [-55.00, -1.50] | survives | - | yes |
+| delayed-backlog | nondominant_slo_violations | taskforge-no-admission | -15.00 | [-19.00, -8.00] | [-22.00, -3.00] | survives | - | yes |
+| delayed-backlog | peak_concurrency | taskforge-no-admission | +0.00 | [-1.00, +0.50] | [-1.00, +1.00] | not distinguished | - |  |
+| delayed-backlog | completion_p99_ms | taskforge-no-adaptive | +21.99 | [-8.94, +70.67] | [-38.29, +104.39] | not distinguished | - |  |
+| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-adaptive | +21.92 | [-8.58, +72.44] | [-43.46, +98.74] | not distinguished | - |  |
+| delayed-backlog | throughput_per_second | taskforge-no-adaptive | -10.59 | [-62.45, +49.10] | [-127.55, +92.52] | not distinguished | -2.2% [-12.1%, +10.6%] |  |
+| delayed-backlog | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.00, +0.00] | [-0.00, +0.00] | not distinguished | - |  |
+| delayed-backlog | slo_violations | taskforge-no-adaptive | +1.50 | [-0.50, +8.50] | [-19.00, +35.50] | not distinguished | - |  |
+| delayed-backlog | nondominant_slo_violations | taskforge-no-adaptive | +0.00 | [+0.00, +1.00] | [-3.50, +13.00] | not distinguished | - |  |
+| delayed-backlog | peak_concurrency | taskforge-no-adaptive | +0.00 | [-1.00, +0.50] | [-1.00, +1.00] | not distinguished | - |  |
+| delayed-backlog | completion_p99_ms | taskforge-no-dependency-budget | +0.90 | [-26.35, +46.90] | [-42.72, +71.72] | not distinguished | - |  |
+| delayed-backlog | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +0.80 | [-26.28, +47.46] | [-46.38, +67.75] | not distinguished | - |  |
+| delayed-backlog | throughput_per_second | taskforge-no-dependency-budget | -14.26 | [-58.33, +46.42] | [-84.61, +93.57] | not distinguished | -2.9% [-11.5%, +9.8%] |  |
+| delayed-backlog | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.00, +0.00] | [-0.00, +0.01] | not distinguished | - |  |
+| delayed-backlog | slo_violations | taskforge-no-dependency-budget | +0.00 | [-6.50, +7.00] | [-13.00, +9.00] | not distinguished | - |  |
+| delayed-backlog | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [+0.00, +1.00] | [+0.00, +12.50] | not distinguished | - |  |
+| delayed-backlog | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [-1.00, +0.00] | [-1.00, +0.00] | not distinguished | - |  |
+| hot-dependency | completion_p99_ms | taskforge-fifo-static | +225.37 | [+208.30, +253.10] | [+191.32, +274.29] | survives | - | yes |
+| hot-dependency | enqueue_to_start_p99_ms | taskforge-fifo-static | +225.28 | [+208.49, +254.07] | [+184.06, +273.41] | survives | - | yes |
+| hot-dependency | throughput_per_second | taskforge-fifo-static | -237.17 | [-257.47, -222.70] | [-274.69, -208.43] | survives | -43.9% [-46.8%, -41.4%] | material reduction |
+| hot-dependency | jain_fairness | taskforge-fifo-static | -0.00 | [-0.01, +0.00] | [-0.03, +0.01] | not distinguished | - |  |
+| hot-dependency | slo_violations | taskforge-fifo-static | +39.50 | [+34.50, +45.00] | [+29.50, +49.00] | survives | - | yes |
+| hot-dependency | nondominant_slo_violations | taskforge-fifo-static | +23.50 | [+17.50, +29.00] | [+11.00, +36.00] | survives | - | yes |
+| hot-dependency | peak_concurrency | taskforge-fifo-static | -2.00 | [-2.00, -1.00] | [-2.00, -1.00] | survives | - | yes |
+| hot-dependency | completion_p99_ms | taskforge-no-fairness | -9.97 | [-31.60, +16.93] | [-52.44, +35.08] | not distinguished | - |  |
+| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-fairness | -10.13 | [-31.70, +17.47] | [-54.57, +35.58] | not distinguished | - |  |
+| hot-dependency | throughput_per_second | taskforge-no-fairness | +4.14 | [-12.01, +15.85] | [-25.55, +31.48] | not distinguished | +1.4% [-3.8%, +5.6%] |  |
+| hot-dependency | jain_fairness | taskforge-no-fairness | +0.01 | [-0.00, +0.02] | [-0.02, +0.04] | not distinguished | - |  |
+| hot-dependency | slo_violations | taskforge-no-fairness | +0.50 | [-3.00, +6.00] | [-7.00, +9.50] | not distinguished | - |  |
+| hot-dependency | nondominant_slo_violations | taskforge-no-fairness | -1.00 | [-5.50, +5.50] | [-12.00, +8.00] | not distinguished | - |  |
+| hot-dependency | peak_concurrency | taskforge-no-fairness | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| hot-dependency | completion_p99_ms | taskforge-no-admission | -13.45 | [-31.49, +12.42] | [-48.97, +41.22] | not distinguished | - |  |
+| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-admission | -13.47 | [-32.36, +13.05] | [-48.86, +41.62] | not distinguished | - |  |
+| hot-dependency | throughput_per_second | taskforge-no-admission | +5.28 | [-8.20, +16.61] | [-25.92, +31.83] | not distinguished | +1.8% [-2.8%, +5.7%] |  |
+| hot-dependency | jain_fairness | taskforge-no-admission | -0.00 | [-0.01, +0.01] | [-0.02, +0.02] | not distinguished | - |  |
+| hot-dependency | slo_violations | taskforge-no-admission | -1.50 | [-5.00, +3.00] | [-9.00, +8.00] | not distinguished | - |  |
+| hot-dependency | nondominant_slo_violations | taskforge-no-admission | +0.50 | [-5.50, +6.00] | [-13.00, +9.50] | not distinguished | - |  |
+| hot-dependency | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| hot-dependency | completion_p99_ms | taskforge-no-adaptive | +86.04 | [+68.37, +118.71] | [+47.73, +140.40] | survives | - | yes |
+| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-adaptive | +85.76 | [+68.80, +118.75] | [+47.54, +141.07] | survives | - | yes |
+| hot-dependency | throughput_per_second | taskforge-no-adaptive | -71.78 | [-86.61, -55.13] | [-101.83, -39.36] | survives | -19.1% [-22.8%, -14.9%] | material reduction |
+| hot-dependency | jain_fairness | taskforge-no-adaptive | +0.00 | [-0.01, +0.01] | [-0.02, +0.03] | not distinguished | - |  |
+| hot-dependency | slo_violations | taskforge-no-adaptive | +9.50 | [+4.50, +15.00] | [+1.00, +19.00] | survives | - | yes |
+| hot-dependency | nondominant_slo_violations | taskforge-no-adaptive | +5.00 | [+1.00, +13.50] | [-6.00, +18.50] | not distinguished | - | yes |
+| hot-dependency | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| hot-dependency | completion_p99_ms | taskforge-no-dependency-budget | +153.72 | [+125.23, +208.49] | [+91.34, +242.67] | survives | - | yes |
+| hot-dependency | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +153.92 | [+124.91, +208.61] | [+82.19, +241.52] | survives | - | yes |
+| hot-dependency | throughput_per_second | taskforge-no-dependency-budget | -128.33 | [-184.74, -102.69] | [-225.88, -67.73] | survives | -29.7% [-37.9%, -24.9%] | material reduction |
+| hot-dependency | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.01, +0.01] | [-0.02, +0.03] | not distinguished | - |  |
+| hot-dependency | slo_violations | taskforge-no-dependency-budget | +17.00 | [+8.00, +32.50] | [+0.50, +42.00] | survives | - | yes |
+| hot-dependency | nondominant_slo_violations | taskforge-no-dependency-budget | +11.50 | [+7.00, +20.00] | [+0.00, +26.00] | not distinguished | - | yes |
+| hot-dependency | peak_concurrency | taskforge-no-dependency-budget | -1.00 | [-1.00, -1.00] | [-1.00, -1.00] | degenerate | - | yes |
+| noisy-neighbor | completion_p99_ms | taskforge-fifo-static | +9.45 | [-26.75, +55.29] | [-50.43, +97.65] | not distinguished | - |  |
+| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-fifo-static | +9.11 | [-25.75, +55.72] | [-54.89, +109.50] | not distinguished | - |  |
+| noisy-neighbor | throughput_per_second | taskforge-fifo-static | -161.71 | [-234.54, -131.82] | [-354.24, -109.87] | survives | -27.3% [-35.8%, -23.1%] | material reduction |
+| noisy-neighbor | jain_fairness | taskforge-fifo-static | -0.13 | [-0.19, -0.09] | [-0.21, -0.06] | survives | - | yes |
+| noisy-neighbor | slo_violations | taskforge-fifo-static | -14.00 | [-30.50, -2.00] | [-34.50, +13.50] | not distinguished | - | yes |
+| noisy-neighbor | nondominant_slo_violations | taskforge-fifo-static | -7.50 | [-11.00, -6.00] | [-13.00, -5.00] | survives | - | yes |
+| noisy-neighbor | peak_concurrency | taskforge-fifo-static | -1.00 | [-1.00, -1.00] | [-1.00, +0.00] | degenerate | - | yes |
+| noisy-neighbor | completion_p99_ms | taskforge-no-fairness | +72.05 | [+35.85, +105.32] | [+8.22, +124.58] | survives | - | yes |
+| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-fairness | +71.77 | [+35.97, +106.25] | [+2.44, +122.96] | survives | - | yes |
+| noisy-neighbor | throughput_per_second | taskforge-no-fairness | -217.65 | [-254.41, -184.98] | [-282.44, -154.22] | survives | -33.6% [-37.9%, -29.9%] | material reduction |
+| noisy-neighbor | jain_fairness | taskforge-no-fairness | -0.13 | [-0.19, -0.10] | [-0.22, -0.07] | survives | - | yes |
+| noisy-neighbor | slo_violations | taskforge-no-fairness | -2.50 | [-13.00, +8.00] | [-21.00, +17.00] | not distinguished | - |  |
+| noisy-neighbor | nondominant_slo_violations | taskforge-no-fairness | -5.50 | [-11.50, -5.00] | [-13.50, -4.00] | survives | - | yes |
+| noisy-neighbor | peak_concurrency | taskforge-no-fairness | -1.00 | [-1.00, -1.00] | [-1.00, -1.00] | degenerate | - | yes |
+| noisy-neighbor | completion_p99_ms | taskforge-no-admission | -97.81 | [-142.85, -52.48] | [-176.65, -5.98] | survives | - | yes |
+| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-admission | -97.85 | [-141.86, -50.84] | [-173.86, -9.50] | survives | - | yes |
+| noisy-neighbor | throughput_per_second | taskforge-no-admission | -10.16 | [-67.00, +15.58] | [-111.20, +33.08] | not distinguished | -2.3% [-12.9%, +3.7%] |  |
+| noisy-neighbor | jain_fairness | taskforge-no-admission | +0.19 | [+0.13, +0.22] | [+0.04, +0.24] | survives | - | yes |
+| noisy-neighbor | slo_violations | taskforge-no-admission | -39.50 | [-48.00, -29.00] | [-53.00, -13.00] | survives | - | yes |
+| noisy-neighbor | nondominant_slo_violations | taskforge-no-admission | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| noisy-neighbor | peak_concurrency | taskforge-no-admission | +0.00 | [-0.50, +0.00] | [-1.00, +0.00] | not distinguished | - |  |
+| noisy-neighbor | completion_p99_ms | taskforge-no-adaptive | +15.37 | [-34.93, +49.72] | [-72.06, +84.99] | not distinguished | - |  |
+| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-adaptive | +15.00 | [-33.14, +49.78] | [-72.13, +83.87] | not distinguished | - |  |
+| noisy-neighbor | throughput_per_second | taskforge-no-adaptive | -7.40 | [-44.60, +17.96] | [-94.68, +37.72] | not distinguished | -1.7% [-9.6%, +4.1%] |  |
+| noisy-neighbor | jain_fairness | taskforge-no-adaptive | -0.01 | [-0.06, +0.03] | [-0.08, +0.04] | not distinguished | - |  |
+| noisy-neighbor | slo_violations | taskforge-no-adaptive | +2.00 | [-6.00, +12.00] | [-12.50, +20.00] | not distinguished | - |  |
+| noisy-neighbor | nondominant_slo_violations | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| noisy-neighbor | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| noisy-neighbor | completion_p99_ms | taskforge-no-dependency-budget | -20.02 | [-61.93, +26.68] | [-93.93, +63.85] | not distinguished | - |  |
+| noisy-neighbor | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | -20.20 | [-61.91, +27.39] | [-95.92, +65.92] | not distinguished | - |  |
+| noisy-neighbor | throughput_per_second | taskforge-no-dependency-budget | +11.55 | [-18.43, +33.30] | [-46.91, +52.75] | not distinguished | +2.8% [-4.0%, +8.2%] |  |
+| noisy-neighbor | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.05, +0.02] | [-0.08, +0.05] | not distinguished | - |  |
+| noisy-neighbor | slo_violations | taskforge-no-dependency-budget | +2.50 | [-5.00, +12.00] | [-11.00, +19.00] | not distinguished | - |  |
+| noisy-neighbor | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| noisy-neighbor | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| retry-storm | completion_p99_ms | taskforge-fifo-static | +106.58 | [+69.29, +122.72] | [+45.06, +138.01] | survives | - | yes |
+| retry-storm | enqueue_to_start_p99_ms | taskforge-fifo-static | +85.58 | [+50.13, +118.70] | [+27.14, +153.68] | survives | - | yes |
+| retry-storm | throughput_per_second | taskforge-fifo-static | -230.32 | [-272.10, -164.15] | [-295.17, -135.38] | survives | -40.1% [-45.3%, -32.0%] | material reduction |
+| retry-storm | jain_fairness | taskforge-fifo-static | -0.01 | [-0.04, -0.00] | [-0.07, +0.00] | not distinguished | - | yes |
+| retry-storm | slo_violations | taskforge-fifo-static | +43.00 | [+32.00, +46.50] | [+12.50, +55.00] | survives | - | yes |
+| retry-storm | nondominant_slo_violations | taskforge-fifo-static | +15.50 | [+6.50, +25.00] | [-0.50, +31.50] | not distinguished | - | yes |
+| retry-storm | peak_concurrency | taskforge-fifo-static | -15.00 | [-16.00, -13.50] | [-17.00, -12.50] | survives | - | yes |
+| retry-storm | completion_p99_ms | taskforge-no-fairness | +35.33 | [-28.16, +67.19] | [-74.23, +87.52] | not distinguished | - |  |
+| retry-storm | enqueue_to_start_p99_ms | taskforge-no-fairness | -30.38 | [-86.57, +20.35] | [-143.56, +55.25] | not distinguished | - |  |
+| retry-storm | throughput_per_second | taskforge-no-fairness | -108.90 | [-151.60, -44.94] | [-181.48, -4.02] | survives | -24.0% [-31.1%, -11.6%] | material reduction |
+| retry-storm | jain_fairness | taskforge-no-fairness | -0.01 | [-0.04, -0.00] | [-0.07, +0.00] | not distinguished | - | yes |
+| retry-storm | slo_violations | taskforge-no-fairness | +15.00 | [-3.50, +29.50] | [-8.50, +39.00] | not distinguished | - |  |
+| retry-storm | nondominant_slo_violations | taskforge-no-fairness | +3.50 | [-9.00, +13.00] | [-12.50, +21.00] | not distinguished | - |  |
+| retry-storm | peak_concurrency | taskforge-no-fairness | -1.00 | [-4.50, +0.50] | [-7.00, +2.50] | not distinguished | - |  |
+| retry-storm | completion_p99_ms | taskforge-no-admission | -69.78 | [-102.93, -30.52] | [-123.48, +8.18] | not distinguished | - | yes |
+| retry-storm | enqueue_to_start_p99_ms | taskforge-no-admission | -77.67 | [-114.33, -32.16] | [-128.28, +9.38] | not distinguished | - | yes |
+| retry-storm | throughput_per_second | taskforge-no-admission | -9.75 | [-50.11, +15.20] | [-101.90, +41.74] | not distinguished | -2.8% [-13.2%, +4.7%] |  |
+| retry-storm | jain_fairness | taskforge-no-admission | +0.00 | [-0.03, +0.01] | [-0.06, +0.02] | not distinguished | - |  |
+| retry-storm | slo_violations | taskforge-no-admission | -6.50 | [-14.50, -1.50] | [-22.00, +7.00] | not distinguished | - | yes |
+| retry-storm | nondominant_slo_violations | taskforge-no-admission | -4.00 | [-12.50, +5.00] | [-22.00, +11.50] | not distinguished | - |  |
+| retry-storm | peak_concurrency | taskforge-no-admission | -18.00 | [-19.00, -17.50] | [-20.00, -13.50] | survives | - | yes |
+| retry-storm | completion_p99_ms | taskforge-no-adaptive | +23.30 | [-29.05, +40.71] | [-54.01, +81.19] | not distinguished | - |  |
+| retry-storm | enqueue_to_start_p99_ms | taskforge-no-adaptive | -16.71 | [-48.49, +23.05] | [-67.43, +78.02] | not distinguished | - |  |
+| retry-storm | throughput_per_second | taskforge-no-adaptive | -20.25 | [-50.15, +12.67] | [-67.07, +45.67] | not distinguished | -5.6% [-13.3%, +3.8%] |  |
+| retry-storm | jain_fairness | taskforge-no-adaptive | +0.01 | [-0.03, +0.03] | [-0.06, +0.04] | not distinguished | - |  |
+| retry-storm | slo_violations | taskforge-no-adaptive | +13.00 | [+5.00, +22.00] | [-3.50, +29.00] | not distinguished | - | yes |
+| retry-storm | nondominant_slo_violations | taskforge-no-adaptive | +8.50 | [-4.00, +18.50] | [-13.50, +24.00] | not distinguished | - |  |
+| retry-storm | peak_concurrency | taskforge-no-adaptive | +1.00 | [+0.00, +1.50] | [-1.50, +2.50] | not distinguished | - |  |
+| retry-storm | completion_p99_ms | taskforge-no-dependency-budget | +4.01 | [-24.32, +19.62] | [-68.28, +64.77] | not distinguished | - |  |
+| retry-storm | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +3.54 | [-35.92, +35.25] | [-57.69, +68.02] | not distinguished | - |  |
+| retry-storm | throughput_per_second | taskforge-no-dependency-budget | +3.23 | [-23.50, +17.01] | [-59.51, +40.17] | not distinguished | +0.9% [-6.7%, +5.1%] |  |
+| retry-storm | jain_fairness | taskforge-no-dependency-budget | +0.00 | [-0.03, +0.03] | [-0.07, +0.06] | not distinguished | - |  |
+| retry-storm | slo_violations | taskforge-no-dependency-budget | +4.50 | [-3.50, +15.00] | [-13.00, +21.00] | not distinguished | - |  |
+| retry-storm | nondominant_slo_violations | taskforge-no-dependency-budget | +0.00 | [-6.50, +11.00] | [-11.00, +21.00] | not distinguished | - |  |
+| retry-storm | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [-1.00, +1.00] | [-3.00, +2.00] | not distinguished | - |  |
+| tenant-skew | completion_p99_ms | taskforge-fifo-static | +102.41 | [+86.86, +131.99] | [+68.43, +179.09] | survives | - | yes |
+| tenant-skew | enqueue_to_start_p99_ms | taskforge-fifo-static | +102.33 | [+86.80, +133.10] | [+67.97, +175.32] | survives | - | yes |
+| tenant-skew | throughput_per_second | taskforge-fifo-static | -167.86 | [-234.38, -149.11] | [-282.11, -125.83] | survives | -25.2% [-32.6%, -22.9%] | material reduction |
+| tenant-skew | jain_fairness | taskforge-fifo-static | -0.00 | [-0.03, +0.03] | [-0.03, +0.07] | not distinguished | - |  |
+| tenant-skew | slo_violations | taskforge-fifo-static | +22.00 | [+14.00, +33.50] | [+0.00, +58.00] | not distinguished | - | yes |
+| tenant-skew | nondominant_slo_violations | taskforge-fifo-static | +5.50 | [-2.00, +14.50] | [-12.00, +22.50] | not distinguished | - |  |
+| tenant-skew | peak_concurrency | taskforge-fifo-static | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| tenant-skew | completion_p99_ms | taskforge-no-fairness | +127.30 | [+110.19, +151.16] | [+89.21, +190.52] | survives | - | yes |
+| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-fairness | +127.22 | [+110.42, +150.71] | [+92.02, +186.28] | survives | - | yes |
+| tenant-skew | throughput_per_second | taskforge-no-fairness | -234.05 | [-267.78, -206.11] | [-304.35, -173.09] | survives | -31.9% [-35.7%, -29.1%] | material reduction |
+| tenant-skew | jain_fairness | taskforge-no-fairness | +0.01 | [-0.02, +0.02] | [-0.04, +0.04] | not distinguished | - |  |
+| tenant-skew | slo_violations | taskforge-no-fairness | +36.00 | [+24.50, +43.00] | [+7.50, +50.50] | survives | - | yes |
+| tenant-skew | nondominant_slo_violations | taskforge-no-fairness | +10.50 | [+4.00, +17.00] | [-4.50, +21.00] | not distinguished | - | yes |
+| tenant-skew | peak_concurrency | taskforge-no-fairness | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| tenant-skew | completion_p99_ms | taskforge-no-admission | -26.47 | [-63.92, +4.59] | [-87.97, +43.38] | not distinguished | - |  |
+| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-admission | -26.59 | [-64.53, +4.89] | [-82.74, +48.63] | not distinguished | - |  |
+| tenant-skew | throughput_per_second | taskforge-no-admission | +41.36 | [+1.96, +78.31] | [-44.01, +94.54] | not distinguished | +9.0% [+0.4%, +18.5%] | yes |
+| tenant-skew | jain_fairness | taskforge-no-admission | +0.00 | [-0.02, +0.02] | [-0.03, +0.03] | not distinguished | - |  |
+| tenant-skew | slo_violations | taskforge-no-admission | -0.50 | [-11.00, +7.00] | [-27.50, +12.00] | not distinguished | - |  |
+| tenant-skew | nondominant_slo_violations | taskforge-no-admission | +1.00 | [-9.00, +9.00] | [-16.50, +14.00] | not distinguished | - |  |
+| tenant-skew | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.50] | [+0.00, +1.00] | not distinguished | - |  |
+| tenant-skew | completion_p99_ms | taskforge-no-adaptive | -17.66 | [-43.17, +9.46] | [-61.48, +55.85] | not distinguished | - |  |
+| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-adaptive | -17.70 | [-43.63, +9.86] | [-60.46, +49.40] | not distinguished | - |  |
+| tenant-skew | throughput_per_second | taskforge-no-adaptive | +27.04 | [-6.70, +44.49] | [-46.16, +68.08] | not distinguished | +5.7% [-1.5%, +9.8%] |  |
+| tenant-skew | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.03, +0.01] | [-0.04, +0.03] | not distinguished | - |  |
+| tenant-skew | slo_violations | taskforge-no-adaptive | -0.50 | [-8.00, +5.50] | [-23.50, +10.00] | not distinguished | - |  |
+| tenant-skew | nondominant_slo_violations | taskforge-no-adaptive | +1.50 | [-9.00, +9.00] | [-20.00, +13.00] | not distinguished | - |  |
+| tenant-skew | peak_concurrency | taskforge-no-adaptive | +0.00 | [+0.00, +0.00] | [+0.00, +0.50] | degenerate | - |  |
+| tenant-skew | completion_p99_ms | taskforge-no-dependency-budget | -15.75 | [-49.63, +42.65] | [-68.96, +99.28] | not distinguished | - |  |
+| tenant-skew | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | -15.87 | [-49.42, +43.19] | [-69.70, +99.09] | not distinguished | - |  |
+| tenant-skew | throughput_per_second | taskforge-no-dependency-budget | +18.36 | [-66.85, +58.59] | [-144.14, +83.47] | not distinguished | +3.8% [-11.7%, +13.3%] |  |
+| tenant-skew | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.03, +0.02] | [-0.04, +0.04] | not distinguished | - |  |
+| tenant-skew | slo_violations | taskforge-no-dependency-budget | -6.00 | [-13.50, +1.00] | [-28.00, +14.50] | not distinguished | - |  |
+| tenant-skew | nondominant_slo_violations | taskforge-no-dependency-budget | -2.00 | [-11.00, +8.00] | [-22.00, +15.50] | not distinguished | - |  |
+| tenant-skew | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| worker-crash | completion_p99_ms | taskforge-fifo-static | +107.16 | [+74.12, +128.53] | [+60.67, +137.84] | survives | - | yes |
+| worker-crash | enqueue_to_start_p99_ms | taskforge-fifo-static | +108.34 | [+75.83, +129.35] | [+58.24, +139.30] | survives | - | yes |
+| worker-crash | throughput_per_second | taskforge-fifo-static | +95.55 | [-158.13, +325.73] | [-205.31, +331.65] | not distinguished | +30.2% [-28.3%, +314.2%] |  |
+| worker-crash | jain_fairness | taskforge-fifo-static | -0.00 | [-0.01, -0.00] | [-0.02, -0.00] | survives | - | yes |
+| worker-crash | slo_violations | taskforge-fifo-static | +14.00 | [+6.00, +22.00] | [+2.00, +31.00] | survives | - | yes |
+| worker-crash | nondominant_slo_violations | taskforge-fifo-static | +2.00 | [+1.00, +4.50] | [-1.00, +13.00] | not distinguished | - | yes |
+| worker-crash | peak_concurrency | taskforge-fifo-static | -1.00 | [-1.00, -1.00] | [-1.00, -1.00] | degenerate | - | yes |
+| worker-crash | completion_p99_ms | taskforge-no-fairness | +97.22 | [+77.55, +114.78] | [+66.80, +123.62] | survives | - | yes |
+| worker-crash | enqueue_to_start_p99_ms | taskforge-no-fairness | +98.91 | [+79.03, +116.28] | [+58.95, +124.99] | survives | - | yes |
+| worker-crash | throughput_per_second | taskforge-no-fairness | -151.80 | [-183.03, +309.02] | [-213.07, +327.01] | not distinguished | -26.9% [-31.8%, +290.1%] |  |
+| worker-crash | jain_fairness | taskforge-no-fairness | -0.00 | [-0.01, -0.00] | [-0.02, -0.00] | survives | - | yes |
+| worker-crash | slo_violations | taskforge-no-fairness | +14.50 | [+6.50, +22.50] | [+2.00, +34.00] | survives | - | yes |
+| worker-crash | nondominant_slo_violations | taskforge-no-fairness | +2.00 | [+1.00, +4.50] | [+0.00, +13.00] | not distinguished | - | yes |
+| worker-crash | peak_concurrency | taskforge-no-fairness | -1.00 | [-1.00, -1.00] | [-1.00, -1.00] | degenerate | - | yes |
+| worker-crash | completion_p99_ms | taskforge-no-admission | +13.50 | [-3.81, +37.60] | [-20.49, +56.87] | not distinguished | - |  |
+| worker-crash | enqueue_to_start_p99_ms | taskforge-no-admission | +13.61 | [-3.26, +37.92] | [-35.79, +56.77] | not distinguished | - |  |
+| worker-crash | throughput_per_second | taskforge-no-admission | -17.10 | [-53.68, +13.46] | [-87.59, +26.87] | not distinguished | -4.0% [-11.6%, +3.2%] |  |
+| worker-crash | jain_fairness | taskforge-no-admission | -0.00 | [-0.01, +0.01] | [-0.03, +0.01] | not distinguished | - |  |
+| worker-crash | slo_violations | taskforge-no-admission | +9.00 | [-1.50, +19.50] | [-9.00, +28.00] | not distinguished | - |  |
+| worker-crash | nondominant_slo_violations | taskforge-no-admission | +2.00 | [+0.00, +4.50] | [-3.50, +13.00] | not distinguished | - |  |
+| worker-crash | peak_concurrency | taskforge-no-admission | +0.00 | [+0.00, +0.00] | [+0.00, +0.00] | degenerate | - |  |
+| worker-crash | completion_p99_ms | taskforge-no-adaptive | +24.71 | [-5.92, +44.22] | [-27.95, +60.89] | not distinguished | - |  |
+| worker-crash | enqueue_to_start_p99_ms | taskforge-no-adaptive | +24.75 | [-2.61, +44.27] | [-22.52, +57.31] | not distinguished | - |  |
+| worker-crash | throughput_per_second | taskforge-no-adaptive | -45.19 | [-77.37, -0.75] | [-89.11, +30.49] | not distinguished | -9.9% [-16.4%, -0.3%] | yes |
+| worker-crash | jain_fairness | taskforge-no-adaptive | -0.00 | [-0.01, -0.00] | [-0.03, +0.01] | not distinguished | - | yes |
+| worker-crash | slo_violations | taskforge-no-adaptive | +14.50 | [-1.50, +21.50] | [-11.50, +28.00] | not distinguished | - |  |
+| worker-crash | nondominant_slo_violations | taskforge-no-adaptive | +2.00 | [-4.50, +4.50] | [-8.00, +13.00] | not distinguished | - |  |
+| worker-crash | peak_concurrency | taskforge-no-adaptive | +0.00 | [-1.00, +0.00] | [-1.00, +0.00] | not distinguished | - |  |
+| worker-crash | completion_p99_ms | taskforge-no-dependency-budget | +11.97 | [-13.18, +34.45] | [-27.55, +73.56] | not distinguished | - |  |
+| worker-crash | enqueue_to_start_p99_ms | taskforge-no-dependency-budget | +11.96 | [-19.56, +36.49] | [-37.20, +76.77] | not distinguished | - |  |
+| worker-crash | throughput_per_second | taskforge-no-dependency-budget | -7.65 | [-60.38, +22.75] | [-112.80, +55.90] | not distinguished | -1.8% [-12.9%, +5.7%] |  |
+| worker-crash | jain_fairness | taskforge-no-dependency-budget | -0.00 | [-0.01, +0.00] | [-0.02, +0.02] | not distinguished | - |  |
+| worker-crash | slo_violations | taskforge-no-dependency-budget | +7.50 | [-6.50, +16.50] | [-13.00, +23.50] | not distinguished | - |  |
+| worker-crash | nondominant_slo_violations | taskforge-no-dependency-budget | +1.00 | [-1.00, +4.00] | [-3.00, +12.50] | not distinguished | - |  |
+| worker-crash | peak_concurrency | taskforge-no-dependency-budget | +0.00 | [+0.00, +0.00] | [-1.00, +0.00] | degenerate | - |  |

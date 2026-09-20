@@ -168,15 +168,21 @@ func renderPaper(templatePath, outputPath string, analysis experiment.Analysis, 
 		return err
 	}
 	replacements := map[string]string{
-		"{{RUNS}}":               fmt.Sprintf("%d", analysis.Runs),
-		"{{MEASURED_RUNS}}":      fmt.Sprintf("%d", analysis.MeasuredRuns),
-		"{{NOT_MEASURED_RUNS}}":  fmt.Sprintf("%d", analysis.NotMeasuredRuns),
-		"{{WORKLOADS}}":          fmt.Sprintf("%d", len(analysis.Workloads)),
-		"{{VARIANTS}}":           fmt.Sprintf("%d", len(variantOrder)),
-		"{{RESAMPLES}}":          fmt.Sprintf("%d", analysis.Resamples),
-		"{{SOURCE_COMMIT}}":      analysis.SourceCommit,
-		"{{BINARY_SHA256}}":      analysis.BinarySHA256,
-		"{{GENERATED_EVIDENCE}}": strings.TrimSpace(evidence),
+		"{{RUNS}}":                  fmt.Sprintf("%d", analysis.Runs),
+		"{{MEASURED_RUNS}}":         fmt.Sprintf("%d", analysis.MeasuredRuns),
+		"{{NOT_MEASURED_RUNS}}":     fmt.Sprintf("%d", analysis.NotMeasuredRuns),
+		"{{WORKLOADS}}":             fmt.Sprintf("%d", len(analysis.Workloads)),
+		"{{VARIANTS}}":              fmt.Sprintf("%d", len(variantOrder)),
+		"{{RESAMPLES}}":             fmt.Sprintf("%d", analysis.Resamples),
+		"{{SOURCE_COMMIT}}":         analysis.SourceCommit,
+		"{{BINARY_SHA256}}":         analysis.BinarySHA256,
+		"{{FAMILY_SIZE}}":           fmt.Sprintf("%d", analysis.Multiplicity.FamilySize),
+		"{{FAMILY_CONFIDENCE}}":     fmt.Sprintf("%.3f", analysis.Multiplicity.Confidence*100),
+		"{{DETECTIONS}}":            fmt.Sprintf("%d", analysis.Multiplicity.Detections),
+		"{{FAMILY_WISE_SURVIVORS}}": fmt.Sprintf("%d", analysis.Multiplicity.Survivors),
+		"{{DEGENERATE_CONTRASTS}}":  fmt.Sprintf("%d", analysis.Multiplicity.Degenerate),
+		"{{DEGENERATE_DETECTIONS}}": fmt.Sprintf("%d", analysis.Multiplicity.DegenerateDetections),
+		"{{GENERATED_EVIDENCE}}":    strings.TrimSpace(evidence),
 	}
 	output := string(data)
 	for token, value := range replacements {
@@ -276,10 +282,17 @@ func markdown(analysis experiment.Analysis) string {
 		}
 	}
 
-	fmt.Fprintf(&b, "\n## Pre-registered contrasts\n\n")
-	fmt.Fprintf(&b, "Difference of medians, `taskforge-full` minus the listed arm; an interval excluding zero is marked detected. Every pre-registered contrast is listed, including unfavorable and inconclusive ones.\n\n")
-	fmt.Fprintf(&b, "| Workload | Metric | Against | Difference | 95%% interval | Relative change | Detected/material |\n")
-	fmt.Fprintf(&b, "| --- | --- | --- | --- | --- | --- | --- |\n")
+	fmt.Fprintf(&b, "\n## Multiplicity of the confirmatory set\n\n")
+	fmt.Fprintf(&b, "The pre-registered rule is marginal: each of the %d intervals is a 95%% interval, so the rule bounds the error of one contrast at a time and does not bound the probability of at least one spurious detection across the set. The `Family-wise` columns are a sensitivity criterion added after registration and disclosed in the paper's threats to validity; they never replace the frozen rule. They read the same resampled difference distribution at Bonferroni coverage over the complete confirmatory set (K = %d, %.3f%% per contrast), so a family-wise interval always contains its corresponding marginal interval.\n\n",
+		analysis.Multiplicity.FamilySize, analysis.Multiplicity.FamilySize, analysis.Multiplicity.Confidence*100)
+	fmt.Fprintf(&b, "A point-mass distribution is marked `degenerate`: the registered seeds show no variability in that difference, so no confidence level can support an interval claim from it and it is held out of the survivor count as a separate status rather than resolved by it. The family-wise tail is read from the same %d resamples as the marginal interval, so the survivor count is resolution-limited at that resample count and moves by a few contrasts across generator seeds.\n\n", analysis.Resamples)
+	fmt.Fprintf(&b, "Of the %d marginal detections, %d survive the family-wise criterion. %d contrasts are point-mass, %d of them marginal detections.\n\n",
+		analysis.Multiplicity.Detections, analysis.Multiplicity.Survivors, analysis.Multiplicity.Degenerate, analysis.Multiplicity.DegenerateDetections)
+
+	fmt.Fprintf(&b, "## Pre-registered contrasts\n\n")
+	fmt.Fprintf(&b, "Difference of medians, `taskforge-full` minus the listed arm; an interval excluding zero is marked detected. Every pre-registered contrast is listed, including unfavorable and inconclusive ones. `Family-wise` repeats the marginal rule at %.3f%% per contrast: `survives` means the family-wise interval excludes zero, `not distinguished` means it does not, and `degenerate` means the bootstrap distribution is a point mass and carries no interval claim.\n\n", analysis.Multiplicity.Confidence*100)
+	fmt.Fprintf(&b, "| Workload | Metric | Against | Difference | 95%% interval | Family-wise interval | Family-wise | Relative change | Detected/material |\n")
+	fmt.Fprintf(&b, "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, contrast := range analysis.Contrasts {
 		mark := ""
 		if contrast.Detected {
@@ -292,8 +305,16 @@ func markdown(analysis experiment.Analysis) string {
 				mark = "material reduction"
 			}
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %+.2f | [%+.2f, %+.2f] | %s | %s |\n",
-			contrast.Manifest, contrast.Metric, contrast.Against, contrast.Difference, contrast.Lo, contrast.Hi, relative, mark)
+		familyWise := "not distinguished"
+		switch {
+		case contrast.FamilyWise.Degenerate:
+			familyWise = "degenerate"
+		case contrast.FamilyWise.Survives:
+			familyWise = "survives"
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %+.2f | [%+.2f, %+.2f] | [%+.2f, %+.2f] | %s | %s | %s |\n",
+			contrast.Manifest, contrast.Metric, contrast.Against, contrast.Difference, contrast.Lo, contrast.Hi,
+			contrast.FamilyWise.Lo, contrast.FamilyWise.Hi, familyWise, relative, mark)
 	}
 	return b.String()
 }

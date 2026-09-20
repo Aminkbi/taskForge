@@ -125,6 +125,82 @@ func TestAnalyzeAppliesRegisteredThroughputMaterialityBound(t *testing.T) {
 	t.Fatal("missing throughput contrast")
 }
 
+func TestFamilyWiseCriterionNestsMarginalAndCountsConsistently(t *testing.T) {
+	var results []Result
+	for seed := int64(1); seed <= 12; seed++ {
+		// The full arm is consistently faster, so the marginal interval
+		// excludes zero; each arm keeps run-to-run spread so no contrast is a
+		// point mass.
+		full := testResult("wl", "taskforge-full", seed, time.Duration(10+seed)*time.Millisecond)
+		full.Summary.StarvationViolations = 3
+		fifo := testResult("wl", "taskforge-fifo-static", seed, time.Duration(50+seed)*time.Millisecond)
+		fifo.Summary.StarvationViolations = 5
+		results = append(results, full, fifo)
+	}
+	analysis := Analyze(results, 20260717, 2000)
+	multiplicity := analysis.Multiplicity
+	if multiplicity.FamilySize != len(analysis.Contrasts) || multiplicity.FamilySize == 0 {
+		t.Fatalf("family size = %d, want the %d reported contrasts", multiplicity.FamilySize, len(analysis.Contrasts))
+	}
+	if want := 1 - FamilyWiseAlpha/float64(multiplicity.FamilySize); multiplicity.Confidence != want {
+		t.Fatalf("family confidence = %v, want %v", multiplicity.Confidence, want)
+	}
+	for _, contrast := range analysis.Contrasts {
+		family := contrast.FamilyWise
+		if family.FamilySize != multiplicity.FamilySize || family.Confidence != multiplicity.Confidence {
+			t.Fatalf("contrast %s/%s carries family %d at %v", contrast.Manifest, contrast.Metric, family.FamilySize, family.Confidence)
+		}
+		if family.Lo > contrast.Lo || family.Hi < contrast.Hi {
+			t.Fatalf("family-wise interval [%v, %v] does not contain marginal [%v, %v] for %s/%s",
+				family.Lo, family.Hi, contrast.Lo, contrast.Hi, contrast.Metric, contrast.Against)
+		}
+		if family.Survives && !contrast.Detected {
+			t.Fatalf("contrast %s/%s survives family-wise but is not a marginal detection", contrast.Metric, contrast.Against)
+		}
+		if family.Degenerate && family.Survives {
+			t.Fatalf("contrast %s/%s is a point mass yet counted as a survivor", contrast.Metric, contrast.Against)
+		}
+	}
+	if multiplicity.Survivors > multiplicity.Detections || multiplicity.DegenerateDetections > multiplicity.Degenerate {
+		t.Fatalf("inconsistent multiplicity summary: %+v", multiplicity)
+	}
+}
+
+func TestPointMassContrastIsDetectedButNeverASurvivor(t *testing.T) {
+	var results []Result
+	for seed := int64(1); seed <= 12; seed++ {
+		// Every run reports the same violation count per arm, so the resampled
+		// difference is a point mass that excludes zero at any confidence.
+		full := testResult("wl", "taskforge-full", seed, 10*time.Millisecond)
+		full.Summary.StarvationViolations = 3
+		fifo := testResult("wl", "taskforge-fifo-static", seed, 10*time.Millisecond)
+		fifo.Summary.StarvationViolations = 8
+		results = append(results, full, fifo)
+	}
+	analysis := Analyze(results, 20260717, 2000)
+
+	var pointMass *Contrast
+	for i := range analysis.Contrasts {
+		contrast := &analysis.Contrasts[i]
+		if contrast.Metric != "slo_violations" || contrast.Against != "taskforge-fifo-static" {
+			continue
+		}
+		pointMass = contrast
+	}
+	if pointMass == nil {
+		t.Fatal("missing pre-registered contrast")
+	}
+	if !pointMass.Detected || pointMass.Difference != -5 {
+		t.Fatalf("point-mass contrast = %+v, want a marginal detection of -5", *pointMass)
+	}
+	if !pointMass.FamilyWise.Degenerate || pointMass.FamilyWise.Survives {
+		t.Fatalf("point-mass contrast family = %+v, want degenerate without survival", pointMass.FamilyWise)
+	}
+	if analysis.Multiplicity.DegenerateDetections != 1 || analysis.Multiplicity.Survivors != 0 {
+		t.Fatalf("multiplicity summary = %+v, want one degenerate detection and no survivors", analysis.Multiplicity)
+	}
+}
+
 func TestAnalyzeMarksUnsupportedBaselineCrashCellNotMeasured(t *testing.T) {
 	result := testResult("worker-crash", "asynq", 1, time.Millisecond)
 	analysis := Analyze([]Result{result}, 1, 10)

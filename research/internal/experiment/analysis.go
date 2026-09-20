@@ -16,8 +16,17 @@ import (
 )
 
 // AnalysisSchemaVersion identifies the derived-analysis contract, which is
-// separate from the raw result schema it consumes.
-const AnalysisSchemaVersion = "taskforge-analysis/v2"
+// separate from the raw result schema it consumes. v3 adds the
+// post-registration family-wise sensitivity criterion and the point-mass
+// classification; the pre-registered marginal rule is unchanged.
+const AnalysisSchemaVersion = "taskforge-analysis/v3"
+
+// FamilyWiseAlpha is the family-wise error level of the post-registration
+// sensitivity criterion. It is divided by the number of contrasts in the
+// report, so each family-wise interval carries Bonferroni coverage over the
+// complete confirmatory set. The frozen marginal rule remains the primary
+// reported outcome; this criterion only bounds the exposure that rule leaves.
+const FamilyWiseAlpha = 0.05
 
 var registeredManifests = []string{
 	"delayed-backlog",
@@ -93,6 +102,22 @@ type Cell struct {
 	Metrics  map[string]MetricSummary `json:"metrics"`
 }
 
+// FamilyWise is the post-registration sensitivity criterion for one
+// pre-registered contrast. It reads the same resampled difference distribution
+// as the marginal interval but at Bonferroni coverage over the complete
+// confirmatory set, so FamilyWise always contains that marginal interval. A
+// point-mass distribution is marked degenerate: the registered seeds show no
+// variability in the difference, so no confidence level can turn it into an
+// interval claim and it is never counted as a survivor.
+type FamilyWise struct {
+	FamilySize int     `json:"family_size"`
+	Confidence float64 `json:"confidence"`
+	Lo         float64 `json:"ci_lo"`
+	Hi         float64 `json:"ci_hi"`
+	Degenerate bool    `json:"degenerate"`
+	Survives   bool    `json:"survives"`
+}
+
 type Contrast struct {
 	Manifest       string          `json:"manifest"`
 	Metric         string          `json:"metric"`
@@ -102,7 +127,21 @@ type Contrast struct {
 	Lo             float64         `json:"ci95_lo"`
 	Hi             float64         `json:"ci95_hi"`
 	Detected       bool            `json:"detected"`
+	FamilyWise     FamilyWise      `json:"family_wise"`
 	RelativeChange *RelativeChange `json:"relative_change_percent,omitempty"`
+}
+
+// MultiplicitySummary reports how the marginal pre-registered detections fare
+// under the family-wise criterion. The two are reported together rather than
+// collapsed, so neither reading of the same evidence is hidden.
+type MultiplicitySummary struct {
+	FamilySize           int     `json:"family_size"`
+	Alpha                float64 `json:"alpha"`
+	Confidence           float64 `json:"confidence"`
+	Detections           int     `json:"marginal_detections"`
+	Survivors            int     `json:"family_wise_survivors"`
+	Degenerate           int     `json:"degenerate_contrasts"`
+	DegenerateDetections int     `json:"degenerate_detections"`
 }
 
 type RelativeChange struct {
@@ -113,19 +152,20 @@ type RelativeChange struct {
 }
 
 type Analysis struct {
-	Schema          string     `json:"schema"`
-	DatasetSchema   string     `json:"dataset_schema,omitempty"`
-	SourceCommit    string     `json:"source_commit,omitempty"`
-	BinarySHA256    string     `json:"binary_sha256,omitempty"`
-	ResultSchema    string     `json:"result_schema,omitempty"`
-	BootstrapSeed   uint64     `json:"bootstrap_seed"`
-	Resamples       int        `json:"resamples"`
-	Runs            int        `json:"runs"`
-	MeasuredRuns    int        `json:"measured_runs"`
-	NotMeasuredRuns int        `json:"not_measured_runs"`
-	Workloads       []Manifest `json:"workloads"`
-	Cells           []Cell     `json:"cells"`
-	Contrasts       []Contrast `json:"contrasts"`
+	Schema          string              `json:"schema"`
+	DatasetSchema   string              `json:"dataset_schema,omitempty"`
+	SourceCommit    string              `json:"source_commit,omitempty"`
+	BinarySHA256    string              `json:"binary_sha256,omitempty"`
+	ResultSchema    string              `json:"result_schema,omitempty"`
+	BootstrapSeed   uint64              `json:"bootstrap_seed"`
+	Resamples       int                 `json:"resamples"`
+	Runs            int                 `json:"runs"`
+	MeasuredRuns    int                 `json:"measured_runs"`
+	NotMeasuredRuns int                 `json:"not_measured_runs"`
+	Workloads       []Manifest          `json:"workloads"`
+	Cells           []Cell              `json:"cells"`
+	Contrasts       []Contrast          `json:"contrasts"`
+	Multiplicity    MultiplicitySummary `json:"multiplicity"`
 }
 
 func (a *Analysis) AttachDataset(dataset Dataset) {
@@ -422,15 +462,18 @@ func bootstrapMedian(values []float64, resamples int, rng *rand.Rand) (lo, hi fl
 	return percentileSorted(medians, 0.025), percentileSorted(medians, 0.975)
 }
 
-// bootstrapDifference resamples two arms independently and returns the 95%
-// interval of the difference of medians (base minus against).
-func bootstrapDifference(base, against []float64, resamples int, rng *rand.Rand) (lo, hi float64) {
+// bootstrapDifferenceDistribution resamples two arms independently and returns
+// the sorted distribution of the difference of medians (base minus against).
+// The marginal interval and the post-registration family-wise interval are both
+// read from this one distribution, so the family-wise interval always contains
+// the marginal one.
+func bootstrapDifferenceDistribution(base, against []float64, resamples int, rng *rand.Rand) []float64 {
 	diffs := make([]float64, resamples)
 	for i := range diffs {
 		diffs[i] = resampleMedian(base, rng) - resampleMedian(against, rng)
 	}
 	slices.Sort(diffs)
-	return percentileSorted(diffs, 0.025), percentileSorted(diffs, 0.975)
+	return diffs
 }
 
 func relativeChange(base, against float64) float64 {
@@ -511,6 +554,7 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 			manifests = append(manifests, k.manifest)
 		}
 	}
+	distributions := make([][]float64, 0, len(manifests)*len(ContrastAgainst)*len(ContrastMetrics))
 	for _, manifest := range manifests {
 		base, ok := values[key{manifest, ContrastBase}]
 		if !ok {
@@ -523,7 +567,9 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 			}
 			for _, metric := range ContrastMetrics {
 				difference := median(base[metric]) - median(arm[metric])
-				lo, hi := bootstrapDifference(base[metric], arm[metric], resamples, rng)
+				diffs := bootstrapDifferenceDistribution(base[metric], arm[metric], resamples, rng)
+				lo, hi := percentileSorted(diffs, 0.025), percentileSorted(diffs, 0.975)
+				distributions = append(distributions, diffs)
 				contrast := Contrast{
 					Manifest:   manifest,
 					Metric:     metric,
@@ -547,5 +593,44 @@ func Analyze(results []Result, bootstrapSeed uint64, resamples int) Analysis {
 			}
 		}
 	}
+
+	// The frozen rule above is marginal: one 95% interval per contrast does not
+	// bound the chance of at least one spurious detection across the set. This
+	// post-registration criterion re-reads the same distributions at Bonferroni
+	// coverage over every contrast in the report. It is reported beside the
+	// frozen rule, never in place of it, and a point-mass distribution is
+	// classified rather than turned into an interval claim.
+	multiplicity := MultiplicitySummary{FamilySize: len(distributions), Alpha: FamilyWiseAlpha}
+	if multiplicity.FamilySize > 0 {
+		multiplicity.Confidence = 1 - FamilyWiseAlpha/float64(multiplicity.FamilySize)
+		tail := FamilyWiseAlpha / 2 / float64(multiplicity.FamilySize)
+		for i := range analysis.Contrasts {
+			contrast := &analysis.Contrasts[i]
+			diffs := distributions[i]
+			wideLo, wideHi := percentileSorted(diffs, tail), percentileSorted(diffs, 1-tail)
+			degenerate := contrast.Lo == contrast.Hi
+			contrast.FamilyWise = FamilyWise{
+				FamilySize: multiplicity.FamilySize,
+				Confidence: multiplicity.Confidence,
+				Lo:         wideLo,
+				Hi:         wideHi,
+				Degenerate: degenerate,
+				Survives:   !degenerate && ((wideLo > 0 && wideHi > 0) || (wideLo < 0 && wideHi < 0)),
+			}
+			if contrast.Detected {
+				multiplicity.Detections++
+			}
+			switch {
+			case degenerate:
+				multiplicity.Degenerate++
+				if contrast.Detected {
+					multiplicity.DegenerateDetections++
+				}
+			case contrast.FamilyWise.Survives:
+				multiplicity.Survivors++
+			}
+		}
+	}
+	analysis.Multiplicity = multiplicity
 	return analysis
 }
