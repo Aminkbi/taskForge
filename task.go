@@ -3,8 +3,7 @@ package taskforge
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 type Task struct {
@@ -27,7 +26,7 @@ type TaskOption func(*Task)
 
 func NewTask(name string, payload []byte, options ...TaskOption) Task {
 	task := Task{
-		ID:        uuid.NewString(),
+		ID:        uuid.New().String(),
 		Name:      name,
 		Queue:     "default",
 		Payload:   append([]byte(nil), payload...),

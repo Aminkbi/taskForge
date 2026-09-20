@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
@@ -915,7 +915,7 @@ func (b *Broker) releaseDueIntoDelayed(ctx context.Context, fence taskforge.Lead
 	if err != nil {
 		return fmt.Errorf("publish task: decode delayed entry: %w", err)
 	}
-	newEntryID := uuid.NewString()
+	newEntryID := uuid.New().String()
 	entryPayload, err := json.Marshal(delayedEntry{
 		EntryID:      newEntryID,
 		ScheduledFor: msg.ETA.UTC(),
@@ -1209,7 +1209,7 @@ func (b *Broker) publishReadyWithDedup(ctx context.Context, queue string, payloa
 
 func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, deduplicationKey string) (bool, error) {
 	queue := taskforge.EffectiveQueue(msg)
-	entryID := uuid.NewString()
+	entryID := uuid.New().String()
 	entryPayload, err := json.Marshal(delayedEntry{
 		EntryID:      entryID,
 		ScheduledFor: msg.ETA.UTC(),

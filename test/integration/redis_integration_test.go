@@ -14,8 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
@@ -743,7 +743,7 @@ func TestRedisFairnessHardQuotaThrottlesBusyTenant(t *testing.T) {
 
 	for _, fairnessKey := range []string{"alpha", "alpha", "beta"} {
 		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
-			ID:          fairnessKey + "-" + uuid.NewString(),
+			ID:          fairnessKey + "-" + uuid.New().String(),
 			Name:        "integration.shared",
 			Queue:       "default",
 			FairnessKey: fairnessKey,

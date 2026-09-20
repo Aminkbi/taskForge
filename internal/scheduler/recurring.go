@@ -8,8 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/aminkbi/taskforge"
 )
@@ -75,7 +74,7 @@ func NewRecurringService(
 		scheduleByID: scheduleByID,
 		logger:       logger,
 		idFunc: func() string {
-			return uuid.NewString()
+			return uuid.New().String()
 		},
 	}
 }

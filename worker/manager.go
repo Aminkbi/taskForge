@@ -27,14 +27,11 @@ func (m *Manager) Run(ctx context.Context) error {
 	var forceOnce sync.Once
 	var wg sync.WaitGroup
 	for _, worker := range m.Workers {
-		worker := worker
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := worker.run(runCtx, drainWorkers, forceWorkers, m.ShutdownTimeout); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 
 	done := make(chan struct{})

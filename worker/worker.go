@@ -17,6 +17,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+const idlePollInterval = 25 * time.Millisecond
+
 type Worker struct {
 	Broker            taskforge.Broker
 	DeadLetter        taskforge.DeadLetterPublisher
@@ -72,10 +74,11 @@ type adaptiveWindow struct {
 }
 
 type pendingDelivery struct {
-	delivery    taskforge.Delivery
-	brokerLease *leaseHandle
-	mu          sync.Mutex
-	execCancel  context.CancelFunc
+	delivery     taskforge.Delivery
+	ownershipKey string
+	brokerLease  *leaseHandle
+	mu           sync.Mutex
+	execCancel   context.CancelFunc
 }
 
 type dispatchCandidate struct {
@@ -148,39 +151,33 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 
 	go w.lifecycleRefreshLoop(stopRefresh, state)
 
-	loops.Add(1)
-	go func() {
-		defer loops.Done()
+	loops.Go(func() {
 		if err := w.reserveLoop(reserveCtx, execCtx, state, reserveWake, dispatchWake); err != nil {
 			select {
 			case errCh <- err:
 			default:
 			}
 		}
-	}()
+	})
 
-	loops.Add(1)
-	go func() {
-		defer loops.Done()
+	loops.Go(func() {
 		if err := w.dispatchLoop(execCtx, state, reserveWake, dispatchWake, errCh, &executions); err != nil {
 			select {
 			case errCh <- err:
 			default:
 			}
 		}
-	}()
+	})
 
 	if w.Adaptive.Enabled {
-		loops.Add(1)
-		go func() {
-			defer loops.Done()
+		loops.Go(func() {
 			if err := w.adaptiveLoop(reserveCtx, state, reserveWake, dispatchWake); err != nil {
 				select {
 				case errCh <- err:
 				default:
 				}
 			}
-		}()
+		})
 	}
 
 	if drain != nil {
@@ -259,6 +256,9 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 		}
 	}()
 
+	pollTimer := time.NewTimer(idlePollInterval)
+	defer pollTimer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -268,11 +268,12 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 
 		capacity := w.reserveCapacity(state)
 		if capacity == 0 {
+			pollTimer.Reset(idlePollInterval)
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-reserveWake:
-			case <-time.After(25 * time.Millisecond):
+			case <-pollTimer.C:
 			}
 			continue
 		}
@@ -308,8 +309,9 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 		entries := make([]*pendingDelivery, 0, len(deliveries))
 		for _, delivery := range deliveries {
 			entries = append(entries, &pendingDelivery{
-				delivery:    delivery,
-				brokerLease: startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+				delivery:     delivery,
+				ownershipKey: delivery.OwnershipKey(),
+				brokerLease:  startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
 			})
 		}
 		if err := w.recordTaskStates(ctx, deliveries, taskforge.StateLeased); err != nil {
@@ -328,6 +330,9 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 }
 
 func (w *Worker) dispatchLoop(execCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error, executions *sync.WaitGroup) error {
+	pollTimer := time.NewTimer(idlePollInterval)
+	defer pollTimer.Stop()
+
 	for {
 		candidate, ok, err := w.nextDispatchable(execCtx, state, reserveWake, dispatchWake)
 		if err != nil {
@@ -337,20 +342,19 @@ func (w *Worker) dispatchLoop(execCtx context.Context, state *workerState, reser
 			if w.shouldExitDispatch(state) {
 				return nil
 			}
+			pollTimer.Reset(idlePollInterval)
 			select {
 			case <-execCtx.Done():
 				return nil
 			case <-dispatchWake:
-			case <-time.After(25 * time.Millisecond):
+			case <-pollTimer.C:
 			}
 			continue
 		}
 
-		executions.Add(1)
-		go func() {
-			defer executions.Done()
+		executions.Go(func() {
 			w.executeCandidate(execCtx, state, reserveWake, dispatchWake, errCh, candidate)
-		}()
+		})
 	}
 }
 
@@ -536,7 +540,7 @@ func (w *Worker) nextDispatchable(ctx context.Context, state *workerState, reser
 			releaseGlobal()
 			return dispatchCandidate{}, false, nil
 		}
-		index := indexPendingEntry(state.pending, delivery)
+		index := indexPendingEntry(state.pending, entry)
 		if index < 0 {
 			state.mu.Unlock()
 			w.releaseBudget(ctx, budgetLease, delivery)
@@ -1066,7 +1070,7 @@ func (w *Worker) dropPendingIfLeaseLost(state *workerState, reserveWake, dispatc
 	}
 
 	state.mu.Lock()
-	index := indexPendingEntry(state.pending, entry.delivery)
+	index := indexPendingEntry(state.pending, entry)
 	if index < 0 {
 		state.mu.Unlock()
 		return false
@@ -1172,10 +1176,9 @@ func (w *Worker) publishLifecycleSnapshot(ctx context.Context, snapshot taskforg
 	}
 }
 
-func indexPendingEntry(deliveries []*pendingDelivery, target taskforge.Delivery) int {
-	ownershipKey := target.OwnershipKey()
+func indexPendingEntry(deliveries []*pendingDelivery, target *pendingDelivery) int {
 	for i, delivery := range deliveries {
-		if delivery.delivery.OwnershipKey() == ownershipKey {
+		if delivery.ownershipKey == target.ownershipKey {
 			return i
 		}
 	}
