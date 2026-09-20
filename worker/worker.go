@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -662,7 +663,7 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 	queue := taskforge.EffectiveQueue(msg)
 	w.Metrics.IncActiveTask(queue, msg.Name)
 	started := time.Now()
-	err = w.Handler.HandleTask(execCtx, msg)
+	err = w.invokeHandler(execCtx, msg)
 	duration := time.Since(started)
 	w.Metrics.DecActiveTask(queue, msg.Name)
 	if w.abandonIfLeaseLost(delivery, brokerLease, "post_handle") {
@@ -720,8 +721,15 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 	failureClass := taskforge.ClassifyFailure(execCtx, err)
 	action, next, envelope, policyErr := decideOutcome(failedDelivery, failureClass, err, w.RetryPolicy, w.Clock)
 	if policyErr != nil {
+		// The delivery carries retry state that cannot be honored. decideOutcome
+		// reports dead_letter alongside the error, so resolve the delivery here
+		// instead of leaving it pending for an endless redelivery.
 		observability.MarkSpanError(span, policyErr)
-		return fmt.Errorf("worker decide outcome: %w", policyErr)
+		logging.WithDelivery(w.Logger, failedDelivery).Error(
+			"task retry policy rejected the delivery",
+			"task_name", msg.Name,
+			"error", policyErr,
+		)
 	}
 	switch action {
 	case outcomeRetry:
@@ -875,6 +883,27 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		}
 		return nil
 	}
+}
+
+// invokeHandler runs the registered handler and converts a panic into an
+// ordinary task failure. Without this, one faulty handler unwinds its
+// execution goroutine and takes down every pool in the process.
+func (w *Worker) invokeHandler(ctx context.Context, task taskforge.Task) (err error) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+		w.Logger.Error(
+			"task handler panicked",
+			"task_name", task.Name,
+			"task_id", task.ID,
+			"panic", fmt.Sprintf("%v", recovered),
+			"stack", string(debug.Stack()),
+		)
+		err = fmt.Errorf("handler panicked: %v", recovered)
+	}()
+	return w.Handler.HandleTask(ctx, task)
 }
 
 func (w *Worker) recordExecution(duration time.Duration, failed bool) {

@@ -195,16 +195,17 @@ func initialScheduleState(schedule ScheduleDefinition, now time.Time, definition
 	}
 }
 
+// coalesceNextRun advances a due schedule to the first nominal time after now
+// and reports how many runs were skipped. The step is computed arithmetically:
+// a schedule that has been down for a long time with a short interval must not
+// cost one iteration per missed run on the leader's dispatch path.
 func coalesceNextRun(nextRunAt time.Time, interval time.Duration, now time.Time) (time.Time, time.Time, int) {
 	nominalAt := nextRunAt.UTC()
-	missedRuns := 0
-	for !nextRunAt.After(now.UTC()) {
-		nextRunAt = nextRunAt.Add(interval)
-		if !nextRunAt.After(now.UTC()) {
-			missedRuns++
-		}
+	if interval <= 0 || nextRunAt.After(now.UTC()) {
+		return nominalAt, nominalAt, 0
 	}
-	return nominalAt, nextRunAt.UTC(), missedRuns
+	missedRuns := int(now.UTC().Sub(nextRunAt) / interval)
+	return nominalAt, nextRunAt.Add(time.Duration(missedRuns+1) * interval).UTC(), missedRuns
 }
 
 func cloneHeaders(headers map[string]string) map[string]string {

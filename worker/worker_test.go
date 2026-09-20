@@ -171,6 +171,57 @@ func TestWorkerProcessTaskDeadLettersFailedTask(t *testing.T) {
 	}
 }
 
+func TestWorkerIsolatesHandlerPanic(t *testing.T) {
+	t.Parallel()
+
+	b := &stubBroker{}
+	w := newTestWorker(b, &stubDeadLetter{}, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		panic("handler exploded")
+	}))
+
+	if err := w.processTask(context.Background(), testDelivery(), nil); err != nil {
+		t.Fatalf("processTask() error = %v", err)
+	}
+	if len(b.published) != 1 {
+		t.Fatalf("published retries = %d, want 1", len(b.published))
+	}
+	if len(b.acked) != 1 {
+		t.Fatalf("Ack calls = %d, want 1", len(b.acked))
+	}
+	if got := b.acked[0].Execution.LastError; !strings.Contains(got, "handler panicked: handler exploded") {
+		t.Fatalf("Ack last error = %q, want the panic reported as a task failure", got)
+	}
+}
+
+func TestWorkerDeadLettersDeliveryWithUnusableRetryState(t *testing.T) {
+	t.Parallel()
+
+	b := &stubBroker{}
+	deadLetters := &stubDeadLetter{}
+	w := newTestWorker(b, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return errors.New("boom")
+	}))
+
+	delivery := testDelivery()
+	delivery.Message.Headers = map[string]string{taskforge.HeaderRetryMaxDeliveries: "not-a-number"}
+
+	if err := w.processTask(context.Background(), delivery, nil); err != nil {
+		t.Fatalf("processTask() error = %v", err)
+	}
+	if len(deadLetters.envelopes) != 1 {
+		t.Fatalf("dead-letter calls = %d, want 1", len(deadLetters.envelopes))
+	}
+	if len(b.published) != 0 {
+		t.Fatalf("published retries = %d, want 0", len(b.published))
+	}
+	if len(b.acked) != 1 {
+		t.Fatalf("Ack calls = %d, want 1", len(b.acked))
+	}
+	if got := b.acked[0].Execution.State; got != taskforge.StateDeadLettered {
+		t.Fatalf("Ack state = %q, want %q", got, taskforge.StateDeadLettered)
+	}
+}
+
 func TestWorkerDoesNotAcknowledgeBeforeReplacementPublishSucceeds(t *testing.T) {
 	t.Parallel()
 

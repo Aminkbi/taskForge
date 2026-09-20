@@ -38,6 +38,17 @@ func (s *stubBroker) ExtendLease(context.Context, taskforge.Delivery, time.Durat
 	return nil
 }
 
+func TestDeadLetterQueueSizeReadsTheStreamTheStoreWrites(t *testing.T) {
+	t.Parallel()
+
+	if got, want := streamKey(deadLetterQueue("orders")), "taskforge:v2:stream:dlq.orders"; got != want {
+		t.Fatalf("dead-letter stream key = %q, want %q", got, want)
+	}
+	if got, want := streamKey(deadLetterQueue("")), "taskforge:v2:stream:dlq.default"; got != want {
+		t.Fatalf("default dead-letter stream key = %q, want %q", got, want)
+	}
+}
+
 func TestPublishDeadLetterUsesDeterministicIDAndDedupeKey(t *testing.T) {
 	t.Parallel()
 

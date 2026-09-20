@@ -1455,12 +1455,9 @@ func (b *Broker) QueueMetricsSnapshot(ctx context.Context, queue string) (taskfo
 }
 
 func (b *Broker) DeadLetterQueueSize(ctx context.Context, queue string) (float64, error) {
-	length, err := b.client.XLen(ctx, dlqStreamKey(queue)).Result()
+	length, err := b.deadLetterQueueSizeInt(ctx, queue)
 	if err != nil {
-		if isMissingStream(err) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("dead-letter queue metrics %q: %w", queue, err)
+		return 0, err
 	}
 	return float64(length), nil
 }
@@ -1889,8 +1886,4 @@ func deliverySpanAttributes(delivery taskforge.Delivery) []attribute.KeyValue {
 		attribute.String("taskforge.worker_identity", delivery.Execution.LeaseOwner),
 		attribute.Int("taskforge.delivery_count", delivery.Execution.DeliveryCount),
 	}
-}
-
-func dlqStreamKey(queue string) string {
-	return fmt.Sprintf("%s:stream:taskforge.%s", defaultPrefix, normalizeQueue(queue))
 }

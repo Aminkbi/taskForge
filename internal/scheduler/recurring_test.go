@@ -53,6 +53,39 @@ func TestInitialScheduleStateUsesStartAt(t *testing.T) {
 	}
 }
 
+func TestCoalesceNextRunSkipsLargeGapsWithoutIterating(t *testing.T) {
+	t.Parallel()
+
+	nextRunAt := time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC)
+	const gapSeconds = 30 * 24 * 60 * 60
+	now := nextRunAt.Add(gapSeconds * time.Second)
+
+	nominalAt, next, missedRuns := coalesceNextRun(nextRunAt, time.Second, now)
+	if !nominalAt.Equal(nextRunAt) {
+		t.Fatalf("nominalAt = %v, want %v", nominalAt, nextRunAt)
+	}
+	if want := nextRunAt.Add((gapSeconds + 1) * time.Second); !next.Equal(want) {
+		t.Fatalf("next = %v, want %v", next, want)
+	}
+	if missedRuns != gapSeconds {
+		t.Fatalf("missedRuns = %d, want %d", missedRuns, gapSeconds)
+	}
+}
+
+func TestCoalesceNextRunLeavesFutureAndNonPositiveIntervalsAlone(t *testing.T) {
+	t.Parallel()
+
+	nextRunAt := time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC)
+	now := nextRunAt.Add(-time.Minute)
+
+	for _, interval := range []time.Duration{10 * time.Minute, 0, -time.Minute} {
+		nominalAt, next, missedRuns := coalesceNextRun(nextRunAt, interval, now)
+		if !nominalAt.Equal(nextRunAt) || !next.Equal(nextRunAt) || missedRuns != 0 {
+			t.Fatalf("coalesceNextRun(interval=%v) = (%v, %v, %d), want the schedule unchanged", interval, nominalAt, next, missedRuns)
+		}
+	}
+}
+
 func TestCoalesceNextRunSkipsIntermediateIntervals(t *testing.T) {
 	t.Parallel()
 

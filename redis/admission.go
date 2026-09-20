@@ -238,8 +238,11 @@ func (b *Broker) retryBacklog(ctx context.Context, queue string) (int64, error) 
 	return count, nil
 }
 
+// deadLetterQueueSizeInt counts the stream the dead-letter store writes to:
+// deadLetterQueue names the queue and streamKey builds its stream key, so the
+// size signal and the published entries can never disagree.
 func (b *Broker) deadLetterQueueSizeInt(ctx context.Context, queue string) (int64, error) {
-	length, err := b.client.XLen(ctx, dlqStreamKey(queue)).Result()
+	length, err := b.client.XLen(ctx, streamKey(deadLetterQueue(queue))).Result()
 	if err != nil {
 		if isMissingStream(err) {
 			return 0, nil

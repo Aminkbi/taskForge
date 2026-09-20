@@ -2641,6 +2641,49 @@ func TestDeadLetterServiceReplayOneEntry(t *testing.T) {
 	}
 }
 
+func TestDeadLetterQueueSizeCountsPublishedDeadLetters(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+
+	size, err := brokerInstance.DeadLetterQueueSize(ctx, "default")
+	if err != nil {
+		t.Fatalf("DeadLetterQueueSize() error = %v", err)
+	}
+	if size != 0 {
+		t.Fatalf("empty dead-letter size = %v, want 0", size)
+	}
+
+	original := taskforge.Task{
+		ID:        "integration-dlq-size",
+		Name:      "integration.dlq_size",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"size"}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	envelope := taskforge.DeadLetterEnvelope{
+		OriginalTask:     original,
+		FailureClass:     taskforge.FailureClassPermanent,
+		LastError:        "failed permanently",
+		DeliveryCount:    1,
+		FirstEnqueuedAt:  original.CreatedAt,
+		LastFailureAt:    time.Now().UTC(),
+		WorkerIdentity:   "worker-1",
+		DeliveryID:       "delivery-1",
+		OriginalQueue:    "default",
+		OriginalTaskName: original.Name,
+	}
+	if err := brokerInstance.PublishDeadLetter(ctx, envelope); err != nil {
+		t.Fatalf("PublishDeadLetter() error = %v", err)
+	}
+
+	size, err = brokerInstance.DeadLetterQueueSize(ctx, "default")
+	if err != nil {
+		t.Fatalf("DeadLetterQueueSize() error = %v", err)
+	}
+	if size != 1 {
+		t.Fatalf("dead-letter size = %v, want 1 after one published dead letter", size)
+	}
+}
+
 func TestIntegrationWorkerTraceContextSurvivesPublishToExecute(t *testing.T) {
 	_, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 	deadLetters := brokerInstance
