@@ -744,11 +744,13 @@ func (b *Broker) MoveDue(ctx context.Context, fence taskforge.LeadershipFence, n
 		limit = 100
 	}
 
-	queues, err := b.client.ZRangeByScore(ctx, b.delayedQueueIndexKey(), &redis.ZRangeBy{
-		Min:    "-inf",
-		Max:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
-		Offset: 0,
-		Count:  limit,
+	queues, err := b.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     b.delayedQueueIndexKey(),
+		Start:   "-inf",
+		Stop:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
+		ByScore: true,
+		Offset:  0,
+		Count:   limit,
 	}).Result()
 	if err != nil {
 		return 0, fmt.Errorf("move due tasks: query delayed queue index: %w", err)
@@ -760,11 +762,13 @@ func (b *Broker) MoveDue(ctx context.Context, fence taskforge.LeadershipFence, n
 		if remaining <= 0 {
 			break
 		}
-		values, err := b.client.ZRangeByScore(ctx, b.delayedQueueKey(queue), &redis.ZRangeBy{
-			Min:    "-inf",
-			Max:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
-			Offset: 0,
-			Count:  remaining,
+		values, err := b.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+			Key:     b.delayedQueueKey(queue),
+			Start:   "-inf",
+			Stop:    fmt.Sprintf("%d", now.UTC().UnixMilli()),
+			ByScore: true,
+			Offset:  0,
+			Count:   remaining,
 		}).Result()
 		if err != nil {
 			return moved, fmt.Errorf("move due tasks: query delayed queue %q: %w", queue, err)

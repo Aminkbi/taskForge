@@ -5,12 +5,12 @@ use the [architecture map](agent-context.md).
 
 ## Pinned inputs
 
-- Go: `go.mod` declares `go 1.26.5`; CI uses `actions/setup-go` with it.
-- Dockerfiles: `golang:1.26.5-alpine` and
+- Go: `go.mod` declares `go 1.27.1`; CI uses `actions/setup-go` with it.
+- Dockerfiles: `golang:1.27.1-alpine` and
   `gcr.io/distroless/static-debian12`, both pinned by multi-platform digest.
 - CI Redis: `redis:7.4-alpine`.
-- Staticcheck: `honnef.co/go/tools/cmd/staticcheck@v0.7.0` (Staticcheck 2026.1).
-- Reachable dependency vulnerability scanning: `govulncheck@v1.1.4`, pinned
+- Staticcheck: `honnef.co/go/tools/cmd/staticcheck@v0.8.1` (Staticcheck 2026.2.1).
+- Reachable dependency vulnerability scanning: `govulncheck@v1.8.0`, pinned
   by the `go.mod` tool directive.
 - Image SBOM generator: Docker's BuildKit Syft scanner, pinned by
   multi-platform digest and fetched through `mirror.gcr.io` in release commands.
@@ -26,7 +26,7 @@ When upgrading Go, update `go.mod`, Dockerfiles, this page, and verify CI.
 installed. To match CI:
 
 ```bash
-go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 ```
 
 ## CI tracks

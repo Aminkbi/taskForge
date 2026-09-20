@@ -4,7 +4,7 @@
   "contract": "docs/reference/reliability.md",
   "checks": [
     {"id":"unit","command":"make test","required":true,"scope":"All Go unit, property, fuzz-seed, command, and package tests.","prerequisites":[],"evidence":["config_test.go","redis","worker","internal"]},
-    {"id":"lint","command":"make lint","required":false,"scope":"Go vet, gofmt verification, and pinned staticcheck when installed.","prerequisites":["Go 1.26.5","staticcheck v0.7.0 for CI parity"],"evidence":["scripts/lint.sh"]},
+    {"id":"lint","command":"make lint","required":false,"scope":"Go vet, gofmt verification, and pinned staticcheck when installed.","prerequisites":["Go 1.27.1","staticcheck v0.8.1 for CI parity"],"evidence":["scripts/lint.sh"]},
     {"id":"coverage","command":"make coverage","required":false,"scope":"Critical-package statement coverage floors.","prerequisites":[],"evidence":["scripts/coverage.sh","docs/development/coverage.md"]},
     {"id":"race","command":"make race-test","required":true,"scope":"Repository Go tests with the race detector.","prerequisites":["race-detector-supported Go platform"],"evidence":["scripts/race.sh"]},
     {"id":"redis-integration","command":"make integration-test","required":true,"scope":"Redis-backed ownership, retry, DLQ, routing, fairness, admission, scheduler, state, and recovery behavior.","prerequisites":["writable standalone Redis primary at localhost:6379"],"evidence":["test/integration/redis_integration_test.go"]},

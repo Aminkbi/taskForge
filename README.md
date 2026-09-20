@@ -13,7 +13,7 @@ It delivers at least once: handlers must be idempotent because a task may run mo
 
 Prerequisites:
 
-- Go 1.26.5+
+- Go 1.27.1+
 - Docker with Compose support
 
 Run Redis and the adoption demo:

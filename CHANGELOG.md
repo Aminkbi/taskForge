@@ -26,9 +26,20 @@ This project has not published a stable release yet.
 - Removed the unused, duplicated `IncRetried` and `IncDeadLettered` metric
   helpers; the retry and dead-letter counters are still incremented by
   `IncRetryScheduled` and `IncDeadLetterResult`.
+- Toolchain refresh: Go 1.27.1, staticcheck v0.8.1, govulncheck (x/vuln) v1.8.0,
+  current Prometheus, go-redis, OpenTelemetry, and Asynq dependencies, refreshed
+  GitHub Actions pins, and `golang:1.27.1-alpine` plus refreshed distroless base
+  images. The frozen research artifact still rebuilds to its recorded binary hash
+  with its recorded `go1.26.5` toolchain.
 
 ### Fixed
 
 - `.env.example` no longer ships the retired per-pool `lease_ttl` field that
   sidecar configuration decoding rejects, and now lists the global
   `TASKFORGE_LEASE_TTL` and `TASKFORGE_HTTP_AUTH_TOKEN` settings.
+- The `experiment-smoke` CI job installs `redis-cli`, so the smoke script uses the
+  job's Redis service instead of falling back to a `docker compose` Redis that
+  collides with it on port 6379.
+- Added Redis admission unit tests covering policy cloning, policy lookup,
+  deferred-message annotation, and admission state recording, restoring the 18%
+  `redis` package coverage floor.

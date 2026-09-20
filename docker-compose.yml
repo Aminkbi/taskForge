@@ -49,7 +49,7 @@ services:
       - "127.0.0.1:8083:8080"
 
   prometheus:
-    image: prom/prometheus:v3.2.1
+    image: prom/prometheus:v3.14.0
     depends_on:
       scheduler:
         condition: service_started

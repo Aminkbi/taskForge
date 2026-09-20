@@ -99,11 +99,13 @@ func (s *RedisScheduleStateStore) ReconcileConfigured(ctx context.Context, fence
 }
 
 func (s *RedisScheduleStateStore) DueScheduleIDs(ctx context.Context, now time.Time, limit int64) ([]string, error) {
-	ids, err := s.client.ZRangeByScore(ctx, s.dueIndexKey(), &redis.ZRangeBy{
-		Min:    "-inf",
-		Max:    strconv.FormatInt(now.UTC().UnixMilli(), 10),
-		Offset: 0,
-		Count:  limit,
+	ids, err := s.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     s.dueIndexKey(),
+		Start:   "-inf",
+		Stop:    strconv.FormatInt(now.UTC().UnixMilli(), 10),
+		ByScore: true,
+		Offset:  0,
+		Count:   limit,
 	}).Result()
 	if err != nil {
 		return nil, fmt.Errorf("query recurring due index: %w", err)
