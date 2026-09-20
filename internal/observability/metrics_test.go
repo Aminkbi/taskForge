@@ -167,6 +167,47 @@ func TestMetricsExposeOnlyLowCardinalityLabels(t *testing.T) {
 	}
 }
 
+func TestSanitizeLabelFallbacks(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		sanitize func(string) string
+		fallback string
+	}{
+		{"task_name", sanitizeTaskName, "unknown"},
+		{"result_class", sanitizeResultClass, "unknown"},
+		{"fairness_bucket", sanitizeFairnessBucket, "default"},
+		{"admission_source", sanitizeAdmissionSource, "unknown"},
+		{"admission_decision", sanitizeAdmissionDecision, "unknown"},
+		{"pool_name", sanitizePoolName, "default"},
+		{"budget_name", sanitizeBudgetName, "unknown"},
+		{"adaptive_reason", sanitizeAdaptiveReason, "none"},
+		{"adaptive_action", sanitizeAdaptiveAction, "none"},
+		{"admission_reason", sanitizeAdmissionReason, "none"},
+		{"lifecycle_state", sanitizeLifecycleState, "unknown"},
+		{"shutdown_outcome", sanitizeShutdownOutcome, "unknown"},
+		{"abandon_reason", sanitizeAbandonReason, "unknown"},
+		{"worker_id", sanitizeWorkerID, "unknown"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tc.sanitize(""); got != tc.fallback {
+				t.Errorf("empty input = %q, want %q", got, tc.fallback)
+			}
+			if got := tc.sanitize("   "); got != tc.fallback {
+				t.Errorf("blank input = %q, want %q", got, tc.fallback)
+			}
+			if got := tc.sanitize("  critical  "); got != "critical" {
+				t.Errorf("padded input = %q, want %q", got, "critical")
+			}
+		})
+	}
+}
+
 func assertLabelNames(t *testing.T, families []*dto.MetricFamily, familyName string, want []string) {
 	t.Helper()
 

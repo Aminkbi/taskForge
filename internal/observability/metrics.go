@@ -835,114 +835,37 @@ func (c *workerLifecycleCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-func sanitizeTaskName(taskName string) string {
-	taskName = strings.TrimSpace(taskName)
-	if taskName == "" {
-		return "unknown"
+func sanitizeLabel(value, fallback string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
 	}
-	return taskName
+	return fallback
 }
 
-func sanitizeResultClass(resultClass string) string {
-	resultClass = strings.TrimSpace(resultClass)
-	if resultClass == "" {
-		return "unknown"
-	}
-	return resultClass
-}
+func sanitizeTaskName(taskName string) string { return sanitizeLabel(taskName, "unknown") }
 
-func sanitizeFairnessBucket(bucket string) string {
-	bucket = strings.TrimSpace(bucket)
-	if bucket == "" {
-		return "default"
-	}
-	return bucket
-}
+func sanitizeResultClass(resultClass string) string { return sanitizeLabel(resultClass, "unknown") }
 
-func sanitizeAdmissionSource(source string) string {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return "unknown"
-	}
-	return source
-}
+func sanitizeFairnessBucket(bucket string) string { return sanitizeLabel(bucket, "default") }
 
-func sanitizeAdmissionDecision(decision string) string {
-	decision = strings.TrimSpace(decision)
-	if decision == "" {
-		return "unknown"
-	}
-	return decision
-}
+func sanitizeAdmissionSource(source string) string { return sanitizeLabel(source, "unknown") }
 
-func sanitizePoolName(pool string) string {
-	pool = strings.TrimSpace(pool)
-	if pool == "" {
-		return "default"
-	}
-	return pool
-}
+func sanitizeAdmissionDecision(decision string) string { return sanitizeLabel(decision, "unknown") }
 
-func sanitizeBudgetName(budget string) string {
-	budget = strings.TrimSpace(budget)
-	if budget == "" {
-		return "unknown"
-	}
-	return budget
-}
+func sanitizePoolName(pool string) string { return sanitizeLabel(pool, "default") }
 
-func sanitizeAdaptiveReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return "none"
-	}
-	return reason
-}
+func sanitizeBudgetName(budget string) string { return sanitizeLabel(budget, "unknown") }
 
-func sanitizeAdaptiveAction(action string) string {
-	action = strings.TrimSpace(action)
-	if action == "" {
-		return "none"
-	}
-	return action
-}
+func sanitizeAdaptiveReason(reason string) string { return sanitizeLabel(reason, "none") }
 
-func sanitizeAdmissionReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return "none"
-	}
-	return reason
-}
+func sanitizeAdaptiveAction(action string) string { return sanitizeLabel(action, "none") }
 
-func sanitizeLifecycleState(state string) string {
-	state = strings.TrimSpace(state)
-	if state == "" {
-		return "unknown"
-	}
-	return state
-}
+func sanitizeAdmissionReason(reason string) string { return sanitizeLabel(reason, "none") }
 
-func sanitizeShutdownOutcome(outcome string) string {
-	outcome = strings.TrimSpace(outcome)
-	if outcome == "" {
-		return "unknown"
-	}
-	return outcome
-}
+func sanitizeLifecycleState(state string) string { return sanitizeLabel(state, "unknown") }
 
-func sanitizeAbandonReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return "unknown"
-	}
-	return reason
-}
+func sanitizeShutdownOutcome(outcome string) string { return sanitizeLabel(outcome, "unknown") }
 
-func sanitizeWorkerID(workerID string) string {
-	workerID = strings.TrimSpace(workerID)
-	if workerID == "" {
-		return "unknown"
-	}
-	return workerID
-}
+func sanitizeAbandonReason(reason string) string { return sanitizeLabel(reason, "unknown") }
+
+func sanitizeWorkerID(workerID string) string { return sanitizeLabel(workerID, "unknown") }
