@@ -23,8 +23,8 @@ if [[ -e research/second-wave/data ]]; then
 fi
 mkdir -p "$BIN" "$DATA/raw"
 export GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}"
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$BIN/experiment-neutral" ./cmd/experiment-neutral
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$BIN/experiment-redis-proxy" ./cmd/experiment-redis-proxy
+CGO_ENABLED=0 go -C research build -trimpath -buildvcs=false -o "$BIN/experiment-neutral" ./cmd/experiment-neutral
+CGO_ENABLED=0 go -C research build -trimpath -buildvcs=false -o "$BIN/experiment-redis-proxy" ./cmd/experiment-redis-proxy
 
 if ! redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
   docker compose up -d redis
@@ -68,6 +68,6 @@ while IFS=$'\t' read -r environment gomaxprocs topology; do
 done < <(jq -r '.environments[] | [.name, .gomaxprocs, .redis_topology] | @tsv' research/second-wave/study-plan.json)
 
 while IFS= read -r result; do gzip -n "$result"; done < <(find "$DATA/raw" -type f -name '*.json' | sort)
-go run ./cmd/experiment-study-register -root research/second-wave -data "$DATA" -binary "$BIN/experiment-neutral" -source-commit "$(git rev-parse HEAD)"
+go -C research run ./cmd/experiment-study-register -root second-wave -data "$DATA" -binary "$BIN/experiment-neutral" -source-commit "$(git rev-parse HEAD)"
 mv "$DATA" research/second-wave/data
 echo "registered second-wave data published atomically"

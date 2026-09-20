@@ -5,6 +5,9 @@ set -euo pipefail
 # provenance, per-cell failure propagation, and atomic dataset replacement.
 # This wrapper only makes the dedicated local Redis dependency available.
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
 REDIS_DB="${TASKFORGE_EXPERIMENT_REDIS_DB:-14}"
 REDIS_ADDR="${TASKFORGE_REDIS_ADDR:-localhost:6379}"
 
@@ -24,4 +27,4 @@ if ! redis-cli -h "${REDIS_ADDR%:*}" -p "${REDIS_ADDR##*:}" -n "$REDIS_DB" ping 
   until redis-cli -h "${REDIS_ADDR%:*}" -p "${REDIS_ADDR##*:}" -n "$REDIS_DB" ping >/dev/null 2>&1; do sleep 1; done
 fi
 
-exec go run ./cmd/experiment-grid -redis-addr "$REDIS_ADDR" -redis-db "$REDIS_DB" "$@"
+exec go -C research run ./cmd/experiment-grid -redis-addr "$REDIS_ADDR" -redis-db "$REDIS_DB" "$@"

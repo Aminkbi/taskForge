@@ -11,7 +11,13 @@ SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git show -s --format=%ct HEAD)}"
 trap 'rm -rf "$(dirname "$STAGE")"' EXIT
 
 mkdir -p "$STAGE" "$OUT_DIR"
+# The research directory carries a nested Go module used to produce the
+# artifact. Its sources and module files are excluded so the packaged artifact
+# keeps describing committed evidence only (and so no tarball ships a go.mod
+# whose ../ replace directive cannot resolve).
 cp -r research "$STAGE/research"
+rm -rf "$STAGE/research/cmd" "$STAGE/research/internal" "$STAGE/research/test"
+find "$STAGE/research" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -delete
 cp CITATION.cff .zenodo.json LICENSE "$STAGE/"
 
 (

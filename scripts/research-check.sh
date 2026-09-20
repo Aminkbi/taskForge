@@ -6,11 +6,13 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 cd "$ROOT"
 
-go run ./cmd/experiment-analysis \
-  -input research/data \
+# The research commands live in the nested research module, so they are always
+# invoked with -C research; their relative path arguments are module-relative.
+go -C research run ./cmd/experiment-analysis \
+  -input data \
   -results "$TMP/results" \
   -figures "$TMP/figures" \
-  -paper-template research/paper/paper.template.md \
+  -paper-template paper/paper.template.md \
   -paper "$TMP/paper.md" >/dev/null
 
 diff -ru research/results "$TMP/results"

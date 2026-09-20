@@ -6,8 +6,10 @@ export GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}"
 coverage_dir="${TASKFORGE_COVERAGE_DIR:-/tmp/taskforge-coverage}"
 mkdir -p "$coverage_dir"
 
+# The overall floor covers only the product module; the research tooling lives
+# in its own nested module and is not part of this percentage.
 declare -A thresholds=(
-  [overall]=45
+  [overall]=50
   [core]=72
   [redis]=18
   [scheduler]=28

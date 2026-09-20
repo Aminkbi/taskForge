@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke research-test experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -64,24 +64,27 @@ experiment-smoke:
 experiment-trace:
 	@test -n "$(PROFILE)" || { echo "PROFILE is required"; exit 2; }
 	@test -n "$(TRACE)" || { echo "TRACE is required"; exit 2; }
-	$(GO) run ./cmd/experiment-trace -profile "$(PROFILE)" -output "$(TRACE)" $(TRACE_ARGS)
+	$(GO) -C research run ./cmd/experiment-trace -profile "$(abspath $(PROFILE))" -output "$(abspath $(TRACE))" $(TRACE_ARGS)
 
 experiment-neutral:
 	@test -n "$(TRACE)" || { echo "TRACE is required"; exit 2; }
-	$(GO) run ./cmd/experiment-neutral -trace "$(TRACE)" $(NEUTRAL_ARGS)
+	$(GO) -C research run ./cmd/experiment-neutral -trace "$(abspath $(TRACE))" $(NEUTRAL_ARGS)
 
 experiment-neutral-smoke:
 	$(SHELL) ./scripts/experiment-neutral-smoke.sh
 
+research-test:
+	$(GO) -C research test ./...
+
 frontier-check:
 	@test -n "$(FRONTIER_RESULTS)" || { echo "FRONTIER_RESULTS is required"; exit 2; }
-	$(GO) run ./cmd/experiment-frontier-check -input "$(FRONTIER_RESULTS)" -max-throughput-loss 0.15
+	$(GO) -C research run ./cmd/experiment-frontier-check -input "$(abspath $(FRONTIER_RESULTS))" -max-throughput-loss 0.15
 
 research-experiments:
 	$(SHELL) ./scripts/research-experiments.sh $(RESEARCH_ARGS)
 
 research-analysis:
-	$(GO) run ./cmd/experiment-analysis
+	$(GO) -C research run ./cmd/experiment-analysis
 
 research-check:
 	$(SHELL) ./scripts/research-check.sh
@@ -99,7 +102,7 @@ second-wave-run:
 	$(SHELL) ./scripts/second-wave-run.sh
 
 second-wave-analysis:
-	$(GO) run ./cmd/experiment-study-analysis
+	$(GO) -C research run ./cmd/experiment-study-analysis
 
 second-wave-check:
 	$(SHELL) ./scripts/second-wave-check.sh

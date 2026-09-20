@@ -2,23 +2,39 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 cd "$ROOT"
 
-jq -r '.files[] | [.sha256, .path] | @tsv' research/second-wave/code-lock.json |
-while IFS=$'\t' read -r expected path; do
-  actual="$(sha256sum "$path" | cut -d' ' -f1)"
-  [[ "$actual" == "$expected" ]] || { echo "code-lock mismatch: $path" >&2; exit 1; }
-done
+# The paired study's code lock binds individual source files by repository
+# path, so it can only be verified in the tree that produced it. This check
+# extracts the recorded artifact commit and runs that tree's own
+# self-contained check, which keeps the frozen claim verifiable after the
+# research code moved into its own module.
+COMMIT="${TASKFORGE_SECOND_WAVE_COMMIT:-751a0bd084bc3f06a7037f8cb536abb8edc145b6}"
 
-GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}" CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$TMP/experiment-neutral" ./cmd/experiment-neutral
-expected_binary="$(jq -r '.binary_sha256' research/second-wave/data/dataset.json)"
-actual_binary="$(sha256sum "$TMP/experiment-neutral" | cut -d' ' -f1)"
-[[ "$actual_binary" == "$expected_binary" ]] || { echo "measured binary does not rebuild from locked source" >&2; exit 1; }
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+SOURCE="$TMP/source"
+mkdir -p "$SOURCE"
 
-GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}" go run ./cmd/experiment-study-analysis -root research/second-wave -output "$TMP/derived"
-diff -ru research/second-wave/results "$TMP/derived/results"
-diff -ru research/second-wave/figures "$TMP/derived/figures"
-cmp research/second-wave/paper/paper.md "$TMP/derived/paper/paper.md"
+git cat-file -e "$COMMIT^{commit}"
 
+git archive "$COMMIT" | tar -x -C "$SOURCE"
+
+# Guard: the frozen artifact bytes must still match the recorded commit.
+if ! diff -ru research/second-wave "$SOURCE/research/second-wave"; then
+  echo "frozen second-wave artifact differs from recorded commit $COMMIT" >&2
+  exit 1
+fi
+
+# Binary digests are only reproducible under the recorded toolchain, so pin it
+# from the archived module file rather than using whatever is installed.
+toolchain="go$(awk '/^go /{ print $2; exit }' "$SOURCE/go.mod")"
+
+(
+  cd "$SOURCE"
+  GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}" GOTOOLCHAIN="$toolchain" ./scripts/second-wave-check.sh
+)
+
+echo "verified under recorded toolchain $toolchain"
+
+echo "second-wave artifact verified against recorded commit $COMMIT"

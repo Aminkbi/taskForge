@@ -28,6 +28,11 @@ corpus, raw ledger, and bounded two-class claims, lives in
 Citation metadata lives at the repository root (`CITATION.cff`,
 `.zenodo.json`).
 
+The Go tooling that produces this artifact is a nested module in this directory
+(`github.com/aminkbi/taskforge/research`, see `go.mod`); only `cmd/`,
+`internal/`, and `test/` belong to it. Every command below is invoked through
+`make` from the repository root, which runs it with `go -C research`.
+
 ## Kick-the-tires (about 10 minutes)
 
 Prerequisites: Go 1.26.5+, Docker with Compose (or a local Redis 7 on

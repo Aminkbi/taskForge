@@ -32,7 +32,11 @@ go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 ## CI tracks
 
 - `lint`: formatting, vet, static analysis, and static security-adjacent checks.
-- `unit`: `go test ./...`.
+- `unit`: `go test ./...` in the product module.
+- `research-module`: `go -C research test ./...` plus a byte-reproducibility
+  check that regenerating the derived research outputs leaves `research/`
+  unchanged. Module-scoped commands do not cross module boundaries, so this job
+  is what keeps the nested research module covered.
 - `fuzz-smoke`: short mutation smoke for the configuration, delayed-entry, and
   leadership-fence fuzz targets.
 - `deterministic-simulation`: seeded protocol fault schedules and invariants.

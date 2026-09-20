@@ -11,12 +11,12 @@ The neutral harness is the preferred path for overload, dependency-budget,
 admission, and cross-system delivery experiments. It has two deliberately
 separate processes:
 
-1. `cmd/experiment-trace` generates one deterministic trace and creates it
+1. `research/cmd/experiment-trace` generates one deterministic trace and creates it
    read-only with exclusive-create semantics. The trace contains synthetic UTC
    arrival timestamps, tenant and service-time choices, delayed eligibility,
    per-attempt failure draws, and worker fault timestamps. Its SHA-256 covers
    all of those fields.
-2. `cmd/experiment-neutral` only accepts an existing trace. It maps the same
+2. `research/cmd/experiment-neutral` only accepts an existing trace. It maps the same
    timestamp offsets onto each cell's run epoch and dispatches arrivals without
    waiting for prior enqueue calls. Enqueue blocking therefore appears as
    dispatch lag and enqueue duration instead of reducing the offered rate.
@@ -25,7 +25,7 @@ For example:
 
 ```bash
 make experiment-trace \
-  PROFILE=test/experiment/open-loop/sustained-and-burst.json \
+  PROFILE=research/test/experiment/open-loop/sustained-and-burst.json \
   TRACE=/tmp/sustained-seed-20260718.json \
   TRACE_ARGS='-seed 20260718'
 
@@ -41,7 +41,7 @@ is flushed between cells. The
 benchmark records the trace digest and position in every result, making an
 accidental per-system workload or fixed-order comparison detectable.
 
-The registered profiles under `test/experiment/open-loop/` have 30-second
+The registered profiles under `research/test/experiment/open-loop/` have 30-second
 warm-up and cooldown windows and a three-minute steady-state window with at
 least 10,000 steady arrivals. Together they cover sustained and burst
 overload, 4- and 16-tenant entitlement/load skews, service times at 1ms, 10ms,
@@ -73,7 +73,7 @@ collapse, rather than a constant handler sleep.
 
 #### Adapter tuning and semantic boundaries
 
-Adapters live in separate packages under `internal/experiment/adapters/`.
+Adapters live in separate packages under `research/internal/experiment/adapters/`.
 Their only shared code reads Redis server counters.
 
 | Setting or semantic | TaskForge | Asynq |
@@ -116,7 +116,7 @@ build SHA (`TASKFORGE_BUILD_SHA` when supplied), host OS/architecture/CPU
 count, Go version, Redis connection/configuration string, and Redis CPU,
 memory, and command counters.
 
-The manifests in `test/experiment/workloads/` cover tenant skew, noisy
+The manifests in `research/test/experiment/workloads/` cover tenant skew, noisy
 neighbor, hot dependency, retry storm, delayed backlog, and worker crash.
 Each run executes TaskForge FIFO/static, one TaskForge ablation for each of
 fairness, admission, adaptive concurrency, and dependency budgets, full
@@ -286,12 +286,12 @@ result directory, not from one favorable pair:
 
 ```bash
 make experiment-trace \
-  PROFILE=test/experiment/open-loop/frontier-common-contract.json \
+  PROFILE=research/test/experiment/open-loop/frontier-common-contract.json \
   TRACE=/tmp/taskforge-frontier.json \
   TRACE_ARGS='-seed 20260718'
 
 for repetition in 0 1 2 3; do
-  go run ./cmd/experiment-neutral \
+  go -C research run ./cmd/experiment-neutral \
     -trace /tmp/taskforge-frontier.json \
     -output /tmp/taskforge-frontier-results \
     -systems taskforge-fifo-static,asynq \

@@ -18,11 +18,18 @@ in [runbooks](../operations/runbooks.md).
 | Scheduler/API wiring | `cmd/<role>/`, then `internal/app/<role>/` |
 | Metrics, HTTP, health, logging, shutdown | matching `internal/` package |
 | Redis-backed end-to-end behavior | `test/integration/` |
-| Comparative experiments, research artifact, paper | `cmd/experiment*`, `internal/experiment/`, `research/` |
+| Comparative experiments, research artifact, paper | `research/` (nested Go module `github.com/aminkbi/taskforge/research`) |
 
 `taskforge` is dependency-free: it must not import `redis`, `worker`, or
 `internal`. Applications register handlers and embed `worker`; there is no
 generic standalone worker binary.
+
+Research tooling is a separate nested module at `research/`
+(`github.com/aminkbi/taskforge/research`) with a `replace` directive back to the
+product module. The dependency direction is one-way: research imports the
+product, never the reverse. Because `go test`, `go vet`, `staticcheck`, and
+`govulncheck` do not cross module boundaries, every module-scoped gate runs in
+both modules, and research commands are invoked with `go -C research`.
 
 ## Invariants
 
@@ -53,6 +60,7 @@ generic standalone worker binary.
 | Exhaustive bounded protocol state spaces | `make model-check` |
 | Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
 | Reliability claim/check/artifact linkage | `make certification-check` |
+| Research tooling (nested module) | `go -C research test ./...` or `make research-test` |
 | Registered research evidence or generated report | `make research-check` |
 | Documentation links | `make docs-check` |
 

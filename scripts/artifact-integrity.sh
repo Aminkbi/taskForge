@@ -35,9 +35,14 @@ if [[ "$(sha256sum "$SOURCE/go.mod" | cut -d' ' -f1)" != "$go_mod_digest" ]] ||
   exit 1
 fi
 
+# The recorded binary digest is only reproducible under the recorded toolchain,
+# so pin it from the extracted module file rather than using whatever is
+# installed locally.
+toolchain="go$(awk '/^go /{ print $2; exit }' "$SOURCE/go.mod")"
+
 (
   cd "$SOURCE"
-  CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$TMP/experiment" ./cmd/experiment
+  CGO_ENABLED=0 GOTOOLCHAIN="$toolchain" go build -trimpath -buildvcs=false -o "$TMP/experiment" ./cmd/experiment
 )
 if [[ "$(sha256sum "$TMP/experiment" | cut -d' ' -f1)" != "$binary_digest" ]]; then
   echo "rebuilt experiment binary differs from recorded binary" >&2

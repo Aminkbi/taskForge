@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
 export TASKFORGE_EXPERIMENT_REDIS_DB="${TASKFORGE_EXPERIMENT_REDIS_DB:-14}"
 export GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}"
 
@@ -11,11 +14,11 @@ fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-go run ./cmd/experiment-trace \
+go -C research run ./cmd/experiment-trace \
   -profile test/experiment/open-loop/smoke.json \
   -seed 20260718 \
   -output "$tmp/trace.json"
-go run ./cmd/experiment-neutral \
+go -C research run ./cmd/experiment-neutral \
   -trace "$tmp/trace.json" \
   -output "$tmp/results" \
   -snapshot-period 20ms \

@@ -7,10 +7,12 @@ critical-package floors. Profiles default to `/tmp/taskforge-coverage`; set
 The report tests every source file in the listed package. It does not exclude
 generated-looking, transport, or error-handling files to inflate a result.
 The floors were set from the measured unit baseline after adding direct protocol
-tests: 45% overall, 72% core public API, 18% Redis, 28% scheduler,
+tests: 50% overall, 72% core public API, 18% Redis, 28% scheduler,
 and 72% worker. They are deliberately modest for the broad Redis and scheduler
 packages, whose critical behavior is also exercised by Redis integration tests;
-future changes must raise a floor when coverage grows materially.
+future changes must raise a floor when coverage grows materially. The overall
+figure covers the product module only; the nested research module
+(`research/`) is tested by `make research-test` instead.
 
 Redis integration tests remain a required separate check:
 

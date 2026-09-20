@@ -3,11 +3,6 @@ set -euo pipefail
 
 export GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}"
 
-cmd=(
-  go test
-  -race
-  ./...
-)
-
-echo "running: ${cmd[*]}"
-"${cmd[@]}"
+# The race detector is module-scoped, so both modules are exercised.
+go test -race ./...
+go -C research test -race ./...

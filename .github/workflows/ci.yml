@@ -21,6 +21,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Download modules
         run: go mod download
@@ -46,9 +49,35 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Test
         run: make test
+
+  research-module:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
+
+      - name: Test the nested research module
+        run: make research-test
+
+      - name: Regenerate the research analysis
+        run: make research-analysis
+
+      - name: Require byte-reproducible derived research outputs
+        run: git diff --exit-code -- research/results research/figures research/paper
 
   fuzz-smoke:
     runs-on: ubuntu-latest
@@ -60,6 +89,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Short fuzz smoke
         run: make fuzz-smoke
@@ -74,6 +106,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Run bounded deterministic schedules
         run: make simulation-test
@@ -88,6 +123,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Exhaust bounded protocol state spaces
         run: make model-check
@@ -102,6 +140,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Verify coverage floors
         run: make coverage
@@ -126,6 +167,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Integration tests
         run: make integration-test
@@ -140,6 +184,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Race tests
         run: make race-test
@@ -154,6 +201,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Benchmark smoke
         run: make bench-smoke
@@ -168,6 +218,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Benchmark regression baseline
         run: make benchmark-regression
@@ -192,6 +245,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Install redis-cli
         run: sudo apt-get update && sudo apt-get install -y redis-tools
@@ -219,6 +275,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Check active documentation and certification links
         run: make docs-check
@@ -246,6 +305,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Release smoke
         env:
@@ -262,6 +324,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Reachable dependency vulnerability scan
         run: make vuln-check
@@ -276,6 +341,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            research/go.sum
 
       - name: Validate release artifacts without publishing
         run: make release-validate
