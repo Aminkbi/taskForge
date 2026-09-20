@@ -13,9 +13,48 @@ permissions:
 
 env:
   GOCACHE: /tmp/taskforge-gocache
+  STATICCHECK_VERSION: "v0.7.0"
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}
+
+      - name: Test
+        run: make test
+
+      - name: Lint
+        env:
+          TASKFORGE_REQUIRE_STATICCHECK: "1"
+        run: make lint
+
+      - name: Static security-adjacent checks
+        run: make security-check
+
+      - name: Race tests
+        run: make race-test
+
+      - name: Reachable dependency vulnerability scan
+        run: make vuln-check
+
+      - name: Validate release artifacts without publishing
+        run: make release-validate
+
   release:
+    needs: verify
     runs-on: ubuntu-latest
 
     steps:

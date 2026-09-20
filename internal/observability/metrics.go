@@ -261,13 +261,6 @@ func (m *Metrics) IncFailed(queue string) {
 	m.TasksFailedTotal.WithLabelValues(queue).Inc()
 }
 
-func (m *Metrics) IncRetried(queue string) {
-	if m == nil {
-		return
-	}
-	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
-}
-
 func (m *Metrics) IncSchedulerStaleWriteRejection(operation string) {
 	if m == nil {
 		return
@@ -288,13 +281,6 @@ func (m *Metrics) IncRetryScheduled(queue, taskName, resultClass string) {
 	}
 	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
 	m.TaskRetrySchedules.WithLabelValues(queue, sanitizeTaskName(taskName), sanitizeResultClass(resultClass)).Inc()
-}
-
-func (m *Metrics) IncDeadLettered(queue string) {
-	if m == nil {
-		return
-	}
-	m.TasksDeadLetteredTotal.WithLabelValues(queue).Inc()
 }
 
 func (m *Metrics) IncDeadLetterResult(queue, taskName, resultClass string) {

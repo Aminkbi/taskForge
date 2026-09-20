@@ -31,11 +31,17 @@ go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
 ## CI tracks
 
-- `lint`: formatting, vet, static analysis.
+- `lint`: formatting, vet, static analysis, and static security-adjacent checks.
 - `unit`: `go test ./...`.
+- `fuzz-smoke`: short mutation smoke for the configuration, delayed-entry, and
+  leadership-fence fuzz targets.
+- `deterministic-simulation`: seeded protocol fault schedules and invariants.
+- `protocol-model-check`: bounded exhaustive delivery and scheduler state spaces.
+- `coverage`: critical-package statement coverage floors.
 - `integration`: Redis-backed tests.
 - `race`: `go test -race ./...`.
 - `benchmark-smoke`: each benchmark once.
+- `benchmark-regression`: benchmark smoke plus versioned baseline metadata.
 - `experiment-smoke`: every comparative workload/variant with raw and derived evidence.
 - `docs-and-examples`: active documentation, certification linkage, and the public demo contract.
 - `release-smoke`: release binaries and images without publishing.
@@ -48,4 +54,7 @@ go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
   It rebuilds binaries in a fresh directory and fails if checksums or generated
   metadata drift. `release-smoke` supplies binary and image start/health evidence.
 
-Release runs from version tags; see [RELEASING.md](../../RELEASING.md).
+Release runs from version tags. The `release` workflow re-runs the release
+checklist gates (`unit`, `lint`, `security`, `race`, `vulnerability`, and
+`release-validate`) before publishing, so a tag cannot publish an artifact that
+fails them. See [RELEASING.md](../../RELEASING.md).

@@ -1,4 +1,5 @@
 .git
+.github
 .agents
 .claude
 .codex
@@ -7,6 +8,12 @@
 artifacts
 bin
 dist
+certification
+docs
+examples
+research
+scripts
+test
 coverage.out
 *.out
 *.test
