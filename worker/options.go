@@ -12,7 +12,8 @@ import (
 )
 
 type Options struct {
-	Broker           taskforge.Broker
+	Broker taskforge.Broker
+	// DeadLetter is required unless Broker implements taskforge.DeadLetterPublisher.
 	DeadLetter       taskforge.DeadLetterPublisher
 	Handler          taskforge.Handler
 	StateStore       taskforge.StateStore
@@ -35,6 +36,8 @@ type Options struct {
 	LifecycleWriter  WorkerLifecycleWriter
 }
 
+// New builds a worker. A dead-letter publisher is required either explicitly
+// or through the configured broker so terminal failures can be preserved.
 func New(options Options) (*Worker, error) {
 	if options.Broker == nil {
 		return nil, fmt.Errorf("new worker: missing broker")
@@ -65,6 +68,9 @@ func New(options Options) (*Worker, error) {
 	}
 	if options.DeadLetter == nil {
 		options.DeadLetter, _ = options.Broker.(taskforge.DeadLetterPublisher)
+	}
+	if options.DeadLetter == nil {
+		return nil, fmt.Errorf("new worker: %w", errDeadLetterPublisherUnavailable)
 	}
 	if options.StateStore == nil {
 		options.StateStore, _ = options.Broker.(taskforge.StateStore)

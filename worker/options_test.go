@@ -12,9 +12,11 @@ func TestNewBuildsDirectWorkerWithDefaults(t *testing.T) {
 	t.Parallel()
 
 	b := &stubBroker{}
+	deadLetters := &stubDeadLetter{}
 	w, err := New(Options{
-		Broker:  b,
-		Handler: taskforge.HandlerFunc(func(context.Context, taskforge.Task) error { return nil }),
+		Broker:     b,
+		DeadLetter: deadLetters,
+		Handler:    taskforge.HandlerFunc(func(context.Context, taskforge.Task) error { return nil }),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -24,6 +26,9 @@ func TestNewBuildsDirectWorkerWithDefaults(t *testing.T) {
 	}
 	if w.Concurrency != 1 || w.LeaseTTL != 30*time.Second || w.RetryPolicy.MaxDeliveries != 1 {
 		t.Fatalf("unexpected worker runtime defaults: %+v", w)
+	}
+	if w.DeadLetter != deadLetters {
+		t.Fatal("New() did not preserve the configured dead-letter publisher")
 	}
 }
 
@@ -35,5 +40,11 @@ func TestNewRejectsMissingRequiredContracts(t *testing.T) {
 	}
 	if _, err := New(Options{Broker: &stubBroker{}}); err == nil {
 		t.Fatal("New() without handler error = nil")
+	}
+	if _, err := New(Options{
+		Broker:  &stubBroker{},
+		Handler: taskforge.HandlerFunc(func(context.Context, taskforge.Task) error { return nil }),
+	}); err == nil {
+		t.Fatal("New() without dead-letter publisher error = nil")
 	}
 }

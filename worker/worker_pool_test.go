@@ -476,6 +476,70 @@ func TestWorkerCancelsRunningTaskWhenLeaseRenewalFails(t *testing.T) {
 	}
 }
 
+func TestWorkerResolvesTimedOutTaskAndContinuesProcessing(t *testing.T) {
+	t.Parallel()
+
+	first := testDeliveryWithQueue("timeout-1", "default", "timeout.task")
+	second := testDeliveryWithQueue("after-timeout", "default", "success.task")
+	broker := &contextAwareQueueBroker{
+		queueBrokerStub: newQueueBrokerStub(map[string][]taskforge.Delivery{
+			"default": {first, second},
+		}),
+		ackSignal: make(chan taskforge.Delivery, 2),
+	}
+	worker := newQueueWorkerForTest(broker, "default", taskforge.HandlerFunc(func(ctx context.Context, msg taskforge.Task) error {
+		if msg.ID == first.Message.ID {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	}))
+	worker.LeaseTTL = 0
+	worker.TaskTimeout = 20 * time.Millisecond
+	worker.RetryPolicy = taskforge.DefaultRetryPolicy(3)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- worker.Run(ctx)
+	}()
+
+	acknowledged := make([]taskforge.Delivery, 0, 2)
+	for range 2 {
+		select {
+		case delivery := <-broker.ackSignal:
+			acknowledged = append(acknowledged, delivery)
+		case err := <-result:
+			t.Fatalf("worker.Run() returned before resolving both tasks: %v", err)
+		case <-time.After(time.Second):
+			t.Fatal("worker did not acknowledge both the retry and following task")
+		}
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("worker.Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after cancellation")
+	}
+
+	if acknowledged[0].Execution.State != taskforge.StateRetryScheduled || acknowledged[1].Execution.State != taskforge.StateSucceeded {
+		t.Fatalf("acknowledged states = [%s, %s], want retry_scheduled then succeeded", acknowledged[0].Execution.State, acknowledged[1].Execution.State)
+	}
+	broker.queueBrokerStub.mu.Lock()
+	defer broker.queueBrokerStub.mu.Unlock()
+	if len(broker.queueBrokerStub.publish) != 1 || broker.queueBrokerStub.publish[0].Attempt != 1 {
+		t.Fatalf("published retries = %+v, want one retry at attempt 1", broker.queueBrokerStub.publish)
+	}
+	if len(broker.queueBrokerStub.nacked) != 0 {
+		t.Fatalf("Nack calls = %d, want 0", len(broker.queueBrokerStub.nacked))
+	}
+}
+
 func TestWorkerFatalErrorDrainsRunningTaskBeforeReturn(t *testing.T) {
 	t.Parallel()
 
@@ -640,6 +704,36 @@ type queueBrokerStub struct {
 	publish         []taskforge.Task
 	reserveFunc     func(queue string) (taskforge.Delivery, error)
 	extendLeaseFunc func(taskforge.Delivery) error
+}
+
+type contextAwareQueueBroker struct {
+	*queueBrokerStub
+	ackSignal chan taskforge.Delivery
+}
+
+func (b *contextAwareQueueBroker) Publish(ctx context.Context, msg taskforge.Task, opts taskforge.PublishOptions) (taskforge.PublishResult, error) {
+	if err := ctx.Err(); err != nil {
+		return taskforge.PublishResult{}, err
+	}
+	return b.queueBrokerStub.Publish(ctx, msg, opts)
+}
+
+func (b *contextAwareQueueBroker) Ack(ctx context.Context, delivery taskforge.Delivery) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.queueBrokerStub.Ack(ctx, delivery); err != nil {
+		return err
+	}
+	b.ackSignal <- delivery
+	return nil
+}
+
+func (b *contextAwareQueueBroker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.queueBrokerStub.Nack(ctx, delivery, requeue)
 }
 
 func newQueueBrokerStub(queues map[string][]taskforge.Delivery) *queueBrokerStub {

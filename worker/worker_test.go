@@ -240,6 +240,12 @@ func TestWorkerDoesNotAcknowledgeBeforeReplacementPublishSucceeds(t *testing.T) 
 			wantErrorPart: "dlq unavailable",
 		},
 		{
+			name:          "dead-letter publisher missing",
+			broker:        &stubBroker{},
+			handlerError:  taskforge.Permanent(errors.New("boom")),
+			wantErrorPart: "dead-letter publisher unavailable",
+		},
+		{
 			name:          "retry",
 			broker:        &stubBroker{publishErr: errors.New("retry unavailable")},
 			handlerError:  taskforge.Retryable(errors.New("boom")),
@@ -295,6 +301,85 @@ func TestWorkerProcessTaskDeadLettersRetryRejectedByAdmission(t *testing.T) {
 	}
 	if got := b.acked[0].Execution.State; got != taskforge.StateDeadLettered {
 		t.Fatalf("Ack state = %q, want %q", got, taskforge.StateDeadLettered)
+	}
+}
+
+func TestWorkerRequeuesAdmissionRejectedRetryWithoutDeadLetterPublisher(t *testing.T) {
+	t.Parallel()
+
+	broker := &stubBroker{rejectRetry: true}
+	worker := newTestWorker(broker, nil, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+		return taskforge.Retryable(errors.New("downstream overloaded"))
+	}))
+	worker.RetryPolicy = taskforge.DefaultRetryPolicy(3)
+
+	err := worker.processTask(context.Background(), testDelivery(), nil)
+	if err == nil || !strings.Contains(err.Error(), "dead-letter publisher unavailable") {
+		t.Fatalf("processTask() error = %v, want missing dead-letter publisher", err)
+	}
+	if len(broker.acked) != 0 {
+		t.Fatalf("Ack calls = %d, want 0", len(broker.acked))
+	}
+	if len(broker.nacked) != 1 {
+		t.Fatalf("Nack calls = %d, want source delivery requeued", len(broker.nacked))
+	}
+}
+
+func TestWorkerRequeuesWithFreshContextAfterPublishDeadline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		rejectRetry  bool
+		blockRetry   bool
+		blockDLQ     bool
+		handlerError error
+	}{
+		{
+			name:         "retry publish",
+			blockRetry:   true,
+			handlerError: taskforge.Retryable(errors.New("transient")),
+		},
+		{
+			name:         "dead-letter publish",
+			blockDLQ:     true,
+			handlerError: taskforge.Permanent(errors.New("terminal")),
+		},
+		{
+			name:         "dead-letter publish after retry admission rejection",
+			rejectRetry:  true,
+			blockDLQ:     true,
+			handlerError: taskforge.Retryable(errors.New("overloaded")),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			broker := &deadlineAwareBroker{
+				stubBroker: &stubBroker{rejectRetry: test.rejectRetry},
+				blockRetry: test.blockRetry,
+			}
+			var deadLetters taskforge.DeadLetterPublisher
+			if test.blockDLQ {
+				deadLetters = deadlineWaitingDeadLetter{}
+			}
+			worker := newTestWorker(broker, deadLetters, taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
+				return test.handlerError
+			}))
+
+			err := worker.processTask(context.Background(), testDelivery(), nil)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("processTask() error = %v, want resolution deadline", err)
+			}
+			if len(broker.nacked) != 1 {
+				t.Fatalf("Nack calls = %d, want one successful requeue with a fresh context", len(broker.nacked))
+			}
+			if len(broker.acked) != 0 {
+				t.Fatalf("Ack calls = %d, want 0", len(broker.acked))
+			}
+		})
 	}
 }
 
@@ -390,6 +475,33 @@ type failingDeadLetter struct{ err error }
 
 func (d failingDeadLetter) PublishDeadLetter(context.Context, taskforge.DeadLetterEnvelope) error {
 	return d.err
+}
+
+type deadlineWaitingDeadLetter struct{}
+
+func (deadlineWaitingDeadLetter) PublishDeadLetter(ctx context.Context, _ taskforge.DeadLetterEnvelope) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type deadlineAwareBroker struct {
+	*stubBroker
+	blockRetry bool
+}
+
+func (b *deadlineAwareBroker) Publish(ctx context.Context, msg taskforge.Task, options taskforge.PublishOptions) (taskforge.PublishResult, error) {
+	if b.blockRetry && options.Source == taskforge.PublishSourceRetry {
+		<-ctx.Done()
+		return taskforge.PublishResult{}, ctx.Err()
+	}
+	return b.stubBroker.Publish(ctx, msg, options)
+}
+
+func (b *deadlineAwareBroker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.stubBroker.Nack(ctx, delivery, requeue)
 }
 
 type stubStateStore struct {

@@ -16,9 +16,15 @@ import (
 	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
-const idlePollInterval = 25 * time.Millisecond
+const (
+	idlePollInterval          = 25 * time.Millisecond
+	deliveryResolutionTimeout = 2 * time.Second
+)
+
+var errDeadLetterPublisherUnavailable = errors.New("dead-letter publisher unavailable")
 
 type Worker struct {
 	Broker            taskforge.Broker
@@ -669,6 +675,14 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 	if w.abandonIfLeaseLost(delivery, brokerLease, "post_handle") {
 		return nil
 	}
+	// Resolve broker ownership from ctx rather than execCtx: ctx retains worker
+	// shutdown and lease-loss cancellation without the per-task deadline. A task
+	// timeout must not cancel the retry, DLQ, or acknowledgement that makes the
+	// delivery recoverable. Keep the execution span as the parent.
+	resolutionBase := observability.ExtractTraceContext(ctx, msg.Headers)
+	resolutionBase = trace.ContextWithSpanContext(resolutionBase, trace.SpanContextFromContext(execCtx))
+	resolutionCtx, cancelResolution := context.WithTimeout(resolutionBase, deliveryResolutionTimeout)
+	defer cancelResolution()
 	w.recordExecution(duration, err != nil)
 
 	if err == nil {
@@ -682,7 +696,7 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(succeededDelivery, brokerLease, "ack_succeeded") {
 			return nil
 		}
-		recorded, ackErr := w.acknowledge(execCtx, succeededDelivery, taskforge.StateSucceeded)
+		ackErr := w.acknowledgeAndRecord(resolutionCtx, succeededDelivery, taskforge.StateSucceeded)
 		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(succeededDelivery, "ack_succeeded", brokerLease)
@@ -690,12 +704,6 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
-		}
-		if !recorded {
-			if err := w.recordTaskState(execCtx, succeededDelivery, taskforge.StateSucceeded, nil); err != nil {
-				observability.MarkSpanError(span, err)
-				return err
-			}
 		}
 		return nil
 	}
@@ -741,7 +749,7 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(retryDelivery, brokerLease, "publish_retry") {
 			return nil
 		}
-		if _, publishErr := w.Broker.Publish(execCtx, next, taskforge.PublishOptions{
+		if _, publishErr := w.Broker.Publish(resolutionCtx, next, taskforge.PublishOptions{
 			Source:           taskforge.PublishSourceRetry,
 			DeduplicationKey: fmt.Sprintf("retry:%s", failedDelivery.OwnershipKey()),
 		}); publishErr != nil {
@@ -754,25 +762,23 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 					observability.MarkSpanError(span, transitionErr)
 					return fmt.Errorf("worker mark delivery dead_lettered after retry rejection: %w", transitionErr)
 				}
-				if w.DeadLetter != nil {
-					if dlqErr := w.DeadLetter.PublishDeadLetter(execCtx, overloadedEnvelope); dlqErr != nil {
-						observability.MarkSpanError(span, dlqErr)
-						if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
-							if w.leaseOwnershipLost(nackErr) {
-								w.logLeaseLoss(failedDelivery, "nack_after_dead_letter_failure", brokerLease)
-								return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-							}
-							observability.MarkSpanError(span, nackErr)
-							return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
+				if dlqErr := w.publishDeadLetter(resolutionCtx, overloadedEnvelope); dlqErr != nil {
+					observability.MarkSpanError(span, dlqErr)
+					if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
+						if w.leaseOwnershipLost(nackErr) {
+							w.logLeaseLoss(failedDelivery, "nack_after_dead_letter_failure", brokerLease)
+							return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 						}
-						return fmt.Errorf("publish dead-letter task: %w", dlqErr)
+						observability.MarkSpanError(span, nackErr)
+						return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
 					}
-					w.Metrics.IncDeadLetterResult(queue, msg.Name, string(taskforge.FailureClassOverloaded))
+					return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 				}
+				w.Metrics.IncDeadLetterResult(queue, msg.Name, string(taskforge.FailureClassOverloaded))
 				if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "ack_dead_lettered_retry_rejected") {
 					return nil
 				}
-				recorded, ackErr := w.acknowledge(execCtx, deadLetterDelivery, taskforge.StateDeadLettered)
+				ackErr := w.acknowledgeAndRecord(resolutionCtx, deadLetterDelivery, taskforge.StateDeadLettered)
 				if ackErr != nil {
 					if w.leaseOwnershipLost(ackErr) {
 						w.logLeaseLoss(deadLetterDelivery, "ack_dead_lettered_retry_rejected", brokerLease)
@@ -781,15 +787,9 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 					observability.MarkSpanError(span, ackErr)
 					return ackErr
 				}
-				if !recorded {
-					if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
-						observability.MarkSpanError(span, err)
-						return err
-					}
-				}
 				return nil
 			}
-			if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
+			if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
 				if w.leaseOwnershipLost(nackErr) {
 					w.logLeaseLoss(failedDelivery, "nack_retry_publish_failed", brokerLease)
 					return fmt.Errorf("publish retry task: %w", publishErr)
@@ -803,7 +803,7 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(retryDelivery, brokerLease, "ack_retry_scheduled") {
 			return nil
 		}
-		recorded, ackErr := w.acknowledge(execCtx, retryDelivery, taskforge.StateRetryScheduled)
+		ackErr := w.acknowledgeAndRecord(resolutionCtx, retryDelivery, taskforge.StateRetryScheduled)
 		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(retryDelivery, "ack_retry_scheduled", brokerLease)
@@ -811,12 +811,6 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
-		}
-		if !recorded {
-			if err := w.recordTaskState(execCtx, retryDelivery, taskforge.StateRetryScheduled, nil); err != nil {
-				observability.MarkSpanError(span, err)
-				return err
-			}
 		}
 		return nil
 	case outcomeDeadLetter:
@@ -828,25 +822,23 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 		if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "publish_dead_letter") {
 			return nil
 		}
-		if w.DeadLetter != nil {
-			if dlqErr := w.DeadLetter.PublishDeadLetter(execCtx, envelope); dlqErr != nil {
-				observability.MarkSpanError(span, dlqErr)
-				if nackErr := w.Broker.Nack(execCtx, failedDelivery, true); nackErr != nil {
-					if w.leaseOwnershipLost(nackErr) {
-						w.logLeaseLoss(failedDelivery, "nack_dead_letter_publish_failed", brokerLease)
-						return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-					}
-					observability.MarkSpanError(span, nackErr)
-					return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
+		if dlqErr := w.publishDeadLetter(resolutionCtx, envelope); dlqErr != nil {
+			observability.MarkSpanError(span, dlqErr)
+			if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
+				if w.leaseOwnershipLost(nackErr) {
+					w.logLeaseLoss(failedDelivery, "nack_dead_letter_publish_failed", brokerLease)
+					return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 				}
-				return fmt.Errorf("publish dead-letter task: %w", dlqErr)
+				observability.MarkSpanError(span, nackErr)
+				return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
 			}
-			w.Metrics.IncDeadLetterResult(queue, msg.Name, string(failureClass))
+			return fmt.Errorf("publish dead-letter task: %w", dlqErr)
 		}
+		w.Metrics.IncDeadLetterResult(queue, msg.Name, string(failureClass))
 		if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "ack_dead_lettered") {
 			return nil
 		}
-		recorded, ackErr := w.acknowledge(execCtx, deadLetterDelivery, taskforge.StateDeadLettered)
+		ackErr := w.acknowledgeAndRecord(resolutionCtx, deadLetterDelivery, taskforge.StateDeadLettered)
 		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(deadLetterDelivery, "ack_dead_lettered", brokerLease)
@@ -855,18 +847,12 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
 		}
-		if !recorded {
-			if err := w.recordTaskState(execCtx, deadLetterDelivery, taskforge.StateDeadLettered, nil); err != nil {
-				observability.MarkSpanError(span, err)
-				return err
-			}
-		}
 		return nil
 	default:
 		if w.abandonIfLeaseLost(failedDelivery, brokerLease, "ack_failed_delivery") {
 			return nil
 		}
-		recorded, ackErr := w.acknowledge(execCtx, failedDelivery, failedDelivery.Execution.State)
+		ackErr := w.acknowledgeAndRecord(resolutionCtx, failedDelivery, failedDelivery.Execution.State)
 		if ackErr != nil {
 			if w.leaseOwnershipLost(ackErr) {
 				w.logLeaseLoss(failedDelivery, "ack_failed_delivery", brokerLease)
@@ -874,12 +860,6 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			}
 			observability.MarkSpanError(span, ackErr)
 			return ackErr
-		}
-		if !recorded {
-			if err := w.recordTaskState(execCtx, failedDelivery, failedDelivery.Execution.State, nil); err != nil {
-				observability.MarkSpanError(span, err)
-				return err
-			}
 		}
 		return nil
 	}
@@ -904,6 +884,19 @@ func (w *Worker) invokeHandler(ctx context.Context, task taskforge.Task) (err er
 		err = fmt.Errorf("handler panicked: %v", recovered)
 	}()
 	return w.Handler.HandleTask(ctx, task)
+}
+
+func (w *Worker) publishDeadLetter(ctx context.Context, envelope taskforge.DeadLetterEnvelope) error {
+	if w.DeadLetter == nil {
+		return errDeadLetterPublisherUnavailable
+	}
+	return w.DeadLetter.PublishDeadLetter(ctx, envelope)
+}
+
+func (w *Worker) requeue(ctx context.Context, delivery taskforge.Delivery) error {
+	requeueCtx, cancel := context.WithTimeout(ctx, deliveryResolutionTimeout)
+	defer cancel()
+	return w.Broker.Nack(requeueCtx, delivery, true)
 }
 
 func (w *Worker) recordExecution(duration time.Duration, failed bool) {
@@ -937,6 +930,17 @@ func (w *Worker) acknowledge(ctx context.Context, delivery taskforge.Delivery, s
 		return true, broker.AckAndRecord(ctx, delivery, state)
 	}
 	return false, w.Broker.Ack(ctx, delivery)
+}
+
+func (w *Worker) acknowledgeAndRecord(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) error {
+	recorded, err := w.acknowledge(ctx, delivery, state)
+	if err != nil {
+		return err
+	}
+	if recorded {
+		return nil
+	}
+	return w.recordTaskState(ctx, delivery, state, nil)
 }
 
 func (w *Worker) recordTaskStates(ctx context.Context, deliveries []taskforge.Delivery, state taskforge.State) error {
