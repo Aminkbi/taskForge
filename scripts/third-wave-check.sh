@@ -9,6 +9,9 @@ test -s research/third-wave/analysis-plan.md
 test -s research/third-wave/paper/paper.md
 test -s research/third-wave/blog/taskforge-wave3.md
 test -s research/third-wave/evidence/optimization-map.md
+test -s research/third-wave/results/analysis.json
+test -s research/third-wave/results/analysis.md
+test -s research/third-wave/data/final/metadata.json
 test -x scripts/third-wave-identity.sh
 test "$(scripts/third-wave-identity.sh | awk '/^treatment_sha256 / {print $2}')" = "b7045b8185cfbb98e7594ef6798d3eef4864094f35438975430d3e5ee648039b"
 
@@ -20,7 +23,8 @@ done
 
 grep -q 'redis_round_trips/op' research/third-wave/analysis-plan.md
 grep -q 'Bonferroni' research/third-wave/analysis-plan.md
-grep -q 'not yet present' research/third-wave/paper/paper.md
+grep -q 'completed run' research/third-wave/paper/paper.md
+grep -q 'measured_numbers_present": true' research/third-wave/evidence/manifest.json
 
 GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}" go -C research test ./...
-echo "wave 3 protocol and evidence package verified; treatment numbers remain pending"
+echo "third-wave protocol, completed measurements, and evidence package verified"

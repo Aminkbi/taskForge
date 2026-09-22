@@ -1,0 +1,29 @@
+{
+  "status": "completed-host-local-control-plane-study",
+  "completed_utc": "2026-09-22",
+  "baseline_revision": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
+  "treatment_revision": "b2947f3ddc3eb0f6b189798dc512742e65b8fca7",
+  "go_version": "go version go1.27.1-X:nodwarf5 linux/amd64",
+  "cpu_model": "AMD Ryzen 9 5900HS with Radeon Graphics",
+  "logical_cpus": 16,
+  "redis_topology": "dedicated standalone Redis 7 container over loopback TCP; persistence disabled; database 14",
+  "bench_iterations": 30,
+  "repetitions": 10,
+  "bootstrap_resamples": 10000,
+  "bootstrap_seed": 20260922,
+  "primary_families": {
+    "publish": 27,
+    "snapshot": 72,
+    "setup-key": 9
+  },
+  "correctness": "baseline and treatment redis, worker, and integration suites passed",
+  "files": {
+    "baseline.txt": "feba8028d3657a5a459805ef1dfb487b57f05983eae1d3fb7767a0590adbef5a",
+    "treatment.txt": "c8db9fd4019344cdebd1fa2d2d83257136d03d351280435b52fbfa14ead5fa64",
+    "baseline-setup.txt": "1df79ad56661629f336d5c8dc4e7b0961c243f7fff512a5f1746b94650919e33",
+    "treatment-setup.txt": "488b1abe4a268e9735c31f46be4d3145682e1241f20ea5895d84b7a024e58981",
+    "regression-gate.txt": "a05d6e249e3a73c89b811cda9214a4c77614c7094013fb711fcc77ab39d5b0a7",
+    "correctness-treatment.txt": "7a0af0a989791e538a05bdc115532015e410fb8f5eb92a5da38b18dc628aedc0",
+    "correctness-baseline.txt": "472f17d05831089cd016e97955c16ea98d6933a5a3ac9bf0e90de335795653b9"
+  }
+}

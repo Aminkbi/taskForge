@@ -1,0 +1,3 @@
+ok  	github.com/aminkbi/taskforge/redis	0.121s
+ok  	github.com/aminkbi/taskforge/worker	0.212s
+ok  	github.com/aminkbi/taskforge/test/integration	18.627s

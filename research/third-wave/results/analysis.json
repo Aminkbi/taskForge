@@ -1,0 +1,1742 @@
+{
+  "protocol": {
+    "bootstrap_resamples": 10000,
+    "seed": 20260922,
+    "direction": "negative treatment change is lower cost",
+    "families": {
+      "publish": 27,
+      "setup-key": 9,
+      "snapshot": 72
+    }
+  },
+  "records": [
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 99278.5,
+      "treatment_median": 111997.0,
+      "change_percent": 13.498137092354046,
+      "interval_95_bootstrap": [
+        1.4970132389731217,
+        23.553093267026114
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 1.0,
+      "treatment_median": 1.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        0.0,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 664.3499999999999,
+      "treatment_median": 724.3499999999999,
+      "change_percent": 9.007453876922456,
+      "interval_95_bootstrap": [
+        8.98555168719506,
+        9.07585791691754
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 1.0,
+      "treatment_median": 1.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        0.0,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 4385.0,
+      "treatment_median": 4476.0,
+      "change_percent": 2.1436716077537055,
+      "interval_95_bootstrap": [
+        1.011133833219724,
+        2.5194686211635453
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 61.0,
+      "treatment_median": 56.0,
+      "change_percent": -8.196721311475407,
+      "interval_95_bootstrap": [
+        -8.196721311475407,
+        -8.196721311475407
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 221094.5,
+      "treatment_median": 192261.5,
+      "change_percent": -17.833387863657833,
+      "interval_95_bootstrap": [
+        -22.917300958805463,
+        -12.330661464657812
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 3.0,
+      "treatment_median": 2.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 974.3499999999999,
+      "treatment_median": 946.4,
+      "change_percent": -2.8786951382179238,
+      "interval_95_bootstrap": [
+        -2.9039038473059775,
+        -2.843358653253958
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 3.0,
+      "treatment_median": 2.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 5153.0,
+      "treatment_median": 5151.0,
+      "change_percent": -0.019406171162433816,
+      "interval_95_bootstrap": [
+        -0.9227220299884653,
+        0.7627716591074085
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 83.0,
+      "treatment_median": 70.0,
+      "change_percent": -15.662650602409634,
+      "interval_95_bootstrap": [
+        -15.662650602409634,
+        -15.662650602409634
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 153624.0,
+      "treatment_median": 100561.0,
+      "change_percent": -34.80147002431152,
+      "interval_95_bootstrap": [
+        -39.3252297149022,
+        -32.28639383435726
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 7.0,
+      "treatment_median": 1.0,
+      "change_percent": -85.71428571428572,
+      "interval_95_bootstrap": [
+        -85.71428571428572,
+        -85.71428571428572
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 1112.0,
+      "treatment_median": 887.4,
+      "change_percent": -20.197841726618705,
+      "interval_95_bootstrap": [
+        -20.242805755395686,
+        -20.17985611510791
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 2.0,
+      "treatment_median": 1.0,
+      "change_percent": -50.0,
+      "interval_95_bootstrap": [
+        -50.0,
+        -50.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 6624.0,
+      "treatment_median": 4831.0,
+      "change_percent": -27.21932901701145,
+      "interval_95_bootstrap": [
+        -27.827403482210443,
+        -26.945745806256618
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 110.0,
+      "treatment_median": 63.0,
+      "change_percent": -42.72727272727273,
+      "interval_95_bootstrap": [
+        -42.72727272727273,
+        -42.72727272727273
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 225341.0,
+      "treatment_median": 170613.0,
+      "change_percent": -24.83206663415197,
+      "interval_95_bootstrap": [
+        -29.812278582241863,
+        -17.076337399900765
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 3.0,
+      "treatment_median": 2.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 1193.0,
+      "treatment_median": 1109.0,
+      "change_percent": -7.041072925398151,
+      "interval_95_bootstrap": [
+        -7.041072925398151,
+        -7.041072925398151
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 3.0,
+      "treatment_median": 2.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 5688.0,
+      "treatment_median": 5500.0,
+      "change_percent": -3.305057491053076,
+      "interval_95_bootstrap": [
+        -3.613101849440681,
+        -2.758007117437722
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 96.0,
+      "treatment_median": 77.0,
+      "change_percent": -19.791666666666664,
+      "interval_95_bootstrap": [
+        -19.791666666666664,
+        -19.791666666666664
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishThroughput-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 99667.5,
+      "treatment_median": 98504.0,
+      "change_percent": 0.5401724740969116,
+      "interval_95_bootstrap": [
+        -5.044447392861883,
+        5.8603630601070655
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishThroughput-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 4353.0,
+      "treatment_median": 4428.0,
+      "change_percent": 1.7229496898690577,
+      "interval_95_bootstrap": [
+        0.344589937973816,
+        3.1686859273066137
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "publish",
+      "benchmark": "BenchmarkPublishThroughput-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 61.0,
+      "treatment_median": 56.0,
+      "change_percent": -8.196721311475407,
+      "interval_95_bootstrap": [
+        -8.196721311475407,
+        -8.196721311475407
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 27,
+      "familywise_alpha": 0.001851851851851852
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/cached_group-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 797.0,
+      "treatment_median": 794.85,
+      "change_percent": -0.8468629110610582,
+      "interval_95_bootstrap": [
+        -4.817974288117255,
+        4.456410478693873
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/cached_group-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 70.0,
+      "treatment_median": 70.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        0.0,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/cached_group-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 1.0,
+      "treatment_median": 1.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        0.0,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/three_keys-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 698.5,
+      "treatment_median": 286.2,
+      "change_percent": -57.762182089863,
+      "interval_95_bootstrap": [
+        -70.34910965323337,
+        -52.15044971381848
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/three_keys-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 286.0,
+      "treatment_median": 104.0,
+      "change_percent": -63.63636363636363,
+      "interval_95_bootstrap": [
+        -63.63636363636363,
+        -63.63636363636363
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/three_keys-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 9.0,
+      "treatment_median": 3.0,
+      "change_percent": -66.66666666666667,
+      "interval_95_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/uncached_group-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 59970.5,
+      "treatment_median": 55711.5,
+      "change_percent": -2.52886340016506,
+      "interval_95_bootstrap": [
+        -16.349036563870012,
+        1.7747660535656573
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/uncached_group-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 750.0,
+      "treatment_median": 750.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        -0.26595744680850686,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "setup-key",
+      "benchmark": "BenchmarkSetupKeyCosts/uncached_group-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 32.0,
+      "treatment_median": 32.0,
+      "change_percent": 0.0,
+      "interval_95_bootstrap": [
+        0.0,
+        0.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 9,
+      "familywise_alpha": 0.005555555555555556
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 695051.0,
+      "treatment_median": 242858.5,
+      "change_percent": -64.04937693192642,
+      "interval_95_bootstrap": [
+        -66.40305913813313,
+        -62.785669985016135
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 11.0,
+      "treatment_median": 5.0,
+      "change_percent": -54.54545454545454,
+      "interval_95_bootstrap": [
+        -54.54545454545454,
+        -54.54545454545454
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 6503.0,
+      "treatment_median": 1635.0,
+      "change_percent": -74.8577579578656,
+      "interval_95_bootstrap": [
+        -74.87313547593418,
+        -74.8577579578656
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 10.0,
+      "treatment_median": 4.0,
+      "change_percent": -60.0,
+      "interval_95_bootstrap": [
+        -60.0,
+        -60.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 15119.5,
+      "treatment_median": 4773.0,
+      "change_percent": -68.4289274999091,
+      "interval_95_bootstrap": [
+        -69.18577911821848,
+        -68.24515343421879
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 282.0,
+      "treatment_median": 83.0,
+      "change_percent": -70.56737588652481,
+      "interval_95_bootstrap": [
+        -70.56737588652481,
+        -70.56737588652481
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 1431676.0,
+      "treatment_median": 535254.0,
+      "change_percent": -62.838477195404266,
+      "interval_95_bootstrap": [
+        -63.795354252358266,
+        -61.60316155769667
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 11.0,
+      "treatment_median": 5.0,
+      "change_percent": -54.54545454545454,
+      "interval_95_bootstrap": [
+        -54.54545454545454,
+        -54.54545454545454
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 528755.0,
+      "treatment_median": 88677.0,
+      "change_percent": -83.22909476033324,
+      "interval_95_bootstrap": [
+        -83.22909476033324,
+        -83.22909476033324
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 10.0,
+      "treatment_median": 4.0,
+      "change_percent": -60.0,
+      "interval_95_bootstrap": [
+        -60.0,
+        -60.0
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 864409.0,
+      "treatment_median": 249454.5,
+      "change_percent": -71.13812221163744,
+      "interval_95_bootstrap": [
+        -71.1490120195415,
+        -71.11678063568098
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 286.0,
+      "treatment_median": 83.0,
+      "change_percent": -70.97902097902097,
+      "interval_95_bootstrap": [
+        -71.08013937282229,
+        -70.62937062937063
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 7871229.0,
+      "treatment_median": 2547792.5,
+      "change_percent": -68.35013788455507,
+      "interval_95_bootstrap": [
+        -69.69031638991694,
+        -67.40367458443232
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 146.0,
+      "treatment_median": 65.0,
+      "change_percent": -55.47945205479452,
+      "interval_95_bootstrap": [
+        -55.47945205479452,
+        -55.47945205479452
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 101320.0,
+      "treatment_median": 24317.5,
+      "change_percent": -75.99903279610749,
+      "interval_95_bootstrap": [
+        -76.00094740893525,
+        -75.9972360692957
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 115.0,
+      "treatment_median": 34.0,
+      "change_percent": -70.43478260869564,
+      "interval_95_bootstrap": [
+        -70.43478260869564,
+        -70.43478260869564
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 227600.0,
+      "treatment_median": 66512.0,
+      "change_percent": -70.77678432620672,
+      "interval_95_bootstrap": [
+        -70.84456601308908,
+        -70.74311819141073
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 4086.5,
+      "treatment_median": 1049.0,
+      "change_percent": -74.3301109579327,
+      "interval_95_bootstrap": [
+        -74.3332517739173,
+        -74.32697014194811
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 20063279.0,
+      "treatment_median": 6329276.5,
+      "change_percent": -68.6487909984301,
+      "interval_95_bootstrap": [
+        -69.00741934882956,
+        -68.09406111764555
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 146.0,
+      "treatment_median": 65.0,
+      "change_percent": -55.47945205479452,
+      "interval_95_bootstrap": [
+        -55.47945205479452,
+        -55.47945205479452
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 8457349.0,
+      "treatment_median": 1416989.5,
+      "change_percent": -83.24547095398025,
+      "interval_95_bootstrap": [
+        -83.24548265335815,
+        -83.24545306206758
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 115.0,
+      "treatment_median": 34.0,
+      "change_percent": -70.43478260869564,
+      "interval_95_bootstrap": [
+        -70.43478260869564,
+        -70.43478260869564
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 13818168.5,
+      "treatment_median": 3985364.5,
+      "change_percent": -71.15694874321014,
+      "interval_95_bootstrap": [
+        -71.1600699992083,
+        -71.15436729977314
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 4150.5,
+      "treatment_median": 1058.0,
+      "change_percent": -74.49680570401532,
+      "interval_95_bootstrap": [
+        -74.51523508739683,
+        -74.48192771084337
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 30154416.5,
+      "treatment_median": 8637075.0,
+      "change_percent": -71.35376675890159,
+      "interval_95_bootstrap": [
+        -71.64802532012746,
+        -71.01114932091535
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 578.0,
+      "treatment_median": 257.0,
+      "change_percent": -55.536332179930795,
+      "interval_95_bootstrap": [
+        -55.536332179930795,
+        -55.536332179930795
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 405121.0,
+      "treatment_median": 96983.5,
+      "change_percent": -76.06009291769183,
+      "interval_95_bootstrap": [
+        -76.06193521633637,
+        -76.05925143352232
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 451.0,
+      "treatment_median": 130.0,
+      "change_percent": -71.17516629711751,
+      "interval_95_bootstrap": [
+        -71.17516629711751,
+        -71.17516629711751
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 907850.0,
+      "treatment_median": 266908.5,
+      "change_percent": -70.61281715070879,
+      "interval_95_bootstrap": [
+        -70.6321629139306,
+        -70.58696821651085
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 16238.0,
+      "treatment_median": 4124.0,
+      "change_percent": -74.60512944419823,
+      "interval_95_bootstrap": [
+        -74.60744499499204,
+        -74.6020015155634
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 76709593.5,
+      "treatment_median": 25211819.0,
+      "change_percent": -67.17117488233234,
+      "interval_95_bootstrap": [
+        -67.7610437318344,
+        -65.29243808320047
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 578.0,
+      "treatment_median": 257.0,
+      "change_percent": -55.536332179930795,
+      "interval_95_bootstrap": [
+        -55.536332179930795,
+        -55.536332179930795
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 33829252.0,
+      "treatment_median": 5667673.5,
+      "change_percent": -83.2462346646799,
+      "interval_95_bootstrap": [
+        -83.2462390523694,
+        -83.24622575026575
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 451.0,
+      "treatment_median": 130.0,
+      "change_percent": -71.17516629711751,
+      "interval_95_bootstrap": [
+        -71.17516629711751,
+        -71.17516629711751
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 55211369.0,
+      "treatment_median": 15942391.0,
+      "change_percent": -71.12485564339721,
+      "interval_95_bootstrap": [
+        -71.12591036463854,
+        -71.12172536325212
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 16405.5,
+      "treatment_median": 4163.0,
+      "change_percent": -74.62513714494696,
+      "interval_95_bootstrap": [
+        -74.63269050185033,
+        -74.61444681499543
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 407401.0,
+      "treatment_median": 117339.0,
+      "change_percent": -70.05382951591008,
+      "interval_95_bootstrap": [
+        -73.30004170709464,
+        -69.45524453290687
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 6.0,
+      "treatment_median": 4.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 3446.0,
+      "treatment_median": 901.5,
+      "change_percent": -73.83923389437028,
+      "interval_95_bootstrap": [
+        -73.84593052476427,
+        -73.83163785310849
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 6.0,
+      "treatment_median": 2.0,
+      "change_percent": -66.66666666666667,
+      "interval_95_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 8078.0,
+      "treatment_median": 2048.0,
+      "change_percent": -74.64100062520225,
+      "interval_95_bootstrap": [
+        -74.65660190570473,
+        -74.09234661606578
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 165.0,
+      "treatment_median": 45.0,
+      "change_percent": -72.72727272727273,
+      "interval_95_bootstrap": [
+        -72.72727272727273,
+        -72.72727272727273
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 785535.5,
+      "treatment_median": 122179.0,
+      "change_percent": -84.46719129130886,
+      "interval_95_bootstrap": [
+        -85.45209276087463,
+        -83.1609124246443
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 6.0,
+      "treatment_median": 4.0,
+      "change_percent": -33.333333333333336,
+      "interval_95_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 264573.0,
+      "treatment_median": 901.6,
+      "change_percent": -99.65922448624765,
+      "interval_95_bootstrap": [
+        -99.65922448624765,
+        -99.65922448624765
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 6.0,
+      "treatment_median": 2.0,
+      "change_percent": -66.66666666666667,
+      "interval_95_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 432524.5,
+      "treatment_median": 2048.0,
+      "change_percent": -99.52650081092091,
+      "interval_95_bootstrap": [
+        -99.52670536247123,
+        -99.52648603131601
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 167.0,
+      "treatment_median": 45.0,
+      "change_percent": -73.05389221556887,
+      "interval_95_bootstrap": [
+        -73.05389221556887,
+        -72.89156626506023
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 5343569.5,
+      "treatment_median": 236512.5,
+      "change_percent": -95.55183992295781,
+      "interval_95_bootstrap": [
+        -95.64311444156216,
+        -95.34767610492904
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 81.0,
+      "treatment_median": 49.0,
+      "change_percent": -39.50617283950617,
+      "interval_95_bootstrap": [
+        -39.50617283950617,
+        -39.50617283950617
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 53332.0,
+      "treatment_median": 12579.0,
+      "change_percent": -76.41378534463361,
+      "interval_95_bootstrap": [
+        -76.41378534463361,
+        -76.41245851225412
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 81.0,
+      "treatment_median": 2.0,
+      "change_percent": -97.53086419753086,
+      "interval_95_bootstrap": [
+        -97.53086419753086,
+        -97.53086419753086
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 121689.5,
+      "treatment_median": 26656.0,
+      "change_percent": -78.0934256765891,
+      "interval_95_bootstrap": [
+        -78.10550327862532,
+        -78.06415510459355
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 2522.0,
+      "treatment_median": 394.0,
+      "change_percent": -84.37747819191118,
+      "interval_95_bootstrap": [
+        -84.38057421287988,
+        -84.37747819191118
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 10814636.0,
+      "treatment_median": 230114.0,
+      "change_percent": -97.86813232899004,
+      "interval_95_bootstrap": [
+        -97.98034080761005,
+        -97.73528443567766
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 81.0,
+      "treatment_median": 49.0,
+      "change_percent": -39.50617283950617,
+      "interval_95_bootstrap": [
+        -39.50617283950617,
+        -39.50617283950617
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 4231348.0,
+      "treatment_median": 12579.0,
+      "change_percent": -99.70271884987952,
+      "interval_95_bootstrap": [
+        -99.7027190606499,
+        -99.70271853372336
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 81.0,
+      "treatment_median": 2.0,
+      "change_percent": -97.53086419753086,
+      "interval_95_bootstrap": [
+        -97.53086419753086,
+        -97.53086419753086
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 6917512.0,
+      "treatment_median": 26656.0,
+      "change_percent": -99.61465914298326,
+      "interval_95_bootstrap": [
+        -99.61470086196516,
+        -99.61455817921541
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 2556.0,
+      "treatment_median": 394.0,
+      "change_percent": -84.58528951486699,
+      "interval_95_bootstrap": [
+        -84.58830373279524,
+        -84.55507644061153
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 21159867.5,
+      "treatment_median": 479431.5,
+      "change_percent": -97.72525882903497,
+      "interval_95_bootstrap": [
+        -97.78663606455713,
+        -97.67060119806328
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 321.0,
+      "treatment_median": 193.0,
+      "change_percent": -39.87538940809969,
+      "interval_95_bootstrap": [
+        -39.87538940809969,
+        -39.87538940809969
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 213154.0,
+      "treatment_median": 49971.0,
+      "change_percent": -76.55638646236993,
+      "interval_95_bootstrap": [
+        -76.55704634551603,
+        -76.55605237542683
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 321.0,
+      "treatment_median": 2.0,
+      "change_percent": -99.37694704049844,
+      "interval_95_bootstrap": [
+        -99.37694704049844,
+        -99.37694704049844
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 486474.0,
+      "treatment_median": 106400.0,
+      "change_percent": -78.12832751596179,
+      "interval_95_bootstrap": [
+        -78.14602725995547,
+        -78.11352579991566
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 10061.0,
+      "treatment_median": 1500.0,
+      "change_percent": -85.09094523407215,
+      "interval_95_bootstrap": [
+        -85.09242695289207,
+        -85.09094523407215
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "ns/op",
+      "samples": 10,
+      "baseline_median": 43261913.0,
+      "treatment_median": 509816.0,
+      "change_percent": -98.84283257146758,
+      "interval_95_bootstrap": [
+        -98.85893633785835,
+        -98.80415477199412
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "redis_commands/op",
+      "samples": 10,
+      "baseline_median": 321.0,
+      "treatment_median": 193.0,
+      "change_percent": -39.87538940809969,
+      "interval_95_bootstrap": [
+        -39.87538940809969,
+        -39.87538940809969
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "redis_network_bytes/op",
+      "samples": 10,
+      "baseline_median": 16925221.0,
+      "treatment_median": 49971.0,
+      "change_percent": -99.70475422447954,
+      "interval_95_bootstrap": [
+        -99.70475430297812,
+        -99.70475411981474
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "redis_round_trips/op",
+      "samples": 10,
+      "baseline_median": 321.0,
+      "treatment_median": 2.0,
+      "change_percent": -99.37694704049844,
+      "interval_95_bootstrap": [
+        -99.37694704049844,
+        -99.37694704049844
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "B/op",
+      "samples": 10,
+      "baseline_median": 27674039.5,
+      "treatment_median": 106400.0,
+      "change_percent": -99.6155241449261,
+      "interval_95_bootstrap": [
+        -99.61554887985253,
+        -99.61550190787302
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    },
+    {
+      "family": "snapshot",
+      "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
+      "metric": "allocs/op",
+      "samples": 10,
+      "baseline_median": 10204.5,
+      "treatment_median": 1500.0,
+      "change_percent": -85.30060235767706,
+      "interval_95_bootstrap": [
+        -85.30564263322884,
+        -85.29483817032236
+      ],
+      "regression_over_15_percent": false,
+      "family_tests": 72,
+      "familywise_alpha": 0.0006944444444444445
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+package redis
+
+import (
+	"context"
+	"os"
+	"testing"
+)
+
+var wave3KeySink [3]string
+
+func BenchmarkSetupKeyCosts(b *testing.B) {
+	for _, cached := range []bool{false, true} {
+		name := "uncached_group"
+		if cached {
+			name = "cached_group"
+		}
+		b.Run(name, func(b *testing.B) {
+			if os.Getenv("TASKFORGE_RUN_BENCHMARKS") != "1" {
+				b.Fatal("Redis benchmarks must be explicitly enabled")
+			}
+			ctx := context.Background()
+			client, err := Connect(ctx, Options{Addr: os.Getenv("TASKFORGE_REDIS_ADDR"), DB: 14})
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer client.Close()
+			broker := New(Options{Client: client})
+			stream, group := broker.streamKey("wave3-setup"), broker.groupName("wave3-setup")
+			if err := broker.ensureGroup(ctx, stream, group); err != nil {
+				b.Fatal(err)
+			}
+			b.ResetTimer()
+			for range b.N {
+				if !cached {
+					broker.forgetGroup(stream, group)
+				}
+				if err := broker.ensureGroup(ctx, stream, group); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+	b.Run("three_keys", func(b *testing.B) {
+		broker := &Broker{prefix: defaultPrefix}
+		b.ResetTimer()
+		for range b.N {
+			wave3KeySink = [3]string{broker.streamKey("default"), broker.groupName("default"), broker.delayedQueueKey("default")}
+		}
+	})
+}

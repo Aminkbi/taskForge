@@ -1,0 +1,36 @@
+goos: linux
+goarch: amd64
+pkg: github.com/aminkbi/taskforge/redis
+cpu: AMD Ryzen 9 5900HS with Radeon Graphics        
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     62999 ns/op	     752 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     54959 ns/op	     754 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     54761 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55898 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55213 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     63808 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     51393 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     56772 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55525 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     61589 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       792.2 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       778.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       729.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	      1046 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       824.6 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       786.2 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       808.9 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       729.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       797.5 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       824.9 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       324.3 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       307.6 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       253.1 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       247.8 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       310.6 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       256.5 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       289.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       283.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       292.6 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       263.8 ns/op	     104 B/op	       3 allocs/op
+PASS
+ok  	github.com/aminkbi/taskforge/redis	0.080s

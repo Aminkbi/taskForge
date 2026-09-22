@@ -11,8 +11,8 @@ Wave 3 studies the cost of the optimized control plane in committed revision
 The package is written for two audiences from one evidence source. The paper
 (`paper/paper.md`) states the methods, estimands, and limits in research form;
 the blog (`blog/taskforge-wave3.md`) explains the same result in engineering
-language. Neither document invents a result when the treatment benchmark has
-not been run.
+language. The completed run and derived analysis are under `data/final/` and
+`results/`.
 
 ## What is new in wave 3
 
@@ -40,44 +40,43 @@ make third-wave-check
 ```
 
 This verifies the evidence manifest, checks the repository diff for whitespace
-errors, runs the research module tests, and validates that the protocol names
-the exact committed treatment surfaces. Redis-backed treatment runs are opt-in:
+errors, runs the research module tests, and validates the completed analysis.
+To reproduce the paired run with a dedicated Redis container, supply its name
+and mapped address:
 
 ```bash
-TASKFORGE_RUN_BENCHMARKS=1 \
-  GOFLAGS='-benchtime=30x -count=10' \
-  make bench > /tmp/taskforge-wave3-treatment.txt
+python3 scripts/third-wave-run.py \
+  --redis-container <dedicated-redis-container> \
+  --redis-addr <mapped-redis-address> \
+  --output research/third-wave/data/rerun
 ```
 
-Run that command once at `b2947f3` and once at its clean parent `4446ab3`, on
-the same host and Redis configuration. Compare the two logs with:
+The runner exports both revisions, overlays the identical benchmark harness,
+runs correctness gates before measurements, records Redis and host metadata,
+and refuses to accept skipped or failed benchmark output. Analyze retained
+logs with:
 
 ```bash
-make benchmark-regression \
-  BENCHMARK_ARGS='/tmp/taskforge-wave3-baseline.txt /tmp/taskforge-wave3-treatment.txt'
+python3 scripts/third-wave-analysis.py \
+  --baseline research/third-wave/data/rerun/baseline.txt \
+  --treatment research/third-wave/data/rerun/treatment.txt \
+  --setup-baseline research/third-wave/data/rerun/baseline-setup.txt \
+  --setup-treatment research/third-wave/data/rerun/treatment-setup.txt \
+  --output research/third-wave/results/rerun
 ```
 
-The comparison is a regression gate, not the wave 3 analysis. For publication,
-retain both logs, the commit/tree identifiers, Redis `INFO` output, CPU model,
-Go version, and the exact command line. The analysis plan specifies the paired
-bootstrap and multiplicity rule for those observations.
+The analysis retains raw per-sample values and applies the paired bootstrap and
+family adjustment in the analysis plan. The public article reports the scope
+boundary instead of treating these host-local observations as universal speed
+claims.
 
 ## Evidence status
 
 The checked-in wave 2 corpus contains 96 paired measured cells plus eight
-explicitly unsupported recovery cells. It supplies the workload context and is
-not relabelled as a wave 3 treatment result. At the time this package was
-authored, the Redis benchmark service was unavailable in the execution
-environment, so no treatment number is claimed. The paper and blog state that
-boundary explicitly.
-
-This is why the package is research-ready in method and provenance but not yet
-a complete measured release artifact for the optimization treatment: the raw
-before/after benchmark observations and matching host and Redis metadata are
-not checked in. The historical wave 1 and wave 2 artifacts are complete; the
-remaining work is specific to the new control-plane comparison.
-
-The first publishable wave 3 result therefore requires both benchmark logs and
-the corresponding correctness test output. The report template in
-`paper/paper.md` has a fixed results table for filling those artifacts without
-changing the estimands after seeing the data.
+explicitly unsupported recovery cells. It supplies workload context and is not
+relabelled as a control-plane treatment result. The completed control-plane run
+contains 27 publish comparisons, 72 snapshot comparisons, and nine setup/key
+comparisons, each with 30 iterations and ten repetitions. The raw logs,
+metadata, regression gate, and correctness output are under `data/final/`; the
+derived table is `results/analysis.md`. The result is host-local and bounded by
+the documented Redis topology and toolchain.

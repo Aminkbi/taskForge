@@ -2,16 +2,14 @@
 
 ## Abstract
 
-TaskForge's first two research waves studied overload behavior with paired open-loop
-traces. Wave 3 asks a narrower engineering question: can the control plane
-become cheaper while its delivery and state guarantees remain intact? We
-pre-register a paired treatment of committed revision `b2947f3`: atomic publish-plus-state
-recording, pipelined queue metrics, cached consumer-group setup, cheaper key
-construction, and bounded unprocessable-delivery handling. The shared package
-contains the protocol, source-to-evidence map, and wave 2 context. The Redis
-service was unavailable while this package was prepared, so treatment numbers
-are intentionally absent. This is a protocol-ready research artifact, not a
-performance claim.
+TaskForge's earlier paired workload study established the operational context;
+this study measures whether a committed Redis control-plane optimization lowers
+its own cost while preserving delivery and state guarantees. The treatment is
+revision `b2947f3`, compared with clean parent `4446ab3`, using identical
+benchmark harnesses, a dedicated standalone Redis process, 30-iteration samples,
+and ten repetitions. The study measures publish, queue snapshot, and setup/key
+families. All correctness gates pass. Results are host-local engineering
+measurements, not universal throughput claims.
 
 ## Context from wave 2
 
@@ -43,19 +41,26 @@ performance result can be called an optimization.
 
 ## Results
 
-Treatment measurements are **not yet present**. The Redis service was
-unavailable in the preparation environment, so no number is imputed from the
-wave 2 workload corpus or from source-code inspection. Once both logs and the
-correctness output are captured, this section is generated from the fixed
-analysis plan; the estimand and decision rule cannot be changed to fit the
-observed direction.
+The completed run contains 27 publish comparisons, 72 snapshot comparisons,
+and nine supplementary setup/key comparisons. Negative effects mean lower
+treatment cost. Ten-thousand-resample paired bootstrap intervals use the fixed
+seed and family adjustment from the analysis plan; raw observations and the
+derived table are in `data/final/` and `results/`.
 
-The pending benchmark documentation records provisional host-local medians of
-510 to 278 microseconds for fair publish without a receipt, 707 to 502
-microseconds with a receipt, and 8.80 to 0.89 milliseconds for 64-tenant,
-64-KiB metrics. Those observations are useful leads, but their raw paired logs
-are not present in this package, so they remain outside the evidence table and
-cannot support the wave 3 claim.
+Representative medians are:
+
+| Case | Baseline | Treatment | Paired change |
+| --- | ---: | ---: | ---: |
+| Fair publish, no receipt | 153.6 µs | 100.6 µs | −34.8% |
+| Publish throughput | 99.7 µs | 98.5 µs | +0.5%, inconclusive |
+| Metrics snapshot, 64 tenants, 64 KiB payload | 43.3 ms | 0.510 ms | −98.8% |
+| Key construction microbenchmark | 698.5 ns | 286.2 ns | −57.8% |
+
+Every snapshot comparison improved. Publish results improved for the
+fairness and deduplication factors; the plain publish path was within the
+15% regression guard but was slightly slower in this run. Cached group setup
+was effectively unchanged, while the uncached check remained dominated by its
+Redis round trip. No comparison exceeded the 15% regression guard.
 
 | Family | Primary outcome | Paired samples | Median change | Family-wise interval | Status |
 | --- | --- | ---: | ---: | --- | --- |
@@ -66,11 +71,11 @@ cannot support the wave 3 claim.
 
 ## Reproducibility and limits
 
-The wave 3 package is reproducible as a protocol now and becomes a measured
-artifact when the two logs, source identities, Redis metadata, and correctness
-output are added. It measures host-local Redis control-plane cost. It does not
-establish remote Redis performance, multi-host contention, handler throughput,
-or crash recovery. The wave 2 recovery cells remain explicitly unsupported.
+The package is now a measured artifact with raw logs, source identities, Redis
+metadata, and correctness output. It measures host-local Redis control-plane
+cost. It does not establish remote Redis performance, multi-host contention,
+handler throughput, or crash recovery. The wave 2 recovery cells remain
+explicitly unsupported.
 
 The central reporting rule is simple: a lower benchmark number without passing
 invariants is a regression, and an interval crossing zero is inconclusive.

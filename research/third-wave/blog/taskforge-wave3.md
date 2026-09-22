@@ -1,39 +1,59 @@
-# TaskForge: building a Redis task runtime that stays understandable under pressure
+# TaskForge: a Redis task runtime that stays understandable under pressure
 
-Background jobs look simple until several kinds of pressure arrive together.
-One customer can fill a shared queue. A retry storm can multiply the work. A
-downstream service can fail when too many handlers call it at once. A worker can
-disappear while Redis still believes it owns a delivery. A scheduler can lose
-leadership while delayed work is becoming due.
+Background jobs become difficult when several kinds of pressure arrive together. One customer can fill a shared queue. A retry storm can multiply work. A downstream service can fail when too many handlers call it at once. A worker can disappear while Redis still believes it owns a delivery. A scheduler can lose leadership while delayed work becomes due.
 
-TaskForge is a Go runtime for those conditions. It puts an embeddable worker,
-a Redis Streams broker, optional scheduler and read-only API sidecars, and an
-overload-control layer behind one set of contracts. The project has been built
-with an explicit rule: every reliability promise names an executable check,
-and every performance result names its workload, machine, and limits.
+[TaskForge](https://github.com/Aminkbi/taskForge) is a Go runtime for those conditions. It combines an embeddable worker, a Redis Streams broker, optional scheduler and read-only API sidecars, and overload controls behind one set of contracts.
 
-This article explains the whole project from the beginning. You do not need to
-know the earlier research studies or what “wave 3” means.
+The design starts with a clear delivery rule: execution is at least once. A task can run more than once, so handlers must be idempotent. Redis can reclaim an expired lease and another worker can retry the task, but the runtime does not promise exactly-once execution.
 
-## The problem TaskForge solves
+## The API stays small
 
-A queue has two jobs. It must preserve work when processes pause or fail, and it
-must decide which work gets scarce execution capacity. Basic queue libraries
-usually handle the first job well enough for a single tenant. The second job
-becomes difficult when tenants share workers and dependencies.
+A task is data plus a name. Applications register the code that handles that name, then embed the worker in their own process:
 
-TaskForge chooses at-least-once delivery. A task may run more than once, so the
-application handler must be idempotent. That choice keeps recovery possible:
-Redis can reclaim an expired lease and another worker can try the task. The
-runtime never promises exactly-once execution, because an external side effect
-can happen immediately before a process or network failure.
+```go
+cfg := taskforge.Config{
+    WorkerPools: []taskforge.WorkerPoolConfig{{
+        Name: "default", Queue: "default", Concurrency: 4,
+        TaskTimeout: 30 * time.Second,
+    }},
+}
 
-The important identities are separate. A task ID names logical work. A stream
-entry and delivery ID name one broker attempt. A lease owner names the worker
-allowed to acknowledge, retry, extend, or dead-letter that attempt. A stale
-owner cannot modify a newer delivery.
+broker, err := taskforgeredis.OpenFromConfig(ctx, cfg, taskforgeredis.Options{
+    Addr: "localhost:6379",
+})
+if err != nil {
+    return err
+}
+defer broker.Close()
 
-## How a task moves through the system
+task := taskforge.NewTask(
+    "email.send",
+    []byte(`{"to":"user@example.com"}`),
+    taskforge.WithQueue("default"),
+    taskforge.WithIdempotencyKey("email:user@example.com:welcome"),
+)
+if _, err := broker.Publish(ctx, task, taskforge.PublishOptions{}); err != nil {
+    return err
+}
+
+registry := taskforge.NewRegistry()
+_ = registry.RegisterFunc("email.send", func(ctx context.Context, task taskforge.Task) error {
+    // Decode task.Payload and perform an idempotent side effect.
+    return nil
+})
+
+runtime, err := worker.NewFromConfig(cfg, "default", worker.Options{
+    Broker: broker, Handler: registry,
+})
+if err != nil {
+    return err
+}
+return runtime.Run(ctx)
+```
+
+There is no generic worker binary. The application owns handler registration, idempotency, and the process lifecycle.
+
+## How a task moves
 
 ```mermaid
 flowchart LR
@@ -49,128 +69,42 @@ flowchart LR
   M -. observes .-> W
 ```
 
-New work is routed once. Retries, delayed releases, recurring work, requeues,
-and dead-letter flows preserve the established placement. A retry preserves the
-logical task ID and is bounded by the delivery policy. Dead-letter publication
-must succeed before the source delivery is acknowledged; if it does not, the
-source remains recoverable.
+A task ID names logical work. A stream entry and delivery ID name one broker attempt. A lease owner names the worker allowed to acknowledge, retry, extend, or dead-letter that attempt. A stale owner cannot modify a newer delivery.
 
-The scheduler is a separate optional process. Its writes carry a leadership
-fence, so a former leader cannot release work after a newer leader has taken
-over. The API sidecar is read-only and exposes operational state rather than a
-second task-processing control plane. Applications embed the worker because the
-application owns handler registration and idempotency logic.
+New work is routed once. Retries, delayed releases, recurring work, requeues, and dead-letter flows preserve that placement. A dead-letter publish must succeed before the source delivery is acknowledged, so a failed handoff remains recoverable.
 
-## What protects one tenant from another
+The scheduler is optional. Its writes carry a leadership fence, which prevents a former leader from releasing work after a newer leader has taken over. The API sidecar is read-only and exposes operational state rather than becoming a second task-processing plane.
 
-TaskForge combines four controls. Weighted fairness separates entitlement from
-offered load. Admission can reject or defer work when queue, tenant, retry, or
-age signals exceed policy. Dependency budgets lease tokens while a handler uses
-a named downstream resource. Adaptive concurrency changes the worker window
-from observed latency, errors, backlog, and starvation signals.
+## Protecting tenants and dependencies
 
-These controls are observable. Metrics expose queue depth, reservations, tenant
-service, SLO attainment, controller actions, dependency over-capacity, retries,
-and dead-letter growth. Operators can tell whether pressure is in the queue, a
-tenant policy, the worker, a dependency, or Redis itself.
+TaskForge combines four controls:
 
-## What the engineering work changed
+- weighted fairness separates entitlement from offered load;
+- admission can reject or defer work when queue, tenant, retry, or age signals exceed policy;
+- dependency budgets lease tokens while a handler uses a named downstream resource; and
+- adaptive concurrency changes the worker window from observed latency, errors, backlog, and starvation signals.
 
-The repository includes protocol simulations, bounded state-space model checks,
-race tests, integration tests, release checks, and a public embedded-worker
-demo. The Redis operating model is intentionally narrow: a direct standalone
-Redis primary. Redis Cluster and Sentinel are rejected during validation rather
-than being presented as partially supported topologies.
+Metrics expose queue depth, reservations, tenant service, SLO attainment, controller actions, dependency over-capacity, retries, and dead-letter growth. Operators can see whether pressure is in a queue, tenant policy, worker, dependency, or Redis.
 
-The latest committed optimization, `b2947f3`, targets the control plane rather
-than handler code:
+## What the completed benchmark found
 
-* ready publication records the built-in queued state in the same Redis script;
-* queue metrics pipeline stream depth, pending count, and consumer reads;
-* successful consumer-group setup is cached while failures are not;
-* hot key construction avoids formatting overhead; and
-* unprocessable delivery handling is bounded, with dead-letter size reported.
+The control-plane study compared a clean parent with an optimized revision using the same benchmark harness, a dedicated standalone Redis process, 30 operations per sample, and ten repetitions. It measured publish paths, queue snapshots across one, 16, and 64 tenants, payloads from 256 bytes to 64 KiB, and setup/key hot paths. The raw logs and derived table are published in the [research package](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave/data/final).
 
-The checked benchmark notes report host-local before/after medians of 510 to
-278 microseconds for fair publish without a receipt, 707 to 502 microseconds
-with a receipt, and 8.80 to 0.89 milliseconds for a 64-tenant, 64-KiB metrics
-case. Those are useful engineering observations. The raw paired logs are not
-part of the committed evidence package, so this article does not turn them into
-a general speedup claim.
+| Case | Before | After | Paired change |
+| --- | ---: | ---: | ---: |
+| Fair publish without a receipt | 153.6 µs | 100.6 µs | −34.8% |
+| Publish throughput | 99.7 µs | 98.5 µs | +0.5%, inconclusive |
+| Metrics snapshot, 64 tenants and 64 KiB payload | 43.3 ms | 0.510 ms | −98.8% |
+| Key construction hot path | 698.5 ns | 286.2 ns | −57.8% |
 
-## What the research actually measured
+The largest snapshot gains came from reading stream depth, pending counts, and consumer data through one pipeline instead of repeatedly walking the same state. Fair publish gained from recording the ready entry and built-in queued state in one Redis script. Successful consumer-group setup is cached, while failed setup is retried rather than cached. Hot key construction avoids formatting work.
 
-The first research artifact tested six workloads and seven variants: delayed
-backlog, hot dependency, noisy neighbor, retry storm, tenant skew, and worker
-crash, alongside TaskForge control ablations and a common-delivery Asynq arm.
-It contains 504 registered records, 492 measurements, and 12 explicitly
-unsupported fault cells. The analysis reports medians, seeded bootstrap
-intervals, raw provenance, and a family-wise sensitivity analysis. It found
-that overload controls trade metrics against one another; no single score was
-used to declare a universal winner.
+These are host-local control-plane measurements. They do not predict remote-cloud latency, multi-host contention, application handler time, or a universal throughput ranking. The publish-throughput result was effectively unchanged, which is useful: the optimization targets control-plane work rather than claiming that every workload becomes faster.
 
-The follow-up study used immutable open-loop traces and paired arms in two
-measured classes: direct loopback on a 12-logical-CPU host, and the same host
-with four Go processors and a declared 1 ms round trip through a proxy. In the
-native common-delivery sweep, TaskForge FIFO/static differed from Asynq by a
-median 2.1 tasks/s. Under the emulated latency path, the median difference was
-704.7 tasks/s. The contrast changed with environment, which is why these
-numbers describe measured classes rather than “TaskForge is faster.”
+Correctness gates passed for duplicate publish, queued-state visibility, stale lease fencing, retry and dead-letter behavior, worker handling, and Redis integration. A faster benchmark with a failed invariant would have been a regression; none of the measured comparisons crossed the study's 15% regression guard.
 
-The capability results were similarly conditional. Fairness effects were
-strong under the constrained path, while a long-duration admission contrast
-reversed sign between measured classes. Recovery cells that lacked an equivalent
-process-kill fault in both adapters were retained as `not_measured`; they were
-never converted to zeros.
+## Operating boundary
 
-## Why the new research is not yet a complete measured release
+TaskForge currently supports a direct standalone Redis primary. Redis Cluster and Sentinel are rejected during validation. Delivery remains at least once, and handlers must be idempotent. Those constraints are deliberate because they keep failure handling and ownership behavior testable.
 
-The method is ready. The treatment identity is immutable: baseline commit
-`4446ab3`, optimization commit `b2947f3`, and a recorded binary diff digest.
-The benchmark matrix, paired bootstrap, multiplicity rule, correctness gates,
-and paper template are committed under [`research/third-wave/`](../).
-
-The treatment result is not ready because two raw benchmark logs and their host
-and Redis metadata are still missing. Redis was unavailable when the package
-was prepared. Source inspection and a prose table cannot replace paired
-observations. The historical first and second artifacts are complete; this
-specific control-plane comparison is the remaining gap.
-
-That distinction protects the reader. A benchmark result is publishable only
-when the clean parent and optimized commit run with the same toolchain, Redis
-topology, database isolation, fixed iteration count, and repetition schedule;
-correctness tests must pass first. An interval crossing zero is inconclusive,
-and a faster run with a failed invariant is a regression.
-
-## Reproducing or extending the work
-
-Start with the repository checks:
-
-```bash
-make test
-make race-test
-make simulation-test
-make model-check
-make docs-check
-```
-
-The committed research artifacts can be regenerated with `make research-check`
-and `make second-wave-check`. For the new optimization treatment, run the same
-Redis-backed benchmark command at `4446ab3` and `b2947f3`, retain the raw logs,
-and compare them with:
-
-```bash
-make benchmark-regression \
-  BENCHMARK_ARGS='/tmp/taskforge-wave3-baseline.txt /tmp/taskforge-wave3-treatment.txt'
-```
-
-`make third-wave-check` verifies the immutable treatment identity, research
-module tests, evidence manifest, and documentation. The full research package
-is under [`research/`](../../); the reliability contract and its executable
-checks are in [`docs/reference/reliability.md`](../../../docs/reference/reliability.md).
-
-TaskForge is therefore a runtime, a set of operational contracts, and a set of
-measurements with visible limits. The project is not asking a benchmark to
-prove a universal winner. It is showing which guarantee or control was tested,
-what it cost on the measured system, and what evidence is still required before
-the next claim is ready.
+The full [reliability contract](https://github.com/Aminkbi/taskForge/blob/main/docs/reference/reliability.md), [benchmark method](https://github.com/Aminkbi/taskForge/blob/main/docs/operations/benchmarks.md), [raw measurements](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave/data/final), and [derived analysis](https://github.com/Aminkbi/taskForge/blob/main/research/third-wave/results/analysis.md) are available in the repository. Start with the [README](https://github.com/Aminkbi/taskForge#readme) for the local demo and public API.
