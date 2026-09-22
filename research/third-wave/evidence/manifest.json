@@ -1,0 +1,17 @@
+{
+  "schema": "taskforge-wave3-evidence/v1",
+  "status": "protocol-ready-committed-treatment",
+  "baseline_context": "research/second-wave",
+  "baseline_revision": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
+  "treatment_revision": "b2947f3",
+  "identity_command": "scripts/third-wave-identity.sh",
+  "treatment_sha256": "b7045b8185cfbb98e7594ef6798d3eef4864094f35438975430d3e5ee648039b",
+  "treatment_files": ["redis/publish.go", "test/benchmark/cleanup_benchmark_test.go", "test/integration/cleanup_integration_test.go"],
+  "required_treatment_logs": ["clean-baseline.txt", "pending-treatment.txt"],
+  "required_correctness_evidence": ["go test ./redis ./test/integration"],
+  "primary_families": ["publish", "snapshot", "setup-key-hot-path"],
+  "bootstrap": {"iterations": 10000, "seed": 20260922},
+  "regression_limit_percent": 15,
+  "measured_numbers_present": false,
+  "scope": "host-local Redis control-plane cost; not remote-cloud performance"
+}
