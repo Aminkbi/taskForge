@@ -81,49 +81,15 @@ func (s *stateStore) queuedRecord(msg taskforge.Task, now time.Time) (stateRecor
 }
 
 func (s *stateStore) RecordDelivery(ctx context.Context, delivery taskforge.Delivery, state taskforge.State, resultPayload []byte) error {
-	now := time.Now().UTC()
-	msg := delivery.Message
-	taskID := delivery.Execution.TaskID
-	if taskID == "" {
-		taskID = msg.ID
+	record, err := s.deliveryRecord(delivery, state)
+	if err != nil {
+		return err
 	}
-	if taskID == "" {
-		return fmt.Errorf("record task delivery: missing task id")
-	}
-	createdAt := msg.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = delivery.Execution.FirstEnqueuedAt
-	}
-	if createdAt.IsZero() {
-		createdAt = now
-	}
-
-	fields := map[string]any{
-		"task_id":          taskID,
-		"name":             msg.Name,
-		"queue":            taskforge.EffectiveQueue(msg),
-		"state":            string(state),
-		"last_error":       delivery.Execution.LastError,
-		"created_at":       formatTime(createdAt),
-		"updated_at":       formatTime(now),
-		"delivery_count":   delivery.Execution.DeliveryCount,
-		"last_delivery_id": delivery.Execution.DeliveryID,
-		"last_lease_owner": delivery.Execution.LeaseOwner,
-	}
-	if state == taskforge.StateRunning {
-		fields["started_at"] = formatTime(now)
-	}
-	if taskforge.CompletesTask(state) {
-		fields["completed_at"] = formatTime(now)
-	}
-
-	if err := s.recordStates(ctx, []stateRecord{{taskID: taskID, state: state, fields: fields}}); err != nil {
-		return fmt.Errorf("record task %s state %s: %w", taskID, state, err)
+	if err := s.recordStates(ctx, []stateRecord{record}); err != nil {
+		return fmt.Errorf("record task %s state %s: %w", record.taskID, state, err)
 	}
 	if len(resultPayload) > 0 {
-		if err := s.storePayload(ctx, taskID, resultPayload); err != nil {
-			return err
-		}
+		return s.storePayload(ctx, record.taskID, resultPayload)
 	}
 	return nil
 }
@@ -276,11 +242,11 @@ func (s *stateStore) recordTTL(state taskforge.State) time.Duration {
 }
 
 func (s *stateStore) taskKey(taskID string) string {
-	return fmt.Sprintf("%s:task:%s", s.prefix, taskID)
+	return s.prefix + ":task:" + taskID
 }
 
 func (s *stateStore) payloadKey(taskID string) string {
-	return fmt.Sprintf("%s:task:%s:payload", s.prefix, taskID)
+	return s.prefix + ":task:" + taskID + ":payload"
 }
 
 func formatTime(t time.Time) string {

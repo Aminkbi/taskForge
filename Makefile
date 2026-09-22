@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke research-test experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke research-test experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package third-wave-check lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -47,7 +47,7 @@ security-check:
 	$(SHELL) ./scripts/security-check.sh
 
 benchmark-regression:
-	$(SHELL) ./scripts/benchmark-regression.sh
+	$(SHELL) ./scripts/benchmark-regression.sh $(BENCHMARK_ARGS)
 
 certification-report:
 	$(GO) run ./cmd/certify $(CERTIFICATION_ARGS)
@@ -109,6 +109,9 @@ second-wave-check:
 
 second-wave-package:
 	$(SHELL) ./scripts/second-wave-package.sh
+
+third-wave-check:
+	$(SHELL) ./scripts/third-wave-check.sh
 
 lint:
 	$(SHELL) ./scripts/lint.sh

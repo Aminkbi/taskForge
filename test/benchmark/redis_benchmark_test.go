@@ -564,7 +564,7 @@ func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options taskfo
 		DB:   db,
 	})
 	if err != nil {
-		b.Skipf("Redis unavailable or unsupported: %v", err)
+		b.Fatalf("Redis benchmarks explicitly enabled, but Redis is unavailable or unsupported: %v", err)
 	}
 	b.Cleanup(func() {
 		cancel()

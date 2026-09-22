@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -30,10 +31,12 @@ return 0
 
 type fairnessKeySnapshot struct {
 	Key            string
+	StreamKey      string
 	Rule           ResolvedFairnessRule
 	Ready          int64
 	Reserved       int64
 	OldestReadyAge float64
+	Consumers      []redis.XInfoConsumer
 }
 
 func cloneFairnessPolicies(policies map[string]*FairnessPolicy) map[string]*FairnessPolicy {
@@ -69,62 +72,20 @@ func (b *Broker) queueStreamKey(queue, fairnessKey string) string {
 }
 
 func (b *Broker) fairnessStreamKey(queue, fairnessKey string) string {
-	return fmt.Sprintf("%s:stream:%s:fair:%x", b.prefix, normalizeQueue(queue), sha256Sum(fairnessKey))
+	sum := sha256Sum(fairnessKey)
+	return b.prefix + ":stream:" + normalizeQueue(queue) + ":fair:" + hex.EncodeToString(sum[:])
 }
 
 func (b *Broker) fairnessKeysSetKey(queue string) string {
-	return fmt.Sprintf("%s:fairness:%s:keys", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":fairness:" + normalizeQueue(queue) + ":keys"
 }
 
 func (b *Broker) fairnessNotifyKey(queue string) string {
-	return fmt.Sprintf("%s:fairness:%s:ready", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":fairness:" + normalizeQueue(queue) + ":ready"
 }
 
 func (b *Broker) fairnessCursorKey(queue, tier string) string {
-	return fmt.Sprintf("%s:fairness:%s:cursor:%s", b.prefix, normalizeQueue(queue), tier)
-}
-
-func (b *Broker) publishFairReady(ctx context.Context, msg taskforge.Task, payload []byte, deduplicationKey string, now time.Time) (bool, error) {
-	queue := normalizeQueue(msg.Queue)
-	fairnessKey := NormalizeFairnessKey(msg.FairnessKey)
-	streamKey := b.fairnessStreamKey(queue, fairnessKey)
-
-	if deduplicationKey == "" {
-		pipe := b.client.TxPipeline()
-		pipe.SAdd(ctx, b.fairnessKeysSetKey(queue), fairnessKey)
-		pipe.XAdd(ctx, &redis.XAddArgs{
-			Stream: streamKey,
-			Values: map[string]interface{}{
-				streamPayloadField: string(payload),
-			},
-		})
-		pipe.LPush(ctx, b.fairnessNotifyKey(queue), now.UTC().Format(time.RFC3339Nano))
-		pipe.LTrim(ctx, b.fairnessNotifyKey(queue), 0, 0)
-		if _, err := pipe.Exec(ctx); err != nil {
-			return false, fmt.Errorf("publish task: fairness queue entry: %w", err)
-		}
-		return true, nil
-	}
-
-	published, err := publishFairReadyWithReceiptScript.Run(
-		ctx,
-		b.client,
-		[]string{
-			b.fairnessKeysSetKey(queue),
-			streamKey,
-			b.fairnessNotifyKey(queue),
-			b.publishReceiptKey(deduplicationKey),
-		},
-		fairnessKey,
-		streamPayloadField,
-		string(payload),
-		now.UTC().Format(time.RFC3339Nano),
-		b.publishReceiptTTL().Milliseconds(),
-	).Int64()
-	if err != nil {
-		return false, fmt.Errorf("publish task: fairness queue entry: %w", err)
-	}
-	return published == 1, nil
+	return b.prefix + ":fairness:" + normalizeQueue(queue) + ":cursor:" + tier
 }
 
 func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (taskforge.Delivery, error) {
@@ -146,7 +107,7 @@ func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (tas
 			return taskforge.Delivery{}, err
 		}
 
-		candidate, tier, ok, err := b.selectFairnessCandidate(ctx, queue, snapshots)
+		candidate, ok, err := b.selectFairnessCandidate(ctx, queue, snapshots)
 		if err != nil {
 			return taskforge.Delivery{}, err
 		}
@@ -159,7 +120,6 @@ func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (tas
 				b.metrics.IncFairnessReservation(queue, candidate.Rule.Bucket)
 				return delivery, nil
 			}
-			_ = tier
 			continue
 		}
 
@@ -179,7 +139,7 @@ func (b *Broker) reserveFair(ctx context.Context, queue, consumerID string) (tas
 	}
 }
 
-func (b *Broker) selectFairnessCandidate(ctx context.Context, queue string, snapshots []fairnessKeySnapshot) (fairnessKeySnapshot, string, bool, error) {
+func (b *Broker) selectFairnessCandidate(ctx context.Context, queue string, snapshots []fairnessKeySnapshot) (fairnessKeySnapshot, bool, error) {
 	reservedCandidates := make([]fairnessKeySnapshot, 0, len(snapshots))
 	sharedCandidates := make([]fairnessKeySnapshot, 0, len(snapshots))
 	borrowCandidates := make([]fairnessKeySnapshot, 0, len(snapshots))
@@ -203,23 +163,21 @@ func (b *Broker) selectFairnessCandidate(ctx context.Context, queue string, snap
 
 	if len(reservedCandidates) > 0 {
 		candidate, err := b.chooseWeightedFairnessCandidate(ctx, queue, fairnessTierReserved, reservedCandidates)
-		return candidate, fairnessTierReserved, err == nil, err
+		return candidate, err == nil, err
 	}
 	if len(sharedCandidates) > 0 {
 		candidate, err := b.chooseWeightedFairnessCandidate(ctx, queue, fairnessTierShared, sharedCandidates)
-		return candidate, fairnessTierShared, err == nil, err
+		return candidate, err == nil, err
 	}
 	if len(borrowCandidates) > 0 {
 		candidate, err := b.chooseWeightedFairnessCandidate(ctx, queue, fairnessTierBorrow, borrowCandidates)
-		return candidate, fairnessTierBorrow, err == nil, err
+		return candidate, err == nil, err
 	}
-	return fairnessKeySnapshot{}, "", false, nil
+	return fairnessKeySnapshot{}, false, nil
 }
 
 func (b *Broker) chooseWeightedFairnessCandidate(ctx context.Context, queue, tier string, candidates []fairnessKeySnapshot) (fairnessKeySnapshot, error) {
-	slices.SortFunc(candidates, func(a, c fairnessKeySnapshot) int {
-		return compareStrings(a.Key, c.Key)
-	})
+	// Snapshots arrive in key order and tier filtering preserves that order.
 
 	totalWeight := 0
 	for _, candidate := range candidates {
@@ -253,7 +211,7 @@ func (b *Broker) chooseWeightedFairnessCandidate(ctx context.Context, queue, tie
 }
 
 func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName string, candidate fairnessKeySnapshot) (taskforge.Delivery, bool, error) {
-	streamKey := b.fairnessStreamKey(queue, candidate.Key)
+	streamKey := candidate.StreamKey
 	groupName := b.groupName(queue)
 	if err := b.ensureGroup(ctx, streamKey, groupName); err != nil {
 		return taskforge.Delivery{}, false, err
@@ -357,7 +315,13 @@ func (b *Broker) reclaimFairExpiredDelivery(ctx context.Context, queue, consumer
 	return taskforge.Delivery{}, false, nil
 }
 
+// loadFairnessSnapshots discovers sorted active keys, then pipelines their
+// depth reads. Optional age scans and idle-key cleanup may require more reads.
 func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now time.Time, includeOldestReadyAge bool) ([]fairnessKeySnapshot, error) {
+	return b.loadFairnessSnapshotDetails(ctx, queue, now, includeOldestReadyAge, false)
+}
+
+func (b *Broker) loadFairnessSnapshotDetails(ctx context.Context, queue string, now time.Time, includeOldestReadyAge, includeConsumers bool) ([]fairnessKeySnapshot, error) {
 	policy := b.fairnessPolicy(queue)
 	if policy == nil {
 		return nil, nil
@@ -371,33 +335,32 @@ func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now ti
 	type snapshotCommands struct {
 		fairnessKey string
 		streamKey   string
-		streamInfo  *redis.XInfoStreamCmd
+		length      *redis.IntCmd
+		consumers   *redis.XInfoConsumersCmd
 		pending     *redis.XPendingCmd
 	}
 	commands := make([]snapshotCommands, 0, len(keys))
 	pipe := b.client.Pipeline()
 	for _, fairnessKey := range keys {
 		streamKey := b.fairnessStreamKey(queue, fairnessKey)
-		commands = append(commands, snapshotCommands{
+		command := snapshotCommands{
 			fairnessKey: fairnessKey,
 			streamKey:   streamKey,
-			streamInfo:  pipe.XInfoStream(ctx, streamKey),
+			length:      pipe.XLen(ctx, streamKey),
 			pending:     pipe.XPending(ctx, streamKey, b.groupName(queue)),
-		})
+		}
+		if includeConsumers {
+			command.consumers = pipe.XInfoConsumers(ctx, streamKey, b.groupName(queue))
+		}
+		commands = append(commands, command)
 	}
 	_, _ = pipe.Exec(ctx)
 
 	snapshots := make([]fairnessKeySnapshot, 0, len(keys))
 	for _, command := range commands {
-		streamInfo, err := command.streamInfo.Result()
-		if err != nil || streamInfo == nil {
-			if err != nil && !isMissingStream(err) {
-				return nil, fmt.Errorf("fairness metrics: stream %q: %w", command.fairnessKey, err)
-			}
-			if err := b.removeIdleFairnessKey(ctx, queue, command.fairnessKey); err != nil {
-				return nil, err
-			}
-			continue
+		length, err := command.length.Result()
+		if err != nil {
+			return nil, fmt.Errorf("fairness metrics: stream %q: %w", command.fairnessKey, err)
 		}
 
 		pendingCount := int64(0)
@@ -410,7 +373,7 @@ func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now ti
 			pendingCount = pending.Count
 		}
 
-		ready := streamInfo.Length - pendingCount
+		ready := length - pendingCount
 		if ready < 0 {
 			ready = 0
 		}
@@ -421,9 +384,17 @@ func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now ti
 		}
 
 		snapshot := fairnessKeySnapshot{
-			Key:      command.fairnessKey,
-			Ready:    ready,
-			Reserved: pendingCount,
+			Key:       command.fairnessKey,
+			StreamKey: command.streamKey,
+			Ready:     ready,
+			Reserved:  pendingCount,
+		}
+		if includeConsumers {
+			consumers, err := command.consumers.Result()
+			if err != nil && !isMissingGroup(err) && !isMissingStream(err) {
+				return nil, fmt.Errorf("queue metrics: consumers %q/%q: %w", queue, command.fairnessKey, err)
+			}
+			snapshot.Consumers = consumers
 		}
 		if includeOldestReadyAge && ready > 0 {
 			snapshot.OldestReadyAge = b.oldestFairnessReadyAge(ctx, command.streamKey, b.groupName(queue), now)
@@ -432,51 +403,6 @@ func (b *Broker) loadFairnessSnapshots(ctx context.Context, queue string, now ti
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots, nil
-}
-
-func (b *Broker) loadFairnessKeySnapshot(ctx context.Context, queue, fairnessKey string, now time.Time) (fairnessKeySnapshot, bool, error) {
-	streamKey := b.fairnessStreamKey(queue, fairnessKey)
-	groupName := b.groupName(queue)
-
-	length := int64(0)
-	streamInfo, err := b.client.XInfoStream(ctx, streamKey).Result()
-	if err != nil {
-		if !isMissingStream(err) {
-			return fairnessKeySnapshot{}, false, fmt.Errorf("fairness metrics: stream %q: %w", fairnessKey, err)
-		}
-		if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
-			return fairnessKeySnapshot{}, false, err
-		}
-		return fairnessKeySnapshot{}, false, nil
-	}
-	length = streamInfo.Length
-
-	pendingCount := int64(0)
-	pending, err := b.client.XPending(ctx, streamKey, groupName).Result()
-	if err != nil {
-		if !isMissingGroup(err) {
-			return fairnessKeySnapshot{}, false, fmt.Errorf("fairness metrics: pending %q: %w", fairnessKey, err)
-		}
-	} else {
-		pendingCount = pending.Count
-	}
-
-	ready := length - pendingCount
-	if ready < 0 {
-		ready = 0
-	}
-	if ready == 0 && pendingCount == 0 {
-		if err := b.removeIdleFairnessKey(ctx, queue, fairnessKey); err != nil {
-			return fairnessKeySnapshot{}, false, err
-		}
-	}
-
-	return fairnessKeySnapshot{
-		Key:            fairnessKey,
-		Ready:          ready,
-		Reserved:       pendingCount,
-		OldestReadyAge: b.oldestFairnessReadyAge(ctx, streamKey, groupName, now),
-	}, true, nil
 }
 
 func (b *Broker) removeIdleFairnessKey(ctx context.Context, queue, fairnessKey string) error {
@@ -547,43 +473,21 @@ func (b *Broker) FairnessMetricsSnapshot(ctx context.Context, queue string, now 
 }
 
 func (b *Broker) fairQueueMetricsSnapshot(ctx context.Context, queue string) (taskforge.QueueMetricsSnapshot, error) {
-	keys, err := b.activeFairnessKeys(ctx, queue)
+	snapshots, err := b.loadFairnessSnapshotDetails(ctx, queue, time.Now().UTC(), false, true)
 	if err != nil {
 		return taskforge.QueueMetricsSnapshot{}, err
 	}
-
-	depth := 0.0
-	reserved := 0.0
-	consumers := map[string]struct{}{}
-	for _, fairnessKey := range keys {
-		snapshot, ok, err := b.loadFairnessKeySnapshot(ctx, queue, fairnessKey, time.Now().UTC())
-		if err != nil {
-			return taskforge.QueueMetricsSnapshot{}, err
-		}
-		if !ok {
-			continue
-		}
-		depth += float64(snapshot.Ready)
-		reserved += float64(snapshot.Reserved)
-
-		streamKey := b.fairnessStreamKey(queue, fairnessKey)
-		entries, err := b.client.XInfoConsumers(ctx, streamKey, b.groupName(queue)).Result()
-		if err != nil {
-			if isMissingGroup(err) || isMissingStream(err) {
-				continue
-			}
-			return taskforge.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: consumers %q/%q: %w", queue, fairnessKey, err)
-		}
-		for _, entry := range entries {
-			consumers[entry.Name] = struct{}{}
+	result := taskforge.QueueMetricsSnapshot{}
+	consumers := make(map[string]struct{})
+	for _, snapshot := range snapshots {
+		result.Depth += float64(snapshot.Ready)
+		result.Reserved += float64(snapshot.Reserved)
+		for _, consumer := range snapshot.Consumers {
+			consumers[consumer.Name] = struct{}{}
 		}
 	}
-
-	return taskforge.QueueMetricsSnapshot{
-		Depth:     depth,
-		Reserved:  reserved,
-		Consumers: float64(len(consumers)),
-	}, nil
+	result.Consumers = float64(len(consumers))
+	return result, nil
 }
 
 func classifyFairnessTier(rule ResolvedFairnessRule, reserved int64) (string, string) {

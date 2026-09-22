@@ -153,27 +153,35 @@ func (b *Broker) evaluateAdmission(ctx context.Context, msg taskforge.Task, opts
 
 func (b *Broker) loadAdmissionSignals(ctx context.Context, queue, fairnessKey string, policy AdmissionPolicy, now time.Time) (admissionSignals, string, error) {
 	queue = normalizeQueue(queue)
-	snapshot, err := b.QueueMetricsSnapshot(ctx, queue)
-	if err != nil {
-		return admissionSignals{}, "", err
-	}
-	signals := admissionSignals{
-		queuePending: int64(snapshot.Depth + snapshot.Reserved),
-	}
+	signals := admissionSignals{}
 
-	if policy.MaxPendingPerFairnessKey > 0 && b.fairnessPolicy(queue) != nil {
-		fairnessKey = NormalizeFairnessKey(fairnessKey)
-		fairnessSnapshot, ok, err := b.loadFairnessKeySnapshot(ctx, queue, fairnessKey, now)
+	if b.fairnessPolicy(queue) != nil {
+		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now, policy.MaxOldestReadyAge > 0)
 		if err != nil {
 			return admissionSignals{}, "", err
 		}
-		if ok {
-			signals.fairnessKeyPending = fairnessSnapshot.Ready + fairnessSnapshot.Reserved
+		fairnessKey = NormalizeFairnessKey(fairnessKey)
+		for _, snapshot := range snapshots {
+			signals.queuePending += snapshot.Ready + snapshot.Reserved
+			signals.oldestReadyAge = max(signals.oldestReadyAge, time.Duration(snapshot.OldestReadyAge*float64(time.Second)))
+			if policy.MaxPendingPerFairnessKey > 0 && snapshot.Key == fairnessKey {
+				signals.fairnessKeyPending = snapshot.Ready + snapshot.Reserved
+			}
 		}
+	} else {
+		depth, err := b.loadQueueDepth(ctx, queue, false)
+		if err != nil {
+			return admissionSignals{}, "", err
+		}
+		ready := depth.length - depth.pendingCount
+		if ready < 0 {
+			ready = 0
+		}
+		signals.queuePending = ready + depth.pendingCount
 	}
 
-	if policy.MaxOldestReadyAge > 0 {
-		signals.oldestReadyAge = b.oldestQueueReadyAge(ctx, queue, now)
+	if policy.MaxOldestReadyAge > 0 && b.fairnessPolicy(queue) == nil {
+		signals.oldestReadyAge = b.oldestReadyAge(ctx, b.streamKey(queue), b.groupName(queue), now)
 	}
 
 	if policy.MaxRetryBacklog > 0 {
@@ -206,28 +214,6 @@ func (b *Broker) loadAdmissionSignals(ctx context.Context, queue, fairnessKey st
 	default:
 		return signals, "", nil
 	}
-}
-
-func (b *Broker) oldestQueueReadyAge(ctx context.Context, queue string, now time.Time) time.Duration {
-	if b.fairnessPolicy(queue) != nil {
-		snapshots, err := b.loadFairnessSnapshots(ctx, queue, now, true)
-		if err != nil {
-			return 0
-		}
-		var maxAge time.Duration
-		for _, snapshot := range snapshots {
-			if snapshot.Ready == 0 {
-				continue
-			}
-			age := time.Duration(snapshot.OldestReadyAge * float64(time.Second))
-			if age > maxAge {
-				maxAge = age
-			}
-		}
-		return maxAge
-	}
-
-	return b.oldestReadyAge(ctx, b.streamKey(queue), b.groupName(queue), now)
 }
 
 func (b *Broker) retryBacklog(ctx context.Context, queue string) (int64, error) {

@@ -478,6 +478,121 @@ func TestRedisQueueMetricsTrackReserveAndAckCleanup(t *testing.T) {
 	}
 }
 
+func TestRedisFairQueueMetricsAggregateAcrossFairnessKeys(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+
+	policy := mustFairnessPolicy(t, taskforgeredis.FairnessRule{}, []taskforgeredis.FairnessRule{
+		{Name: "tenant-a", Keys: []string{"tenant-a"}},
+		{Name: "tenant-b", Keys: []string{"tenant-b"}},
+	})
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		FairnessPolicies: map[string]*taskforgeredis.FairnessPolicy{"default": policy},
+	})
+
+	for i, fairnessKey := range []string{"tenant-a", "tenant-a", "tenant-b"} {
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
+			ID:          "fair-metrics-" + strconv.Itoa(i),
+			Name:        "integration.fairness-metrics",
+			Queue:       "default",
+			FairnessKey: fairnessKey,
+			Payload:     []byte(`{"tenant":"` + fairnessKey + `"}`),
+			CreatedAt:   time.Now().UTC(),
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() %s error = %v", fairnessKey, err)
+		}
+	}
+
+	snapshot, err := brokerInstance.QueueMetricsSnapshot(ctx, "default")
+	if err != nil {
+		t.Fatalf("QueueMetricsSnapshot() before reserve error = %v", err)
+	}
+	if snapshot.Depth != 3 || snapshot.Reserved != 0 || snapshot.Consumers != 0 {
+		t.Fatalf("pre-reserve fair queue snapshot = %+v, want depth=3 reserved=0 consumers=0", snapshot)
+	}
+
+	for i := 0; i < 2; i++ {
+		delivery, err := brokerInstance.Reserve(ctx, "default", "fair-metrics-consumer")
+		if err != nil {
+			t.Fatalf("Reserve() %d error = %v", i, err)
+		}
+		defer func() {
+			if err := brokerInstance.Ack(ctx, delivery); err != nil {
+				t.Errorf("Ack() error = %v", err)
+			}
+		}()
+	}
+
+	snapshot, err = brokerInstance.QueueMetricsSnapshot(ctx, "default")
+	if err != nil {
+		t.Fatalf("QueueMetricsSnapshot() after reserve error = %v", err)
+	}
+	if snapshot.Depth != 1 || snapshot.Reserved != 2 || snapshot.Consumers != 1 {
+		t.Fatalf("reserved fair queue snapshot = %+v, want depth=1 reserved=2 consumers=1", snapshot)
+	}
+}
+
+func TestRedisDelayedPublishRecordsQueuedState(t *testing.T) {
+	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
+
+	now := time.Now().UTC()
+	eta := now.Add(time.Hour)
+	message := taskforge.Task{
+		ID:        "integration-delayed-state",
+		Name:      "integration.delayed_state",
+		Queue:     "default",
+		Payload:   []byte(`{"hello":"later"}`),
+		ETA:       &eta,
+		CreatedAt: now,
+	}
+	if _, err := brokerInstance.Publish(ctx, message, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() delayed task error = %v", err)
+	}
+
+	record, err := brokerInstance.Get(ctx, message.ID)
+	if err != nil {
+		t.Fatalf("Get() after delayed publish error = %v", err)
+	}
+	if record.State != taskforge.StateQueued {
+		t.Fatalf("delayed publish state = %q, want %q", record.State, taskforge.StateQueued)
+	}
+	if record.Name != message.Name || record.Queue != message.Queue {
+		t.Fatalf("delayed publish record = %+v, want name=%q queue=%q", record, message.Name, message.Queue)
+	}
+
+	dedupMessage := message
+	dedupMessage.ID = "integration-delayed-state-dedup"
+	result, err := brokerInstance.Publish(ctx, dedupMessage, taskforge.PublishOptions{
+		Source:           taskforge.PublishSourceNew,
+		DeduplicationKey: "integration-delayed-dedup",
+	})
+	if err != nil {
+		t.Fatalf("Publish() delayed dedup error = %v", err)
+	}
+	if result.Deduplicated {
+		t.Fatal("first dedup publish was reported as duplicate")
+	}
+	if record, err := brokerInstance.Get(ctx, dedupMessage.ID); err != nil || record.State != taskforge.StateQueued {
+		t.Fatalf("Get() dedup task = (%+v, %v), want queued state", record, err)
+	}
+
+	duplicate := dedupMessage
+	duplicate.ID = "integration-delayed-state-duplicate"
+	result, err = brokerInstance.Publish(ctx, duplicate, taskforge.PublishOptions{
+		Source:           taskforge.PublishSourceNew,
+		DeduplicationKey: "integration-delayed-dedup",
+	})
+	if err != nil {
+		t.Fatalf("Publish() duplicate error = %v", err)
+	}
+	if !result.Deduplicated {
+		t.Fatal("second dedup publish was not deduplicated")
+	}
+	if _, err := brokerInstance.Get(ctx, duplicate.ID); !errors.Is(err, taskforge.ErrTaskNotFound) {
+		t.Fatalf("Get() duplicate task record error = %v, want %v", err, taskforge.ErrTaskNotFound)
+	}
+}
+
 func TestRedisConsumersDoNotDuplicateGroupDelivery(t *testing.T) {
 	ctx, brokerInstance, _ := newIntegrationBroker(t, 30*time.Second)
 

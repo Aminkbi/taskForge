@@ -173,12 +173,74 @@ The harness is `test/benchmark/`:
 TASKFORGE_RUN_BENCHMARKS=1 make bench
 ```
 
+An explicitly enabled benchmark run fails if Redis is unavailable. Without
+`TASKFORGE_RUN_BENCHMARKS=1`, Redis benchmarks are skipped, including by
+`make bench-smoke`; that command alone is not performance evidence.
+
+For a focused comparison of snapshot and publish overhead, capture the following
+command before and after a change on the same host, Redis configuration, and Go
+toolchain. Keep the benchmark database dedicated and avoid concurrent Redis
+workloads when comparing server-wide network counters.
+
+```bash
+TASKFORGE_RUN_BENCHMARKS=1 \
+  GOFLAGS='-benchtime=30x -count=5 -skip=Benchmark(Control|PublishThroughput|Reserve|Skewed|EndToEnd|Reclaim|Scheduler|Delayed|MultiQueue|Recurring|Retry|Short)' \
+  make bench > before.txt
+# Repeat the same command on the candidate, writing after.txt.
+make benchmark-regression BENCHMARK_ARGS='before.txt after.txt'
+```
+
+The comparison requires matching OS, architecture, CPU, package, benchmark names
+and metric sets, with matching iteration counts and equal sample counts of at
+least five. Use a fixed iteration count (`-benchtime=Nx`). It reports median
+changes and rejects increases above 15% in latency, allocated bytes, allocations,
+Redis commands or round trips. Network bytes are reported but not gated because
+their counters cover the entire Redis server. This is a host-local regression
+check, not a statistical significance test; investigate failures and repeat
+matched runs when workstation noise is material.
+
+Without input logs, `make benchmark-regression` validates only the presence of
+versioned baseline metadata and explicitly reports that no comparison was run.
+CI uses this metadata-only mode; smoke validation is a separate job.
+
 ## Covered scenarios
 
 - publish; reserve/ack; end-to-end latency; reclaim after lease expiry
 - delayed release and scheduler catch-up
 - multi-queue and skewed-fairness traffic
 - recurring tick scaling and retry storms
+
+## Snapshot and publication cleanup (2026-09-22)
+
+The snapshot reader now uses `XLEN` instead of decoding `XINFO STREAM` replies,
+pipelines consumer reads with depth reads, and reuses fairness snapshots for
+age-based admission. Ready publication combines built-in queued-state writes
+with fairness and receipt handling. Per-call state-write results replace the
+shared bookkeeping map; weighted selection keeps the already sorted key order.
+
+Five repetitions of 30 operations per side on Redis 7.4 and Go 1.27.1 produced
+these host-local medians:
+
+| Operation | Before | After | Structural change |
+| --- | ---: | ---: | --- |
+| Fair publish, no receipt | 510 µs | 278 µs | 2 → 1 round trips |
+| Fair publish, receipt | 707 µs | 502 µs | 3 → 2 round trips |
+| Metrics, 64 tenants, 64 KiB payloads | 8.80 ms | 0.89 ms | 3 → 2 round trips; 11.72 MB → 0.11 MB allocated/op |
+
+The complete snapshot matrix covers 1, 16 and 64 tenants with 256-byte and
+64-KiB payloads. Command-count integration tests enforce one active-key lookup
+per admission snapshot and two round trips per nonempty fairness metrics
+snapshot without idle-key cleanup. Existing pending-head, quota, stale-owner,
+retention and duplicate-delivery checks continue to exercise correctness.
+
+A separate comparison alternated preserved before/after binaries for five
+200-operation runs per side. Fair reserve/ack decreased from 1.019 ms to
+0.857 ms with approximately 22% fewer allocations. FIFO publish increased
+from 260 µs to 277 µs (+6.6%), while FIFO reserve/ack decreased from 455 µs
+to 417 µs. All measured costs passed the 15% regression limit in that paired
+comparison. These numbers describe a shared workstation, not deployment-wide
+speedup guarantees. An earlier unpaired comparison flagged the unchanged
+adaptive-persistence path; the alternating runs did not reproduce that result.
 
 ## Interpretation
 

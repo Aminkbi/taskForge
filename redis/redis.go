@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,43 +36,30 @@ const (
 )
 
 var (
-	publishReadyWithReceiptScript = redis.NewScript(`
-if redis.call("EXISTS", KEYS[2]) == 1 then
+	publishReadyTaskScript = redis.NewScript(`
+if tonumber(ARGV[3]) > 0 and redis.call("EXISTS", KEYS[3]) == 1 then
   return 0
 end
-redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
-redis.call("PSETEX", KEYS[2], ARGV[3], "1")
-return 1
-`)
-	publishReadyWithStateScript = redis.NewScript(`
-redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
-local ttl = tonumber(ARGV[3]) or -1
-local fieldCount = tonumber(ARGV[4]) or 0
-local fields = {}
-local position = 5
-for index = 1, fieldCount * 2 do
-  fields[index] = ARGV[position]
-  position = position + 1
+if ARGV[4] ~= "" then
+  redis.call("SADD", KEYS[4], ARGV[4])
 end
-if #fields > 0 then
+redis.call("XADD", KEYS[1], "*", ARGV[1], ARGV[2])
+if ARGV[4] ~= "" then
+  redis.call("LPUSH", KEYS[5], ARGV[5])
+  redis.call("LTRIM", KEYS[5], 0, 0)
+end
+local fieldCount = tonumber(ARGV[6])
+if fieldCount > 0 then
+  local fields = {}
+  for index = 1, fieldCount * 2 do
+    fields[index] = ARGV[6 + index]
+  end
   redis.call("HSET", KEYS[2], unpack(fields))
-end
-if ttl > 0 then
-  redis.call("PEXPIRE", KEYS[2], ttl)
-else
   redis.call("PERSIST", KEYS[2])
 end
-return 1
-`)
-	publishFairReadyWithReceiptScript = redis.NewScript(`
-if redis.call("EXISTS", KEYS[4]) == 1 then
-  return 0
+if tonumber(ARGV[3]) > 0 then
+  redis.call("PSETEX", KEYS[3], ARGV[3], "1")
 end
-redis.call("SADD", KEYS[1], ARGV[1])
-redis.call("XADD", KEYS[2], "*", ARGV[2], ARGV[3])
-redis.call("LPUSH", KEYS[3], ARGV[4])
-redis.call("LTRIM", KEYS[3], 0, 0)
-redis.call("PSETEX", KEYS[4], ARGV[5], "1")
 return 1
 `)
 	publishDelayedScript = redis.NewScript(`
@@ -84,6 +72,17 @@ else
 end
 if ARGV[5] == "1" then
   redis.call("ZADD", KEYS[3], ARGV[1], ARGV[4])
+end
+local fieldCount = tonumber(ARGV[6]) or 0
+if fieldCount > 0 then
+  local fields = {}
+  local position = 7
+  for index = 1, fieldCount * 2 do
+    fields[index] = ARGV[position]
+    position = position + 1
+  end
+  redis.call("HSET", KEYS[4], unpack(fields))
+  redis.call("PERSIST", KEYS[4])
 end
 return 1
 `)
@@ -102,6 +101,17 @@ if ARGV[6] == "1" then
   redis.call("ZADD", KEYS[4], ARGV[1], ARGV[5])
 end
 redis.call("PSETEX", KEYS[2], ARGV[3], "1")
+local fieldCount = tonumber(ARGV[7]) or 0
+if fieldCount > 0 then
+  local fields = {}
+  local position = 8
+  for index = 1, fieldCount * 2 do
+    fields[index] = ARGV[position]
+    position = position + 1
+  end
+  redis.call("HSET", KEYS[5], unpack(fields))
+  redis.call("PERSIST", KEYS[5])
+end
 return 1
 `)
 	finalizeDeliveryScript = redis.NewScript(`
@@ -234,9 +244,8 @@ type Broker struct {
 	workerStore       *workerLifecycleStore
 	stateStore        taskforge.StateStore
 	deadLetters       *deadLetterStore
-	consumerGroupsMu  sync.Mutex
+	consumerGroupsMu  sync.RWMutex
 	consumerGroups    map[string]struct{}
-	queuedStateWrites sync.Map
 	reclaimMu         sync.Mutex
 	reclaimNext       map[string]time.Time
 	reclaimIntervals  map[string]time.Duration
@@ -466,7 +475,7 @@ func (b *Broker) Publish(ctx context.Context, msg taskforge.Task, opts taskforge
 	defer span.End()
 	msg.Headers = observability.InjectTraceContext(ctx, msg.Headers)
 
-	result, err := b.publishMessage(ctx, msg, opts, now)
+	result, queuedStateRecorded, err := b.publishMessage(ctx, msg, opts, now)
 	if err != nil {
 		observability.MarkSpanError(span, err)
 		return taskforge.PublishResult{}, err
@@ -477,7 +486,6 @@ func (b *Broker) Publish(ctx context.Context, msg taskforge.Task, opts taskforge
 	if placement.Rule != "" {
 		result.RoutingRule = placement.Rule
 	}
-	_, queuedStateRecorded := b.queuedStateWrites.LoadAndDelete(msg.ID)
 	if b.stateStore != nil && !queuedStateRecorded && result.Decision != taskforge.AdmissionDecisionRejected && !result.Deduplicated {
 		if err := b.stateStore.RecordQueued(ctx, msg); err != nil {
 			observability.MarkSpanError(span, err)
@@ -1077,34 +1085,7 @@ func (b *Broker) pendingTask(ctx context.Context, streamKey, deliveryID string) 
 	return messages[0], msg, nil
 }
 
-func (b *Broker) publishReady(ctx context.Context, queue string, payload []byte) error {
-	if _, err := b.client.XAdd(ctx, &redis.XAddArgs{
-		Stream: b.streamKey(queue),
-		Values: map[string]interface{}{
-			streamPayloadField: string(payload),
-		},
-	}).Result(); err != nil {
-		return fmt.Errorf("publish task: add stream entry: %w", err)
-	}
-	return nil
-}
-
-func (b *Broker) publishReadyWithReceipt(ctx context.Context, queue string, payload []byte, receiptKey string) (bool, error) {
-	published, err := publishReadyWithReceiptScript.Run(
-		ctx,
-		b.client,
-		[]string{b.streamKey(queue), receiptKey},
-		streamPayloadField,
-		string(payload),
-		b.publishReceiptTTL().Milliseconds(),
-	).Int64()
-	if err != nil {
-		return false, fmt.Errorf("publish task: add stream entry: %w", err)
-	}
-	return published == 1, nil
-}
-
-func (b *Broker) publishMessage(ctx context.Context, msg taskforge.Task, opts taskforge.PublishOptions, now time.Time) (taskforge.PublishResult, error) {
+func (b *Broker) publishMessage(ctx context.Context, msg taskforge.Task, opts taskforge.PublishOptions, now time.Time) (taskforge.PublishResult, bool, error) {
 	opts = opts.Normalize()
 	queue := taskforge.EffectiveQueue(msg)
 	result := taskforge.PublishResult{
@@ -1115,17 +1096,17 @@ func (b *Broker) publishMessage(ctx context.Context, msg taskforge.Task, opts ta
 	if opts.DeduplicationKey != "" {
 		exists, err := b.publishReceiptExists(ctx, opts.DeduplicationKey)
 		if err != nil {
-			return taskforge.PublishResult{}, err
+			return taskforge.PublishResult{}, false, err
 		}
 		if exists {
 			result.Deduplicated = true
-			return result, nil
+			return result, false, nil
 		}
 	}
 
 	eval, err := b.evaluateAdmission(ctx, msg, opts, now)
 	if err != nil {
-		return taskforge.PublishResult{}, err
+		return taskforge.PublishResult{}, false, err
 	}
 	b.observeAdmissionDecision(queue, opts.Source, eval)
 
@@ -1134,80 +1115,45 @@ func (b *Broker) publishMessage(ctx context.Context, msg taskforge.Task, opts ta
 
 	switch eval.decision {
 	case taskforge.AdmissionDecisionRejected:
-		return result, &taskforge.AdmissionError{Queue: queue, Reason: eval.reason}
+		return result, false, &taskforge.AdmissionError{Queue: queue, Reason: eval.reason}
 	case taskforge.AdmissionDecisionDeferred:
 		if eval.deferUntil == nil {
-			return taskforge.PublishResult{}, fmt.Errorf("publish task: deferred admission missing defer deadline")
+			return taskforge.PublishResult{}, false, fmt.Errorf("publish task: deferred admission missing defer deadline")
 		}
 		msg = b.annotateDeferredMessage(msg, opts.Source, eval.reason, *eval.deferUntil, now)
 		result.DeferredUntil = eval.deferUntil
 	}
 
+	if msg.ETA != nil && msg.ETA.After(now) {
+		published, err := b.publishDelayed(ctx, msg, opts.DeduplicationKey, now)
+		if err != nil {
+			return taskforge.PublishResult{}, false, err
+		}
+		result.Deduplicated = !published
+		if published {
+			b.metrics.IncPublished(queue)
+		}
+		_, builtIn := b.stateStore.(*stateStore)
+		return result, published && builtIn, nil
+	}
+
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		return taskforge.PublishResult{}, fmt.Errorf("publish task: marshal message: %w", err)
+		return taskforge.PublishResult{}, false, fmt.Errorf("publish task: marshal message: %w", err)
 	}
 
-	if msg.ETA != nil && msg.ETA.After(now) {
-		published, err := b.publishDelayed(ctx, msg, opts.DeduplicationKey)
-		if err != nil {
-			return taskforge.PublishResult{}, err
-		}
-		result.Deduplicated = !published
-		if published {
-			b.metrics.IncPublished(queue)
-		}
-		return result, nil
-	}
-
-	if b.fairnessPolicy(queue) != nil {
-		published, err := b.publishFairReady(ctx, msg, payload, opts.DeduplicationKey, now)
-		if err != nil {
-			return taskforge.PublishResult{}, err
-		}
-		result.Deduplicated = !published
-		if published {
-			b.metrics.IncPublished(queue)
-		}
-		return result, nil
-	}
-	if opts.DeduplicationKey == "" {
-		if store, ok := b.stateStore.(*stateStore); ok {
-			record, err := store.queuedRecord(msg, now)
-			if err != nil {
-				return taskforge.PublishResult{}, err
-			}
-			args := []any{streamPayloadField, string(payload), int64(-1), len(record.fields)}
-			for field, value := range record.fields {
-				args = append(args, field, value)
-			}
-			if err := publishReadyWithStateScript.Run(ctx, b.client, []string{b.streamKey(queue), store.taskKey(record.taskID)}, args...).Err(); err != nil {
-				return taskforge.PublishResult{}, fmt.Errorf("publish task with queued state: %w", err)
-			}
-			b.queuedStateWrites.Store(msg.ID, struct{}{})
-			b.metrics.IncPublished(queue)
-			return result, nil
-		}
-	}
-	published, err := b.publishReadyWithDedup(ctx, queue, payload, opts.DeduplicationKey)
+	published, stateRecorded, err := b.publishReadyTask(ctx, msg, payload, opts.DeduplicationKey, now)
 	if err != nil {
-		return taskforge.PublishResult{}, err
+		return taskforge.PublishResult{}, false, err
 	}
 	result.Deduplicated = !published
 	if published {
 		b.metrics.IncPublished(queue)
 	}
-	return result, nil
+	return result, stateRecorded, nil
 }
 
-func (b *Broker) publishReadyWithDedup(ctx context.Context, queue string, payload []byte, deduplicationKey string) (bool, error) {
-	if deduplicationKey == "" {
-		return true, b.publishReady(ctx, queue, payload)
-	}
-	return b.publishReadyWithReceipt(ctx, queue, payload, b.publishReceiptKey(deduplicationKey))
-}
-
-func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, deduplicationKey string) (bool, error) {
+func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, deduplicationKey string, now time.Time) (bool, error) {
 	queue := taskforge.EffectiveQueue(msg)
 	entryID := uuid.New().String()
 	entryPayload, err := json.Marshal(delayedEntry{
@@ -1218,21 +1164,49 @@ func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, dedupli
 	if err != nil {
 		return false, fmt.Errorf("publish task: marshal delayed entry: %w", err)
 	}
+
+	taskKey := ""
+	stateArgs := []any{0}
+	if store, ok := b.stateStore.(*stateStore); ok {
+		record, err := store.queuedRecord(msg, now)
+		if err != nil {
+			return false, err
+		}
+		taskKey = store.taskKey(record.taskID)
+		stateArgs = []any{len(record.fields)}
+		for field, value := range record.fields {
+			stateArgs = append(stateArgs, field, value)
+		}
+	}
+
 	if deduplicationKey == "" {
-		if err := publishDelayedScript.Run(
-			ctx,
-			b.client,
-			[]string{b.delayedQueueKey(queue), b.delayedQueueIndexKey(), b.delayedRetryIndexKey(queue)},
+		args := []any{
 			msg.ETA.UTC().UnixMilli(),
 			string(entryPayload),
 			queue,
 			entryID,
 			retryIndexFlag(msg),
+		}
+		args = append(args, stateArgs...)
+		if err := publishDelayedScript.Run(
+			ctx,
+			b.client,
+			[]string{b.delayedQueueKey(queue), b.delayedQueueIndexKey(), b.delayedRetryIndexKey(queue), taskKey},
+			args...,
 		).Err(); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
+	args := []any{
+		msg.ETA.UTC().UnixMilli(),
+		string(entryPayload),
+		b.publishReceiptTTL().Milliseconds(),
+		queue,
+		entryID,
+		retryIndexFlag(msg),
+	}
+	args = append(args, stateArgs...)
 	published, err := publishDelayedWithReceiptScript.Run(
 		ctx,
 		b.client,
@@ -1241,13 +1215,9 @@ func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, dedupli
 			b.publishReceiptKey(deduplicationKey),
 			b.delayedQueueIndexKey(),
 			b.delayedRetryIndexKey(queue),
+			taskKey,
 		},
-		msg.ETA.UTC().UnixMilli(),
-		string(entryPayload),
-		b.publishReceiptTTL().Milliseconds(),
-		queue,
-		entryID,
-		retryIndexFlag(msg),
+		args...,
 	).Int64()
 	if err != nil {
 		return false, err
@@ -1257,6 +1227,13 @@ func (b *Broker) publishDelayed(ctx context.Context, msg taskforge.Task, dedupli
 
 func (b *Broker) ensureGroup(ctx context.Context, streamKey, groupName string) error {
 	cacheKey := streamKey + "\x00" + groupName
+	b.consumerGroupsMu.RLock()
+	_, ok := b.consumerGroups[cacheKey]
+	b.consumerGroupsMu.RUnlock()
+	if ok {
+		return nil
+	}
+
 	b.consumerGroupsMu.Lock()
 	defer b.consumerGroupsMu.Unlock()
 	if _, ok := b.consumerGroups[cacheKey]; ok {
@@ -1404,53 +1381,79 @@ func (b *Broker) logDeliveryRejection(message string, delivery taskforge.Deliver
 	)
 }
 
+type queueDepth struct {
+	length       int64
+	pendingCount int64
+	consumers    int
+}
+
+// loadQueueDepth reads a non-fair queue's depth state in one pipelined round
+// trip; consumers are only enumerated when requested.
+func (b *Broker) loadQueueDepth(ctx context.Context, queue string, includeConsumers bool) (queueDepth, error) {
+	streamKey := b.streamKey(queue)
+	groupName := b.groupName(queue)
+
+	pipe := b.client.Pipeline()
+	lengthCmd := pipe.XLen(ctx, streamKey)
+	pendingCmd := pipe.XPending(ctx, streamKey, groupName)
+	consumersCmd := (*redis.XInfoConsumersCmd)(nil)
+	if includeConsumers {
+		consumersCmd = pipe.XInfoConsumers(ctx, streamKey, groupName)
+	}
+	_, _ = pipe.Exec(ctx)
+
+	depth := queueDepth{}
+	length, err := lengthCmd.Result()
+	if err != nil {
+		if !isMissingStream(err) {
+			return queueDepth{}, fmt.Errorf("queue metrics: stream %q: %w", queue, err)
+		}
+	} else {
+		depth.length = length
+	}
+
+	pending, err := pendingCmd.Result()
+	if err != nil {
+		if !isMissingGroup(err) && !isMissingStream(err) {
+			return queueDepth{}, fmt.Errorf("queue metrics: pending %q: %w", queue, err)
+		}
+	} else {
+		depth.pendingCount = pending.Count
+	}
+
+	if includeConsumers {
+		consumers, err := consumersCmd.Result()
+		if err != nil {
+			if !isMissingGroup(err) && !isMissingStream(err) {
+				return queueDepth{}, fmt.Errorf("queue metrics: consumers %q: %w", queue, err)
+			}
+		} else {
+			depth.consumers = len(consumers)
+		}
+	}
+	return depth, nil
+}
+
 func (b *Broker) QueueMetricsSnapshot(ctx context.Context, queue string) (taskforge.QueueMetricsSnapshot, error) {
 	queue = normalizeQueue(queue)
 	if b.fairnessPolicy(queue) != nil {
 		return b.fairQueueMetricsSnapshot(ctx, queue)
 	}
-	streamKey := b.streamKey(queue)
-	groupName := b.groupName(queue)
 
-	length := int64(0)
-	streamInfo, err := b.client.XInfoStream(ctx, streamKey).Result()
+	depth, err := b.loadQueueDepth(ctx, queue, true)
 	if err != nil {
-		if !isMissingStream(err) {
-			return taskforge.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: stream %q: %w", queue, err)
-		}
-	} else {
-		length = int64(streamInfo.Length)
+		return taskforge.QueueMetricsSnapshot{}, err
 	}
 
-	pendingCount := int64(0)
-	pending, err := b.client.XPending(ctx, streamKey, groupName).Result()
-	if err != nil {
-		if !isMissingGroup(err) && !isMissingStream(err) {
-			return taskforge.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: pending %q: %w", queue, err)
-		}
-	} else {
-		pendingCount = pending.Count
-	}
-
-	consumerCount := 0
-	consumers, err := b.client.XInfoConsumers(ctx, streamKey, groupName).Result()
-	if err != nil {
-		if !isMissingGroup(err) && !isMissingStream(err) {
-			return taskforge.QueueMetricsSnapshot{}, fmt.Errorf("queue metrics: consumers %q: %w", queue, err)
-		}
-	} else {
-		consumerCount = len(consumers)
-	}
-
-	ready := length - pendingCount
+	ready := depth.length - depth.pendingCount
 	if ready < 0 {
 		ready = 0
 	}
 
 	return taskforge.QueueMetricsSnapshot{
 		Depth:     float64(ready),
-		Reserved:  float64(pendingCount),
-		Consumers: float64(consumerCount),
+		Reserved:  float64(depth.pendingCount),
+		Consumers: float64(depth.consumers),
 	}, nil
 }
 
@@ -1688,11 +1691,11 @@ func (b *Broker) effectiveLeaseTTL(msg taskforge.Task) time.Duration {
 }
 
 func (b *Broker) streamKey(queue string) string {
-	return fmt.Sprintf("%s:stream:%s", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":stream:" + normalizeQueue(queue)
 }
 
 func (b *Broker) groupName(queue string) string {
-	return fmt.Sprintf("%s:%s", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":" + normalizeQueue(queue)
 }
 
 func (b *Broker) consumerName(consumerID string) string {
@@ -1700,27 +1703,28 @@ func (b *Broker) consumerName(consumerID string) string {
 	if base == "" {
 		base = "worker"
 	}
-	return fmt.Sprintf("%s:%s:%s", base, b.hostname, b.instanceID)
+	return base + ":" + b.hostname + ":" + b.instanceID
 }
 
 func (b *Broker) delayedQueueKey(queue string) string {
-	return fmt.Sprintf("%s:delayed:queue:%s", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":delayed:queue:" + normalizeQueue(queue)
 }
 
 func (b *Broker) delayedQueueIndexKey() string {
-	return fmt.Sprintf("%s:delayed:queues", b.prefix)
+	return b.prefix + ":delayed:queues"
 }
 
 func (b *Broker) delayedRetryIndexKey(queue string) string {
-	return fmt.Sprintf("%s:delayed:retry:%s", b.prefix, normalizeQueue(queue))
+	return b.prefix + ":delayed:retry:" + normalizeQueue(queue)
 }
 
 func (b *Broker) schedulerLeadershipKey() string {
-	return fmt.Sprintf("%s:scheduler:leader", b.prefix)
+	return b.prefix + ":scheduler:leader"
 }
 
 func (b *Broker) publishReceiptKey(deduplicationKey string) string {
-	return fmt.Sprintf("%s:publish:receipt:%x", b.prefix, sha256Sum(deduplicationKey))
+	sum := sha256Sum(deduplicationKey)
+	return b.prefix + ":publish:receipt:" + hex.EncodeToString(sum[:])
 }
 
 func (b *Broker) publishReceiptTTL() time.Duration {
