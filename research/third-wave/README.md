@@ -71,6 +71,12 @@ authored, the Redis benchmark service was unavailable in the execution
 environment, so no treatment number is claimed. The paper and blog state that
 boundary explicitly.
 
+This is why the package is research-ready in method and provenance but not yet
+a complete measured release artifact for the optimization treatment: the raw
+before/after benchmark observations and matching host and Redis metadata are
+not checked in. The historical wave 1 and wave 2 artifacts are complete; the
+remaining work is specific to the new control-plane comparison.
+
 The first publishable wave 3 result therefore requires both benchmark logs and
 the corresponding correctness test output. The report template in
 `paper/paper.md` has a fixed results table for filling those artifacts without

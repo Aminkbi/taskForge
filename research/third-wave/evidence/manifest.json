@@ -1,6 +1,11 @@
 {
   "schema": "taskforge-wave3-evidence/v1",
   "status": "protocol-ready-committed-treatment",
+  "readiness": {
+    "historical_wave1_and_wave2": "complete-and-reproducible",
+    "wave3_optimization_treatment": "awaiting-raw-paired-benchmark-logs",
+    "publication_blockers": ["clean-baseline benchmark log", "treatment benchmark log", "matching Redis and host metadata", "correctness test output"]
+  },
   "baseline_context": "research/second-wave",
   "baseline_revision": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
   "treatment_revision": "b2947f3",
