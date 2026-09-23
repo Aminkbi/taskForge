@@ -69,5 +69,5 @@ application handler time, remote Redis, independent hosts, workload SLOs,
 tenant protection, or whether admission, fairness, budgets, and adaptive
 concurrency outperform FIFO/static execution. The small sample count and
 baseline-then-treatment order further limit causal interpretation. The
-separate blog describes the latest product controls and uses this run only for
-the implementation-cost question.
+separate blog uses a [latest-state control comparison](../control-comparison/plan.md)
+to examine workload outcomes against FIFO/static execution.

@@ -1,0 +1,372 @@
+{
+  "source_commit": "0cc8a5699df839946f9aa4dcbc5cfbe05653ca57",
+  "method": "six paired seed/repetition blocks per workload; descriptive medians and observed ranges",
+  "arms": [
+    {
+      "workload": "noisy-neighbor",
+      "variant": "taskforge-fifo-static",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 148.1845485,
+        "throughput_per_second": 1209.2689213106119,
+        "jain_fairness": 0.991838704067245,
+        "slo_violations": 63.0
+      }
+    },
+    {
+      "workload": "noisy-neighbor",
+      "variant": "taskforge-full",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 105.950902,
+        "throughput_per_second": 1650.2877694363185,
+        "jain_fairness": 0.9996963277593063,
+        "slo_violations": 6.0
+      }
+    },
+    {
+      "workload": "noisy-neighbor",
+      "variant": "taskforge-no-fairness",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 110.799653,
+        "throughput_per_second": 1497.8425910620215,
+        "jain_fairness": 0.9981623232856476,
+        "slo_violations": 21.5
+      }
+    },
+    {
+      "workload": "delayed-backlog",
+      "variant": "taskforge-fifo-static",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 81.9322945,
+        "throughput_per_second": 1821.5234634647204,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "delayed-backlog",
+      "variant": "taskforge-full",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 90.192076,
+        "throughput_per_second": 1677.9378789375876,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "delayed-backlog",
+      "variant": "taskforge-no-admission",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 75.7863665,
+        "throughput_per_second": 1982.939247608113,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "hot-dependency",
+      "variant": "taskforge-fifo-static",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 167.915505,
+        "throughput_per_second": 906.4685542688269,
+        "jain_fairness": 0.9996697868434237,
+        "slo_violations": 20.0
+      }
+    },
+    {
+      "workload": "hot-dependency",
+      "variant": "taskforge-full",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 339.635802,
+        "throughput_per_second": 457.68105897043654,
+        "jain_fairness": 0.9702377800717359,
+        "slo_violations": 90.5
+      }
+    },
+    {
+      "workload": "hot-dependency",
+      "variant": "taskforge-no-dependency-budget",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 128.028323,
+        "throughput_per_second": 1160.0746856148965,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "retry-storm",
+      "variant": "taskforge-fifo-static",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 91.6817165,
+        "throughput_per_second": 1565.870654214516,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "retry-storm",
+      "variant": "taskforge-full",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 120.2162605,
+        "throughput_per_second": 1205.9209360445952,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    },
+    {
+      "workload": "retry-storm",
+      "variant": "taskforge-no-adaptive",
+      "blocks": 6,
+      "median": {
+        "p99_ms": 117.942396,
+        "throughput_per_second": 1207.497342050916,
+        "jain_fairness": 1.0,
+        "slo_violations": 0.0
+      }
+    }
+  ],
+  "contrasts": [
+    {
+      "workload": "noisy-neighbor",
+      "contrast": "full minus taskforge-fifo-static",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": -41.01369100000001,
+        "throughput_per_second": 429.8899754858851,
+        "jain_fairness": 0.007994558707724808,
+        "slo_violations": -56.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          -47.201863,
+          -25.91515799999999
+        ],
+        "throughput_per_second": [
+          268.2905537823251,
+          508.0581170226517
+        ],
+        "jain_fairness": [
+          -1.8753887990996532e-05,
+          0.06540615178155462
+        ],
+        "slo_violations": [
+          -62,
+          -47
+        ]
+      }
+    },
+    {
+      "workload": "noisy-neighbor",
+      "contrast": "full minus taskforge-no-fairness",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": -1.462958999999998,
+        "throughput_per_second": 161.08901696436408,
+        "jain_fairness": 0.0016336317279269097,
+        "slo_violations": -11.5
+      },
+      "observed_range": {
+        "p99_ms": [
+          -19.32844,
+          10.390596000000002
+        ],
+        "throughput_per_second": [
+          -12.33154447510833,
+          264.72388493807443
+        ],
+        "jain_fairness": [
+          -0.00042741519267208705,
+          0.006098003004335051
+        ],
+        "slo_violations": [
+          -32,
+          -4
+        ]
+      }
+    },
+    {
+      "workload": "delayed-backlog",
+      "contrast": "full minus taskforge-fifo-static",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 7.827963499999996,
+        "throughput_per_second": -155.47022558889773,
+        "jain_fairness": 0.0,
+        "slo_violations": 0.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          3.5451030000000117,
+          19.419220999999993
+        ],
+        "throughput_per_second": [
+          -341.17790128693264,
+          -24.940343726683295
+        ],
+        "jain_fairness": [
+          0,
+          0
+        ],
+        "slo_violations": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "workload": "delayed-backlog",
+      "contrast": "full minus taskforge-no-admission",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 13.110551499999993,
+        "throughput_per_second": -294.3659407815803,
+        "jain_fairness": 0.0,
+        "slo_violations": 0.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          5.991016999999999,
+          25.106234999999998
+        ],
+        "throughput_per_second": [
+          -484.1211278814237,
+          -78.53407178248563
+        ],
+        "jain_fairness": [
+          0,
+          0
+        ],
+        "slo_violations": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "workload": "hot-dependency",
+      "contrast": "full minus taskforge-fifo-static",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 169.63363850000002,
+        "throughput_per_second": -449.8410005864107,
+        "jain_fairness": -0.028970797241517188,
+        "slo_violations": 71.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          167.42516199999997,
+          174.35207099999997
+        ],
+        "throughput_per_second": [
+          -462.39727284406246,
+          -424.01283591981485
+        ],
+        "jain_fairness": [
+          -0.05809322895629443,
+          -0.003383895989941599
+        ],
+        "slo_violations": [
+          68,
+          75
+        ]
+      }
+    },
+    {
+      "workload": "hot-dependency",
+      "contrast": "full minus taskforge-no-dependency-budget",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 210.659358,
+        "throughput_per_second": -699.2750709102023,
+        "jain_fairness": -0.02976221992826411,
+        "slo_violations": 90.5
+      },
+      "observed_range": {
+        "p99_ms": [
+          206.60052800000003,
+          215.53430400000002
+        ],
+        "throughput_per_second": [
+          -722.4900602557934,
+          -687.66850979377
+        ],
+        "jain_fairness": [
+          -0.0583277791388378,
+          -0.004688450192519733
+        ],
+        "slo_violations": [
+          89,
+          91
+        ]
+      }
+    },
+    {
+      "workload": "retry-storm",
+      "contrast": "full minus taskforge-fifo-static",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 29.663489,
+        "throughput_per_second": -371.2642902647244,
+        "jain_fairness": 0.0,
+        "slo_violations": 0.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          26.567365999999993,
+          36.36333400000001
+        ],
+        "throughput_per_second": [
+          -451.2663562360581,
+          -291.18294941715953
+        ],
+        "jain_fairness": [
+          0,
+          0
+        ],
+        "slo_violations": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "workload": "retry-storm",
+      "contrast": "full minus taskforge-no-adaptive",
+      "blocks": 6,
+      "median_difference": {
+        "p99_ms": 2.6150269999999978,
+        "throughput_per_second": -5.831465863856465,
+        "jain_fairness": 0.0,
+        "slo_violations": 0.0
+      },
+      "observed_range": {
+        "p99_ms": [
+          -3.712997999999999,
+          8.526969000000008
+        ],
+        "throughput_per_second": [
+          -53.17217524795319,
+          45.98918669931027
+        ],
+        "jain_fairness": [
+          0,
+          0
+        ],
+        "slo_violations": [
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

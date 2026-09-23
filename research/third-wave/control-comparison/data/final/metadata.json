@@ -1,0 +1,675 @@
+{
+  "status": "completed",
+  "source_commit": "0cc8a5699df839946f9aa4dcbc5cfbe05653ca57",
+  "source_tree": "8fad8bda0192b927b9583f287a86d272d4b9966f",
+  "source_archive_sha256": "b5bb6fe3ac0b0920246ee1a854dea5cd519ce18e9c47b4a789711432dc2e397b",
+  "plan_sha256": "7a76d8f92c1c8b55c470e1f41569503890a6e73fbf83810c0e5cb63078b545ea",
+  "runner_sha256": "1c87d26285243efd09c7de7881ed9aed618227fbd98679db61f622802e10c1ab",
+  "go_version": "go version go1.27.1-X:nodwarf5 linux/amd64",
+  "host": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "logical_cpus": 16
+  },
+  "redis_image": "sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7",
+  "redis_topology": "dedicated standalone Redis 7.4 container over loopback; persistence disabled",
+  "redis_addr": "localhost:6379",
+  "redis_db": 14,
+  "scale": 8,
+  "seeds": [
+    20260923,
+    20260924
+  ],
+  "repetitions": 3,
+  "cells": [
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-full--20260923--0.json.gz",
+      "sha256": "d861a0ffa24e4c24899f07d66264ad08e3fdd8f7d664c992db4ade5320e583d5"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-no-fairness",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260923--0.json.gz",
+      "sha256": "54ce3d27c24ab37c8630c81745ce15db97c2244b264025f135686b56306937f9"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260923--0.json.gz",
+      "sha256": "a793c5d63dd360ad3f5081c763dc2999bf068e91445ec76f65e9f673a48c3b03"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260923--1.json.gz",
+      "sha256": "aca95f8280a25a617ebe38c1b156360935d7b208d611ed5c48b313bd67f06bcb"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-no-fairness",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260923--1.json.gz",
+      "sha256": "1c000dddb3d8eb99c931da2f219e9a4b78b5a25b6c71399689686fc4b8dcbce7"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-full--20260923--1.json.gz",
+      "sha256": "f9f2d666666cc5dc4fa6fd2afcc05befd4156ca455c009f59dfcef78d2a4ba98"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-full--20260923--2.json.gz",
+      "sha256": "e90ee439c0b366bdf7383785090d9e0869d6c7d13dbcad625f8a37594cac1edf"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260923--2.json.gz",
+      "sha256": "688acd876e4e43963881fd57169675e4940b72a4e679d30cc071ae31abd5b651"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-no-fairness",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260923--2.json.gz",
+      "sha256": "80720446e851f0ae1a85e7dac5ccd7af258d5870558bfbf5afc70f444464b622"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-no-fairness",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260924--0.json.gz",
+      "sha256": "f99ad9cd66c0f73032a624b81b25d8662596dc6abdaaca5a87c4ce519d877c40"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-full--20260924--0.json.gz",
+      "sha256": "029b71965c2dc435b5bb83797c554bf0e8f4d64ed2e6a5051f7ec6f89845da4e"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260924--0.json.gz",
+      "sha256": "d2d220ff4da0074c68ae35d63da7833c0ec77234110d271c098616d3761efed7"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-full--20260924--1.json.gz",
+      "sha256": "aeaeb955ad81693afe2fcd15809a33b456da31c5dd65343b12a6473b35ac4497"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-no-fairness",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260924--1.json.gz",
+      "sha256": "7fc4e74f513f26a5c80c3c26bc1ff388aa1b398aaad7c6c4ac6b758701cd59e1"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260924--1.json.gz",
+      "sha256": "4c2a21f71ee132d1bd349b9be6672e5b832137735b47c4d8bf4bd3595099a8a8"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-no-fairness",
+      "position": 0,
+      "result_file": "noisy-neighbor--taskforge-no-fairness--20260924--2.json.gz",
+      "sha256": "bc0f55761149f6a8aecf83d93903a01514553377dfdf1b1bcd89a99529537c0a"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "noisy-neighbor--taskforge-fifo-static--20260924--2.json.gz",
+      "sha256": "40e2e56f6502cdd1192dd376344310cc57677ec366e6683ff9f84eaf96831904"
+    },
+    {
+      "workload": "noisy-neighbor",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "noisy-neighbor--taskforge-full--20260924--2.json.gz",
+      "sha256": "cd23df947349c90589048970e79726c37601a4dbe2299b0dd7c55cdea8306b41"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-full--20260923--0.json.gz",
+      "sha256": "44565a7404037ca7fc1536f904ce86a7a64946f0171ad8b3a7c4aab5c9342250"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-no-admission",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260923--0.json.gz",
+      "sha256": "ad8c208ee669c7a3ba69e01984ace03fa872c8f8a86984f34d6216e5761b5050"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260923--0.json.gz",
+      "sha256": "3bf8b97575844da6d198aac2d7df5f893d1bc4c37d3885c1fbc7e6110ba132fc"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260923--1.json.gz",
+      "sha256": "36a7d56c471168fc6d961f4a6295483e85ac23a5f15c09261bdb17d27d7befa5"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-no-admission",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260923--1.json.gz",
+      "sha256": "75098795c012c78cbcddb80fc9ff58ab5af746b0f8725f5f332951b368585a26"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-full--20260923--1.json.gz",
+      "sha256": "355c5cf08861d635e08a40b3f35d0c228185722288522a729d978ceabf989f8f"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-full--20260923--2.json.gz",
+      "sha256": "2cb41e5ed2edfcc8ed62e132b155a752a124a0bb4b14a9953bebf7febec95b68"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260923--2.json.gz",
+      "sha256": "db754a9de5441456b59e60d266c165d22f416bb7b8f6dbb8a8d30f1603fdd28d"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-no-admission",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260923--2.json.gz",
+      "sha256": "8b824c98c1733394caad9116e81b44cc17a23cce8cd2ba898e434f5ecd0fdf4c"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-no-admission",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260924--0.json.gz",
+      "sha256": "c0bfce97db426a312c59ac7118cac4bcb66d66a18d1eaf254a423f9c43f3489f"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-full--20260924--0.json.gz",
+      "sha256": "527d1d7ac4180f9b45b8bddb889d40e073ea9c0627d2d557d8153a6cd0c1fb8d"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260924--0.json.gz",
+      "sha256": "ab2549bd1325969c6eb0d20cd5c4f6f14fbee6c5db26797a4181945a98b287cc"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-full--20260924--1.json.gz",
+      "sha256": "e89c4292d30619c2d600267f11e95ca1a98579e9b9bd45c72c595375306f4242"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-no-admission",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260924--1.json.gz",
+      "sha256": "54bafa0c389929f926fcac5d8e5a32a578333bc73f6c50990f5b25bc3918d8aa"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260924--1.json.gz",
+      "sha256": "60365c450c09112b79c1f898fda7713e5ee489b7d72d23bcaa143834c7139d5d"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-no-admission",
+      "position": 0,
+      "result_file": "delayed-backlog--taskforge-no-admission--20260924--2.json.gz",
+      "sha256": "962cc491e79f71d47e3c4ecf3dc447e0d20ace6939890c67aceeaf9c6a8ca2be"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "delayed-backlog--taskforge-fifo-static--20260924--2.json.gz",
+      "sha256": "a6091c2f9b3d5b61ae11338d82d775dc21f5ea5c1fabfa2850ea51f5c13f1e7e"
+    },
+    {
+      "workload": "delayed-backlog",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "delayed-backlog--taskforge-full--20260924--2.json.gz",
+      "sha256": "6477ef66b482b78c67c4c7313ee05de606f4d48c6842785ec78852571e4da475"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-full--20260923--0.json.gz",
+      "sha256": "acc7615da079f371c89df0fedb50fb9bc78d30c3e49f9ad6ea32bc2a684d89b1"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260923--0.json.gz",
+      "sha256": "31bb2a1733c28543cbdac4c7efe5d97a5ae11861fd071345ac38c69eda52fc29"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260923--0.json.gz",
+      "sha256": "65134d1e7d93189edccbfdf338aa261e44537149bec0356c31779b46c8450110"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260923--1.json.gz",
+      "sha256": "897d502e5b00ca50c6b97f357d03a9f5aa1f93d2083194907e8abf5555824d60"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260923--1.json.gz",
+      "sha256": "0f3e4694761a851653f9180815938f275831e37660a57cfbfeedfd80c437b1eb"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-full--20260923--1.json.gz",
+      "sha256": "f031d7d2841fd05b081368a135e5d7aad937698bd6ee72151db79ee43c97d993"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-full--20260923--2.json.gz",
+      "sha256": "3cf54c0faa54dbfe14047a63bd2b3a5a20599be70e48d7db9b310d1d84adefc6"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260923--2.json.gz",
+      "sha256": "0b0bef96b43d5c0cf698c10d870bff18569327e7b1a4f31578962112a779dd4f"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260923--2.json.gz",
+      "sha256": "9d4c586596bc76231c6be8503b1321186bf161a9716a714bfa0ec525f9dcf220"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260924--0.json.gz",
+      "sha256": "822ba4cabecf6cc91c925679c59550739cc1cb7efe2c335749a29d88ff5bf86f"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-full--20260924--0.json.gz",
+      "sha256": "2e1b3c2640d151c08a7d5ca8cf052f23a15b0a436f00f35c1d5118fef98d67c1"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260924--0.json.gz",
+      "sha256": "f4c933c764d4b6bfd3b15e8cfe01608bbdd08f03feefcfef500ad51650ad1b21"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-full--20260924--1.json.gz",
+      "sha256": "7e3ee5be4e8c355c4dd92521c2647357ad80911a9f15850770a5209e465e4da1"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260924--1.json.gz",
+      "sha256": "ad86caef25359f324088c9fc7bee249c5a4bbd8da956dec00a97b05bb6dfa8c3"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260924--1.json.gz",
+      "sha256": "ca0d886d2f30cfd0c70d8a0f9f3ddf163c1d5b710e062072662ad7e4dfb4b130"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-no-dependency-budget",
+      "position": 0,
+      "result_file": "hot-dependency--taskforge-no-dependency-budget--20260924--2.json.gz",
+      "sha256": "472ac2668b1977a4177a4065ae27d167dbb32b4a18edff426451174cdc2359ed"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "hot-dependency--taskforge-fifo-static--20260924--2.json.gz",
+      "sha256": "7b089e7f09ea396b8425951c9345672e3e1c8557849e3a7ed423343f9b39f53b"
+    },
+    {
+      "workload": "hot-dependency",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "hot-dependency--taskforge-full--20260924--2.json.gz",
+      "sha256": "ddab3639d0b08af6289ab395a3abe80bd415756d54c68ca0e400b544223b677f"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-full--20260923--0.json.gz",
+      "sha256": "23240e1036dc1d6a727446a13e87f5d9099d23e93e53cb3dd02fc662c3336005"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-no-adaptive",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260923--0.json.gz",
+      "sha256": "a9402113fb7ccd9c166671920436e3873e02d6b3e7685a0d5b50ea1ab9876fb5"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-fifo-static--20260923--0.json.gz",
+      "sha256": "ed6b7abf5d4add208a325d9c00af0231abd3c5d7ffc4803e61b104110d29911d"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-fifo-static--20260923--1.json.gz",
+      "sha256": "68dce0eda9e256a27f65425e04a955019122d01dec889825510d679159244f73"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-no-adaptive",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260923--1.json.gz",
+      "sha256": "66a37023ab6722a352a32d47f7cedf436cbf08e7bfea00d38234dc6e777a03ec"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-full--20260923--1.json.gz",
+      "sha256": "bdae6af9351894ae0a48bfbbafb58184f54b5aeab9e21d897dd1caee10a91fcf"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-full--20260923--2.json.gz",
+      "sha256": "75ed91a4ba0b48e9a9c962c5d3c2e3322f72ffd4ffc20b3090a0b466b790b072"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-fifo-static--20260923--2.json.gz",
+      "sha256": "0f1cf96ee10e28630dada79ff45af0d95939e6bf455d0b4701b61f50849c893b"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260923,
+      "repetition": 2,
+      "variant": "taskforge-no-adaptive",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260923--2.json.gz",
+      "sha256": "5132d58cd36f035f8b3b39dff1032a318e54003baa2dc7054bb96eb156cdeb28"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-no-adaptive",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260924--0.json.gz",
+      "sha256": "64f10e2136442b75de11dbbe7ab298aaa0211e24f3957f2e3e9b99d7aba4bc7b"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-full",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-full--20260924--0.json.gz",
+      "sha256": "cf4a70a973049477015060604de26a4dc007ccaeae77df61d563a7e61deb3a52"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 0,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-fifo-static--20260924--0.json.gz",
+      "sha256": "e9fa48318074edef4f0c9013943768fa223c220bb97282fa69a12b7a504d6540"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-full",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-full--20260924--1.json.gz",
+      "sha256": "0d655830b72263ebcf98c2d0f4141be98d2114d0fdb1e3e4dcb8e183104d3e7b"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-no-adaptive",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260924--1.json.gz",
+      "sha256": "7331dc62d5fe012cc82e050c83a99fe6b63bcd2485ed1cd21faf885448d4727d"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 1,
+      "variant": "taskforge-fifo-static",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-fifo-static--20260924--1.json.gz",
+      "sha256": "2a6593588c65ce54deb663702aa810cc8f55dc526ad6fae4e516149dc9624c27"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-no-adaptive",
+      "position": 0,
+      "result_file": "retry-storm--taskforge-no-adaptive--20260924--2.json.gz",
+      "sha256": "27f0ec67d152976f07a835d6fe340e3194e79fc19a5e51c121a4c015ac3d6751"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-fifo-static",
+      "position": 1,
+      "result_file": "retry-storm--taskforge-fifo-static--20260924--2.json.gz",
+      "sha256": "988e84ab41dc25c680ec5b478d99f2a419e5bac34ea3e39a2cb183eee0596b84"
+    },
+    {
+      "workload": "retry-storm",
+      "seed": 20260924,
+      "repetition": 2,
+      "variant": "taskforge-full",
+      "position": 2,
+      "result_file": "retry-storm--taskforge-full--20260924--2.json.gz",
+      "sha256": "7b097efc9b7c0b4b1463f2ef06ed9f2ebf5bcc1a2b3c3e7730f3a92547dcd792"
+    }
+  ],
+  "binary_sha256": "cc34b5caa39adcd98232bfaadc3b855e5c4f1ac86cb1c52cba6f7558fee440d4"
+}
