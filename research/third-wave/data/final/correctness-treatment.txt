@@ -1,4 +1,4 @@
-$ TASKFORGE_RUN_INTEGRATION=1 go test -count=1 ./redis ./worker ./test/integration
-ok   github.com/aminkbi/taskforge/redis 0.291s
-ok   github.com/aminkbi/taskforge/worker 0.211s
-ok   github.com/aminkbi/taskforge/test/integration 18.734s
+$ go test -count=1 -v ./redis ./worker ./test/integration
+ok   github.com/aminkbi/taskforge/redis 0.070s
+ok   github.com/aminkbi/taskforge/worker 2.011s
+ok   github.com/aminkbi/taskforge/test/integration 19.752s

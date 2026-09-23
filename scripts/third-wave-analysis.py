@@ -40,10 +40,10 @@ def quantile(values, p):
     return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
 
 
-def bootstrap(values, count=10000, seed=20260922):
+def bootstrap(values, lower_tail=0.025, count=10000, seed=20260922):
     rng = random.Random(seed)
     medians = [median([values[rng.randrange(len(values))] for _ in values]) for _ in range(count)]
-    return quantile(medians, 0.025), quantile(medians, 0.975)
+    return quantile(medians, lower_tail), quantile(medians, 1 - lower_tail)
 
 
 def change(before, after):
@@ -70,14 +70,15 @@ def main():
     args = parser.parse_args()
     baseline = read(args.baseline)
     treatment = read(args.treatment)
-    for path in (args.setup_baseline, args.setup_treatment):
+    for path, arm in ((args.setup_baseline, baseline), (args.setup_treatment, treatment)):
         extra = read(path)
         for name, rows in extra.items():
-            (baseline if "baseline" in path else treatment)[name] = rows
+            arm[name] = rows
     if set(baseline) != set(treatment):
         raise SystemExit("benchmark sets differ")
 
     records = []
+    paired_by_metric = {}
     for name in sorted(baseline):
         if len(baseline[name]) != len(treatment[name]) or len(baseline[name]) < 5:
             raise SystemExit(f"sample count mismatch: {name}")
@@ -89,6 +90,7 @@ def main():
             paired = [change(a, b) for a, b in zip(left, right)]
             if any(value is None for value in paired):
                 continue
+            paired_by_metric[(name, metric)] = paired
             lo, hi = bootstrap(paired)
             records.append({"family": family(name), "benchmark": name, "metric": metric,
                             "samples": len(paired), "baseline_median": median(left),
@@ -98,13 +100,14 @@ def main():
     grouped = {}
     for record in records:
         grouped.setdefault(record["family"], []).append(record)
-    # Bonferroni-adjusted intervals are represented by using the family alpha in
-    # the result metadata; the bootstrap interval above remains the descriptive
-    # 95% interval from the registered plan.
     for family_name, family_records in grouped.items():
         for record in family_records:
             record["family_tests"] = len(family_records)
             record["familywise_alpha"] = 0.05 / len(family_records)
+            record["interval_familywise_bootstrap"] = bootstrap(
+                paired_by_metric[(record["benchmark"], record["metric"])],
+                record["familywise_alpha"] / 2,
+            )
     result = {"protocol": {"bootstrap_resamples": 10000, "seed": 20260922,
                             "direction": "negative treatment change is lower cost",
                             "families": {key: len(value) for key, value in grouped.items()}},
@@ -112,10 +115,11 @@ def main():
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     (output / "analysis.json").write_text(json.dumps(result, indent=2) + "\n")
-    lines = ["# Completed control-plane benchmark", "", "Negative values indicate lower treatment cost. Intervals are paired bootstrap descriptive intervals; family-wise alpha is recorded per comparison.", "", "| Family | Benchmark | Metric | Baseline median | Treatment median | Change | 95% interval |", "| --- | --- | --- | ---: | ---: | ---: | --- |"]
+    lines = ["# Completed control-plane benchmark", "", "Negative values indicate lower treatment cost. Changes are medians of within-index paired percentage changes. The 95% intervals are descriptive; family-wise intervals use the Bonferroni tail for each comparison family.", "", "| Family | Benchmark | Metric | Baseline median | Treatment median | Change | 95% interval | Family-wise interval |", "| --- | --- | --- | ---: | ---: | ---: | --- | --- |"]
     for record in records:
         lo, hi = record["interval_95_bootstrap"]
-        lines.append(f"| {record['family']} | `{record['benchmark']}` | `{record['metric']}` | {record['baseline_median']:.3g} | {record['treatment_median']:.3g} | {record['change_percent']:+.1f}% | [{lo:+.1f}%, {hi:+.1f}%] |")
+        family_lo, family_hi = record["interval_familywise_bootstrap"]
+        lines.append(f"| {record['family']} | `{record['benchmark']}` | `{record['metric']}` | {record['baseline_median']:.3g} | {record['treatment_median']:.3g} | {record['change_percent']:+.1f}% | [{lo:+.1f}%, {hi:+.1f}%] | [{family_lo:+.1f}%, {family_hi:+.1f}%] |")
     lines += ["", "## Decision summary", ""]
     for family_name, family_records in grouped.items():
         improved = sum(record["change_percent"] < 0 for record in family_records)

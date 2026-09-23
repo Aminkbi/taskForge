@@ -2,35 +2,35 @@ goos: linux
 goarch: amd64
 pkg: github.com/aminkbi/taskforge/redis
 cpu: AMD Ryzen 9 5900HS with Radeon Graphics        
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     62999 ns/op	     752 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     54959 ns/op	     754 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     54761 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55898 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55213 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     63808 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     51393 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     56772 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55525 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/uncached_group-16         	      30	     61589 ns/op	     750 B/op	      32 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       792.2 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     63704 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55003 ns/op	     752 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     67002 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     53092 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     62146 ns/op	     752 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     64384 ns/op	     752 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     54535 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     61866 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     67395 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/uncached_group-16         	      30	     55211 ns/op	     750 B/op	      32 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       765.4 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       850.6 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       774.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       804.5 ns/op	      70 B/op	       1 allocs/op
 BenchmarkSetupKeyCosts/cached_group-16           	      30	       778.1 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       729.1 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	      1046 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       824.6 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       786.2 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       808.9 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       729.1 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       797.5 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/cached_group-16           	      30	       824.9 ns/op	      70 B/op	       1 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       324.3 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       307.6 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       253.1 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       247.8 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       310.6 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       256.5 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       289.2 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       283.2 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       292.6 ns/op	     104 B/op	       3 allocs/op
-BenchmarkSetupKeyCosts/three_keys-16             	      30	       263.8 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       866.3 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       770.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       945.8 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       812.9 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/cached_group-16           	      30	       745.1 ns/op	      70 B/op	       1 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       298.9 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       309.9 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       294.9 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       416.1 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       264.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       278.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       303.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       292.9 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       265.2 ns/op	     104 B/op	       3 allocs/op
+BenchmarkSetupKeyCosts/three_keys-16             	      30	       294.9 ns/op	     104 B/op	       3 allocs/op
 PASS
-ok  	github.com/aminkbi/taskforge/redis	0.080s
+ok  	github.com/aminkbi/taskforge/redis	0.107s

@@ -1,22 +1,21 @@
 {
   "schema": "taskforge-wave3-evidence/v1",
-  "status": "completed-host-local-control-plane-study",
+  "status": "completed-host-local-latest-state-study",
   "readiness": {
-    "historical_wave1_and_wave2": "complete-and-reproducible",
-    "wave3_optimization_treatment": "completed-host-local-study",
+    "wave3_latest_state_treatment": "completed-host-local-study",
     "publication_blockers": []
   },
-  "baseline_context": "research/second-wave",
   "baseline_revision": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
-  "treatment_revision": "b2947f3",
+  "treatment_revision": "5d1d882",
   "identity_command": "scripts/third-wave-identity.sh",
-  "treatment_sha256": "b7045b8185cfbb98e7594ef6798d3eef4864094f35438975430d3e5ee648039b",
-  "treatment_files": ["redis/publish.go", "test/benchmark/cleanup_benchmark_test.go", "test/integration/cleanup_integration_test.go"],
+  "treatment_sha256": "92d2107b03b01c378e0f7db70b76da4c6081b8eb1114132c1b69289b794054ee",
+  "representative_treatment_files": ["redis/publish.go", "redis/redis.go", "internal/observability/metrics.go", "internal/scheduler/redis_store.go", "worker/worker.go"],
   "required_treatment_logs": ["data/final/baseline.txt", "data/final/treatment.txt"],
   "required_correctness_evidence": ["go test ./redis ./worker ./test/integration"],
-  "primary_families": ["publish", "snapshot", "setup-key-hot-path"],
+  "primary_families": ["publish", "snapshot"],
+  "supplementary_families": ["setup-key-hot-path"],
   "bootstrap": {"iterations": 10000, "seed": 20260922},
   "regression_limit_percent": 15,
   "measured_numbers_present": true,
-  "scope": "host-local Redis control-plane cost; not remote-cloud performance"
+  "scope": "cumulative latest-state change versus pre-optimization baseline; host-local Redis control-plane cost, not workload SLO or remote-cloud performance"
 }

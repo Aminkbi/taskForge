@@ -1,81 +1,73 @@
-# Wave 3: Measuring TaskForge's optimized control plane without trading away semantics
+# Wave 3 latest-state rerun: Redis control-plane cost and correctness
 
 ## Abstract
 
-TaskForge's earlier paired workload study established the operational context;
-this study measures whether a committed Redis control-plane optimization lowers
-its own cost while preserving delivery and state guarantees. The treatment is
-revision `b2947f3`, compared with clean parent `4446ab3`, using identical
-benchmark harnesses, a dedicated standalone Redis process, 30-iteration samples,
-and ten repetitions. The study measures publish, queue snapshot, and setup/key
-families. All correctness gates pass. Results are host-local engineering
-measurements, not universal throughput claims.
+This amended run compares TaskForge commit `5d1d882` with the pre-optimization
+baseline `4446ab3`. The treatment includes the Redis control-plane optimization
+and subsequent worker, metrics, and recurring-scheduler changes. Identical
+benchmark harnesses ran against one dedicated standalone Redis 7.4 container
+on a single AMD Ryzen 9 5900HS host with Go 1.27.1-X. Both revisions passed
+Redis, worker, and integration correctness suites. The results describe the
+cumulative latest state, not the effect of a single source change or the
+benefit of overload controls over a FIFO queue.
 
-## Context from wave 2
+## Method and amendment
 
-The frozen paired study measured one workstation in a native loopback class and
-the same host with four Go processors and a declared 1 ms round trip. In the
-common-delivery sweep, TaskForge FIFO/static was close to Asynq on native
-throughput (median difference 2.1 tasks/s, 97.5% interval [0.59, 7.95]) but
-was faster in the emulated-latency class (704.7 tasks/s, [159.3, 1048.4]).
-Control-specific effects were workload- and environment-dependent: the
-fairness contrast was strongly different under the emulated path, while the
-long-duration admission contrast reversed sign between classes. Those results
-motivate measuring control-plane cost directly instead of treating a workload
-throughput result as a mechanism explanation.
+The [original analysis plan](../analysis-plan.md) registered revision `b2947f3`
+as treatment. The [execution notes](../execution-notes.md) disclose the later
+treatment change to `5d1d882` and a failed provisional correctness run that
+was excluded before measurement. The baseline remains `4446ab3`. Both exported
+source revisions receive the same benchmark harness. The run uses Redis DB 14,
+persistence disabled, 30 operations per benchmark sample, and ten repetitions.
+The complete baseline arm ran before the treatment arm; pairing by repetition
+index does not control temporal drift.
 
-## Method
-
-The treatment is committed revision `b2947f3`, with clean parent `4446ab3` as
-baseline; the binary diff digest identifies the treatment.
-Each benchmark uses Redis DB 14, a dedicated Redis process, fixed 30-iteration
-samples, ten repetitions, and the same Go toolchain. Samples are paired by
-benchmark name and repetition. Primary outcomes are Redis round trips,
-commands, nanoseconds, bytes, and allocations per operation. Ten thousand
-paired bootstrap resamples with a fixed seed produce Bonferroni-adjusted
-family-wise intervals.
-
-Correctness is a gate: duplicate publish, queued-state visibility, stale lease
-fencing, key compatibility, and bounded dead-letter handling must pass before a
-performance result can be called an optimization.
+The primary publish and snapshot families contain 27 and 72 metric-cell
+comparisons. The nine setup/key comparisons are supplementary because that
+family's benchmark definitions were added after diagnostic runs. Reported
+changes are medians of paired percentage changes, which need not equal the
+percentage change between the two displayed arm medians. The derived
+[analysis](../results/analysis.md) reports descriptive 95% paired bootstrap
+intervals and Bonferroni-adjusted family-wise intervals from 10,000 resamples.
 
 ## Results
 
-The completed run contains 27 publish comparisons, 72 snapshot comparisons,
-and nine supplementary setup/key comparisons. Negative effects mean lower
-treatment cost. Ten-thousand-resample paired bootstrap intervals use the fixed
-seed and family adjustment from the analysis plan; raw observations and the
-derived table are in `data/final/` and `results/`.
+Representative measurements from the completed run are:
 
-Representative medians are:
+| Case | Baseline median | Latest median | Median paired change | Family-wise interval |
+| --- | ---: | ---: | ---: | ---: |
+| Fair publish without deduplication | 167.8 µs/op | 104.2 µs/op | −38.4% | [−45.3%, −32.8%] |
+| Plain publish without deduplication | 98.7 µs/op | 97.5 µs/op | +0.6% | [−12.3%, +24.9%] |
+| Publish-throughput benchmark | 100.0 µs/op | 93.6 µs/op | −6.7% | [−18.7%, +15.2%] |
+| Metrics snapshot, 64 tenants and 64 KiB payload | 43.1 ms/op | 0.530 ms/op | −98.8% | [−98.9%, −98.7%] |
+| Three-key construction microbenchmark | 652 ns/op | 295 ns/op | −56.2% | [−65.3%, −46.8%] |
 
-| Case | Baseline | Treatment | Paired change |
-| --- | ---: | ---: | ---: |
-| Fair publish, no receipt | 153.6 µs | 100.6 µs | −34.8% |
-| Publish throughput | 99.7 µs | 98.5 µs | +0.5%, inconclusive |
-| Metrics snapshot, 64 tenants, 64 KiB payload | 43.3 ms | 0.510 ms | −98.8% |
-| Key construction microbenchmark | 698.5 ns | 286.2 ns | −57.8% |
+All 72 snapshot comparisons had lower treatment cost. Twenty-one of 27 publish
+comparisons and three of nine supplementary setup/key comparisons were lower.
+The median regression gate found no comparison beyond its 15% threshold. The
+plain publish and publish-throughput timing intervals cross zero; neither is a
+reliable speedup claim from this run.
 
-Every snapshot comparison improved. Publish results improved for the
-fairness and deduplication factors; the plain publish path was within the
-15% regression guard but was slightly slower in this run. Cached group setup
-was effectively unchanged, while the uncached check remained dominated by its
-Redis round trip. No comparison exceeded the 15% regression guard.
+The large metrics-snapshot reduction is consistent with the Redis code reading
+stream depth, pending counts, and consumer information through a pipeline.
+Fair publish records the ready entry and built-in queued state in one script.
+These mechanisms are visible in the source and measured Redis work counters,
+but the cumulative treatment prevents attributing every observed timing
+difference exclusively to one commit.
 
-| Family | Primary outcome | Paired samples | Median change | Family-wise interval | Status |
-| --- | --- | ---: | ---: | --- | --- |
-| Publish | Redis round trips/op | — | — | — | pending Redis run |
-| Publish | Redis commands/op | — | — | — | pending Redis run |
-| Snapshot | p95 ns/op | — | — | — | pending Redis run |
-| Setup/key | allocations/op | — | — | — | pending Redis run |
+## Correctness and limits
 
-## Reproducibility and limits
+The baseline and latest revisions passed the recorded Redis, worker, and
+integration suites before benchmarks. The latest revision includes a fix for
+a concurrent recurring-schedule reconciliation race exposed by the excluded
+provisional run. The [raw benchmark logs and metadata](../data/final/) and
+[regression gate](../data/final/regression-gate.txt) identify both source
+revisions, the common harness, Redis configuration, and command outcomes.
 
-The package is now a measured artifact with raw logs, source identities, Redis
-metadata, and correctness output. It measures host-local Redis control-plane
-cost. It does not establish remote Redis performance, multi-host contention,
-handler throughput, or crash recovery. The wave 2 recovery cells remain
-explicitly unsupported.
-
-The central reporting rule is simple: a lower benchmark number without passing
-invariants is a regression, and an interval crossing zero is inconclusive.
+These measurements are host-local control-plane costs. They do not measure
+application handler time, remote Redis, independent hosts, workload SLOs,
+tenant protection, or whether admission, fairness, budgets, and adaptive
+concurrency outperform FIFO/static execution. The small sample count and
+baseline-then-treatment order further limit causal interpretation. The
+separate blog describes the latest product controls and uses this run only for
+the implementation-cost question.

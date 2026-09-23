@@ -27,6 +27,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--redis-container", required=True)
     parser.add_argument("--redis-addr", required=True)
+    parser.add_argument("--baseline", default="4446ab3")
+    parser.add_argument("--treatment", default="5d1d882")
     parser.add_argument("--output", default="research/third-wave/data/final")
     args = parser.parse_args()
     destination = ROOT / args.output
@@ -51,7 +53,7 @@ def main():
         "arm_order": ["baseline", "treatment"], "sources": {}, "commands": [],
         "protocol_sha256": digest((ROOT / "research/third-wave/analysis-plan.md").read_bytes()),
         "amendment_sha256": digest((ROOT / "research/third-wave/execution-notes.md").read_bytes()),
-        "treatment_diff_sha256": digest(subprocess.check_output(["git", "diff", "--binary", "4446ab3", "b2947f3"], cwd=ROOT)),
+        "treatment_diff_sha256": digest(subprocess.check_output(["git", "diff", "--binary", args.baseline, args.treatment], cwd=ROOT)),
     }
 
     def save():
@@ -71,7 +73,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="taskforge-wave3-") as temporary:
         sources = {}
-        for arm, revision in [("baseline", "4446ab3"), ("treatment", "b2947f3")]:
+        for arm, revision in [("baseline", args.baseline), ("treatment", args.treatment)]:
             source = Path(temporary) / arm
             source.mkdir()
             archive = subprocess.check_output(["git", "archive", revision], cwd=ROOT)
@@ -82,7 +84,7 @@ def main():
                           "archive_sha256": digest(archive), "harness": {}}
             for name in ["cleanup_benchmark_test.go", "redis_benchmark_test.go"]:
                 path = "test/benchmark/" + name
-                data = subprocess.check_output(["git", "show", "b2947f3:" + path], cwd=ROOT)
+                data = subprocess.check_output(["git", "show", args.treatment + ":" + path], cwd=ROOT)
                 (source / path).write_bytes(data)
                 provenance["harness"][path] = digest(data)
             path = "redis/wave3_setup_key_test.go"

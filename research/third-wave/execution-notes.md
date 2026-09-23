@@ -1,5 +1,25 @@
 # Execution amendment and audit trail
 
+## Latest-state rerun (2026-09-23)
+
+The original run compared `4446ab3` with `b2947f3`. This rerun keeps the
+original baseline, shared benchmark harness, factor matrix, iteration count,
+arm order, and analysis method, but replaces the treatment with committed
+revision `5d1d882`. That revision includes the Redis optimization and later
+worker, metrics, and recurring-scheduler changes. The result measures the
+cumulative latest state against the pre-optimization baseline; it does not
+isolate the effect of any one later change. The original analysis plan below
+remains a historical registration, and this treatment change is disclosed as
+an amendment.
+
+A provisional run at `2bc45a8` failed the concurrent recurring-dispatch
+integration gate before measurements began. It revealed that two reconciliation
+passes could restore an old schedule state after a dispatch. Revision `5d1d882`
+adds optimistic locking around reconciliation and repeats the concurrent
+integration scenario. The failed provisional logs remain outside the checked-in
+evidence and do not enter this rerun's estimates. The previous final evidence
+is replaced only after the new correctness and benchmark gates complete.
+
 The original analysis plan is retained unchanged. These implementation details
 were resolved on 2026-09-22 after diagnostic runs, before the final paired run.
 The final analysis is therefore an amended execution of the registered plan,

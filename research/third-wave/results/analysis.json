@@ -15,16 +15,20 @@
       "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 99278.5,
-      "treatment_median": 111997.0,
-      "change_percent": 13.498137092354046,
+      "baseline_median": 98740.5,
+      "treatment_median": 97451.0,
+      "change_percent": 0.5608291782647934,
       "interval_95_bootstrap": [
-        1.4970132389731217,
-        23.553093267026114
+        -7.804945703587867,
+        16.28391374724264
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -12.25545290027622,
+        24.867546479144597
+      ]
     },
     {
       "family": "publish",
@@ -40,23 +44,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        0.0,
+        0.0
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 664.3499999999999,
-      "treatment_median": 724.3499999999999,
-      "change_percent": 9.007453876922456,
+      "baseline_median": 664.1,
+      "treatment_median": 724.1500000000001,
+      "change_percent": 9.025218569517934,
       "interval_95_bootstrap": [
-        8.98555168719506,
-        9.07585791691754
+        9.003312459426716,
+        9.072430190500025
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        8.99646226046157,
+        9.082010373169137
+      ]
     },
     {
       "family": "publish",
@@ -72,23 +84,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        0.0,
+        0.0
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_false-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 4385.0,
-      "treatment_median": 4476.0,
-      "change_percent": 2.1436716077537055,
+      "baseline_median": 4401.0,
+      "treatment_median": 4466.0,
+      "change_percent": 1.4735887553842586,
       "interval_95_bootstrap": [
-        1.011133833219724,
-        2.5194686211635453
+        0.6801178871004288,
+        1.7744226559133325
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        0.31810952056350317,
+        2.201222748267284
+      ]
     },
     {
       "family": "publish",
@@ -104,23 +124,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -8.196721311475407,
+        -8.196721311475407
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 221094.5,
-      "treatment_median": 192261.5,
-      "change_percent": -17.833387863657833,
+      "baseline_median": 224303.5,
+      "treatment_median": 156146.5,
+      "change_percent": -26.8472641241052,
       "interval_95_bootstrap": [
-        -22.917300958805463,
-        -12.330661464657812
+        -34.922189574491235,
+        -21.743361462798738
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -39.661532341653285,
+        -20.63333174362397
+      ]
     },
     {
       "family": "publish",
@@ -136,23 +164,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_false/dedup_true-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 974.3499999999999,
+      "baseline_median": 974.05,
       "treatment_median": 946.4,
-      "change_percent": -2.8786951382179238,
+      "change_percent": -2.8536234859371845,
       "interval_95_bootstrap": [
-        -2.9039038473059775,
-        -2.843358653253958
+        -2.8641823523286867,
+        -2.8335250229522657
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -2.8644763860369626,
+        -2.8135718893553485
+      ]
     },
     {
       "family": "publish",
@@ -168,7 +204,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "publish",
@@ -176,15 +216,19 @@
       "metric": "B/op",
       "samples": 10,
       "baseline_median": 5153.0,
-      "treatment_median": 5151.0,
-      "change_percent": -0.019406171162433816,
+      "treatment_median": 5148.0,
+      "change_percent": -0.4561796660664308,
       "interval_95_bootstrap": [
-        -0.9227220299884653,
-        0.7627716591074085
+        -1.2808072967203543,
+        0.13616028010114967
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -1.3502748082207459,
+        0.928587760290746
+      ]
     },
     {
       "family": "publish",
@@ -200,23 +244,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -15.662650602409634,
+        -15.662650602409634
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 153624.0,
-      "treatment_median": 100561.0,
-      "change_percent": -34.80147002431152,
+      "baseline_median": 167764.0,
+      "treatment_median": 104205.0,
+      "change_percent": -38.36924614533743,
       "interval_95_bootstrap": [
-        -39.3252297149022,
-        -32.28639383435726
+        -42.419649122807016,
+        -34.7424639775916
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -45.33530775001403,
+        -32.7739946189195
+      ]
     },
     {
       "family": "publish",
@@ -232,7 +284,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -85.71428571428572,
+        -85.71428571428572
+      ]
     },
     {
       "family": "publish",
@@ -240,15 +296,19 @@
       "metric": "redis_network_bytes/op",
       "samples": 10,
       "baseline_median": 1112.0,
-      "treatment_median": 887.4,
-      "change_percent": -20.197841726618705,
+      "treatment_median": 887.1500000000001,
+      "change_percent": -20.220323741007192,
       "interval_95_bootstrap": [
-        -20.242805755395686,
-        -20.17985611510791
+        -20.23381294964029,
+        -20.206834532374096
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -20.242805755395686,
+        -20.197841726618705
+      ]
     },
     {
       "family": "publish",
@@ -264,23 +324,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -50.0,
+        -50.0
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_false-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 6624.0,
-      "treatment_median": 4831.0,
-      "change_percent": -27.21932901701145,
+      "baseline_median": 6611.0,
+      "treatment_median": 4808.0,
+      "change_percent": -27.349372131060147,
       "interval_95_bootstrap": [
         -27.827403482210443,
-        -26.945745806256618
+        -26.7589534339683
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -27.89106023167126,
+        -26.57216106167999
+      ]
     },
     {
       "family": "publish",
@@ -296,23 +364,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -42.72727272727273,
+        -42.72727272727273
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 225341.0,
-      "treatment_median": 170613.0,
-      "change_percent": -24.83206663415197,
+      "baseline_median": 243201.0,
+      "treatment_median": 171951.5,
+      "change_percent": -26.301393885701096,
       "interval_95_bootstrap": [
-        -29.812278582241863,
-        -17.076337399900765
+        -31.993894079783466,
+        -23.64180287270926
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -37.06265534925131,
+        -18.66597512518927
+      ]
     },
     {
       "family": "publish",
@@ -328,7 +404,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "publish",
@@ -344,7 +424,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -7.041072925398151,
+        -7.041072925398151
+      ]
     },
     {
       "family": "publish",
@@ -360,23 +444,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishStateCosts/fair_true/dedup_true-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 5688.0,
+      "baseline_median": 5681.0,
       "treatment_median": 5500.0,
-      "change_percent": -3.305057491053076,
+      "change_percent": -3.0835921057056295,
       "interval_95_bootstrap": [
-        -3.613101849440681,
-        -2.758007117437722
+        -3.9354275741710296,
+        -2.584240646895469
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -4.046885577584835,
+        -2.3605664199641274
+      ]
     },
     {
       "family": "publish",
@@ -392,39 +484,51 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -19.791666666666664,
+        -19.791666666666664
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishThroughput-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 99667.5,
-      "treatment_median": 98504.0,
-      "change_percent": 0.5401724740969116,
+      "baseline_median": 100030.5,
+      "treatment_median": 93643.0,
+      "change_percent": -6.667836000211109,
       "interval_95_bootstrap": [
-        -5.044447392861883,
-        5.8603630601070655
+        -16.89779757485771,
+        11.20986315181044
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -18.70469636106519,
+        15.18587841337995
+      ]
     },
     {
       "family": "publish",
       "benchmark": "BenchmarkPublishThroughput-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 4353.0,
+      "baseline_median": 4293.0,
       "treatment_median": 4428.0,
-      "change_percent": 1.7229496898690577,
+      "change_percent": 2.4340352671383902,
       "interval_95_bootstrap": [
-        0.344589937973816,
+        1.7229496898690577,
         3.1686859273066137
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        1.0222834826556393,
+        3.1686859273066137
+      ]
     },
     {
       "family": "publish",
@@ -440,23 +544,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 27,
-      "familywise_alpha": 0.001851851851851852
+      "familywise_alpha": 0.001851851851851852,
+      "interval_familywise_bootstrap": [
+        -8.196721311475407,
+        -8.196721311475407
+      ]
     },
     {
       "family": "setup-key",
       "benchmark": "BenchmarkSetupKeyCosts/cached_group-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 797.0,
-      "treatment_median": 794.85,
-      "change_percent": -0.8468629110610582,
+      "baseline_median": 781.3,
+      "treatment_median": 791.3,
+      "change_percent": 0.48327973345929087,
       "interval_95_bootstrap": [
-        -4.817974288117255,
-        4.456410478693873
+        -4.515891520431947,
+        10.597570720665173
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -4.57347140039448,
+        14.52934955050238
+      ]
     },
     {
       "family": "setup-key",
@@ -472,7 +584,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        0.0,
+        0.0
+      ]
     },
     {
       "family": "setup-key",
@@ -488,23 +604,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        0.0,
+        0.0
+      ]
     },
     {
       "family": "setup-key",
       "benchmark": "BenchmarkSetupKeyCosts/three_keys-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 698.5,
-      "treatment_median": 286.2,
-      "change_percent": -57.762182089863,
+      "baseline_median": 652.05,
+      "treatment_median": 294.9,
+      "change_percent": -56.24550103047592,
       "interval_95_bootstrap": [
-        -70.34910965323337,
-        -52.15044971381848
+        -62.04862344816186,
+        -51.147686689326385
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -65.25630593978843,
+        -46.836127636560306
+      ]
     },
     {
       "family": "setup-key",
@@ -516,11 +640,15 @@
       "change_percent": -63.63636363636363,
       "interval_95_bootstrap": [
         -63.63636363636363,
-        -63.63636363636363
+        -63.04561864128651
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -63.63636363636363,
+        -62.454873646209386
+      ]
     },
     {
       "family": "setup-key",
@@ -536,23 +664,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ]
     },
     {
       "family": "setup-key",
       "benchmark": "BenchmarkSetupKeyCosts/uncached_group-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 59970.5,
-      "treatment_median": 55711.5,
-      "change_percent": -2.52886340016506,
+      "baseline_median": 60116.5,
+      "treatment_median": 62006.0,
+      "change_percent": 0.9817622253487424,
       "interval_95_bootstrap": [
-        -16.349036563870012,
-        1.7747660535656573
+        -11.372681716375821,
+        15.350980689958705
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -14.513895597848837,
+        21.192231613019242
+      ]
     },
     {
       "family": "setup-key",
@@ -563,12 +699,16 @@
       "treatment_median": 750.0,
       "change_percent": 0.0,
       "interval_95_bootstrap": [
-        -0.26595744680850686,
-        0.0
+        -0.13297872340425343,
+        0.13333333333332975
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        -0.2954027355623065,
+        0.2666666666666595
+      ]
     },
     {
       "family": "setup-key",
@@ -584,23 +724,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 9,
-      "familywise_alpha": 0.005555555555555556
+      "familywise_alpha": 0.005555555555555556,
+      "interval_familywise_bootstrap": [
+        0.0,
+        0.0
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 695051.0,
-      "treatment_median": 242858.5,
-      "change_percent": -64.04937693192642,
+      "baseline_median": 671946.0,
+      "treatment_median": 237849.0,
+      "change_percent": -65.59339341917783,
       "interval_95_bootstrap": [
-        -66.40305913813313,
-        -62.785669985016135
+        -65.91192017602407,
+        -62.99141109650296
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -66.71026579498061,
+        -59.58100267968992
+      ]
     },
     {
       "family": "snapshot",
@@ -616,23 +764,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -54.54545454545454,
+        -54.54545454545454
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 6503.0,
-      "treatment_median": 1635.0,
-      "change_percent": -74.8577579578656,
+      "baseline_median": 6502.0,
+      "treatment_median": 1634.0,
+      "change_percent": -74.86927099354045,
       "interval_95_bootstrap": [
-        -74.87313547593418,
-        -74.8577579578656
+        -74.86927099354045,
+        -74.86733815789928
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.86927099354045,
+        -74.85573221777929
+      ]
     },
     {
       "family": "snapshot",
@@ -648,23 +804,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -60.0,
+        -60.0
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_256-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 15119.5,
+      "baseline_median": 15211.0,
       "treatment_median": 4773.0,
-      "change_percent": -68.4289274999091,
+      "change_percent": -68.62139241338505,
       "interval_95_bootstrap": [
-        -69.18577911821848,
-        -68.24515343421879
+        -69.4180246092451,
+        -68.59960552268245
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -69.74886595227139,
+        -68.42683967520887
+      ]
     },
     {
       "family": "snapshot",
@@ -680,23 +844,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.56737588652481,
+        -70.56737588652481
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 1431676.0,
-      "treatment_median": 535254.0,
-      "change_percent": -62.838477195404266,
+      "baseline_median": 1358005.0,
+      "treatment_median": 520068.5,
+      "change_percent": -61.77755841124832,
       "interval_95_bootstrap": [
-        -63.795354252358266,
-        -61.60316155769667
+        -62.916887739391036,
+        -60.85352267496764
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -63.33273061807532,
+        -59.93072917105408
+      ]
     },
     {
       "family": "snapshot",
@@ -712,23 +884,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -54.54545454545454,
+        -54.54545454545454
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 528755.0,
-      "treatment_median": 88677.0,
-      "change_percent": -83.22909476033324,
+      "baseline_median": 528754.0,
+      "treatment_median": 88676.0,
+      "change_percent": -83.22925216641387,
       "interval_95_bootstrap": [
-        -83.22909476033324,
-        -83.22909476033324
+        -83.22925216641387,
+        -83.22925216641387
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -83.22925216641387,
+        -83.22915701287477
+      ]
     },
     {
       "family": "snapshot",
@@ -744,55 +924,71 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -60.0,
+        -60.0
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 864409.0,
-      "treatment_median": 249454.5,
-      "change_percent": -71.13812221163744,
+      "baseline_median": 864554.0,
+      "treatment_median": 249454.0,
+      "change_percent": -71.13810949717993,
       "interval_95_bootstrap": [
-        -71.1490120195415,
-        -71.11678063568098
+        -71.15221572367534,
+        -71.1234963347527
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.15937622373012,
+        -71.10916118089315
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_1/payload_65536-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 286.0,
+      "baseline_median": 287.0,
       "treatment_median": 83.0,
-      "change_percent": -70.97902097902097,
+      "change_percent": -70.92810698073856,
       "interval_95_bootstrap": [
         -71.08013937282229,
-        -70.62937062937063
+        -70.73170731707317
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.08013937282229,
+        -70.6805389732219
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 7871229.0,
-      "treatment_median": 2547792.5,
-      "change_percent": -68.35013788455507,
+      "baseline_median": 7703086.0,
+      "treatment_median": 2324015.0,
+      "change_percent": -69.99699127959775,
       "interval_95_bootstrap": [
-        -69.69031638991694,
-        -67.40367458443232
+        -70.24464798320138,
+        -69.1378016639689
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.4962701784546,
+        -68.81072731527131
+      ]
     },
     {
       "family": "snapshot",
@@ -808,23 +1004,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -55.47945205479452,
+        -55.47945205479452
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 101320.0,
-      "treatment_median": 24317.5,
-      "change_percent": -75.99903279610749,
+      "baseline_median": 101310.0,
+      "treatment_median": 24318.0,
+      "change_percent": -75.99786805637807,
       "interval_95_bootstrap": [
-        -76.00094740893525,
-        -75.9972360692957
+        -75.99913144206724,
+        -75.99644655019247
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -76.00138189714737,
+        -75.99573571290718
+      ]
     },
     {
       "family": "snapshot",
@@ -840,23 +1044,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.43478260869564,
+        -70.43478260869564
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_256-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 227600.0,
+      "baseline_median": 227598.5,
       "treatment_median": 66512.0,
-      "change_percent": -70.77678432620672,
+      "change_percent": -70.77573006977988,
       "interval_95_bootstrap": [
-        -70.84456601308908,
-        -70.74311819141073
+        -70.81180824505627,
+        -70.75249685061522
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.84614355296006,
+        -70.72915266088916
+      ]
     },
     {
       "family": "snapshot",
@@ -872,23 +1084,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.33639105329915,
+        -74.32697014194811
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 20063279.0,
-      "treatment_median": 6329276.5,
-      "change_percent": -68.6487909984301,
+      "baseline_median": 20012649.0,
+      "treatment_median": 6416634.0,
+      "change_percent": -67.77665051208416,
       "interval_95_bootstrap": [
-        -69.00741934882956,
-        -68.09406111764555
+        -68.81529183085698,
+        -65.47812169674779
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -69.69061125529089,
+        -65.16992983856946
+      ]
     },
     {
       "family": "snapshot",
@@ -904,23 +1124,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -55.47945205479452,
+        -55.47945205479452
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 8457349.0,
-      "treatment_median": 1416989.5,
-      "change_percent": -83.24547095398025,
+      "baseline_median": 8457351.0,
+      "treatment_median": 1416989.0,
+      "change_percent": -83.2454690040872,
       "interval_95_bootstrap": [
-        -83.24548265335815,
-        -83.24545306206758
+        -83.24549265213287,
+        -83.24545114335316
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -83.24551041932708,
+        -83.24544513780694
+      ]
     },
     {
       "family": "snapshot",
@@ -936,55 +1164,71 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.43478260869564,
+        -70.43478260869564
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 13818168.5,
-      "treatment_median": 3985364.5,
-      "change_percent": -71.15694874321014,
+      "baseline_median": 13818510.0,
+      "treatment_median": 3985657.0,
+      "change_percent": -71.15545640190427,
       "interval_95_bootstrap": [
-        -71.1600699992083,
-        -71.15436729977314
+        -71.15966051955171,
+        -71.15237242060061
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.16496582927908,
+        -71.15138531326028
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_16/payload_65536-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 4150.5,
-      "treatment_median": 1058.0,
-      "change_percent": -74.49680570401532,
+      "baseline_median": 4149.5,
+      "treatment_median": 1058.5,
+      "change_percent": -74.48782981492025,
       "interval_95_bootstrap": [
-        -74.51523508739683,
-        -74.48192771084337
+        -74.50578734519193,
+        -74.46988093888118
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.53317066278399,
+        -74.46398458202843
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 30154416.5,
-      "treatment_median": 8637075.0,
-      "change_percent": -71.35376675890159,
+      "baseline_median": 30208921.0,
+      "treatment_median": 8725536.5,
+      "change_percent": -70.96834932767004,
       "interval_95_bootstrap": [
-        -71.64802532012746,
-        -71.01114932091535
+        -71.84648922220444,
+        -70.14251552420112
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -72.34347303771699,
+        -69.17620735700368
+      ]
     },
     {
       "family": "snapshot",
@@ -1000,23 +1244,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -55.536332179930795,
+        -55.536332179930795
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 405121.0,
-      "treatment_median": 96983.5,
-      "change_percent": -76.06009291769183,
+      "baseline_median": 405129.0,
+      "treatment_median": 96982.0,
+      "change_percent": -76.06162929613065,
       "interval_95_bootstrap": [
-        -76.06193521633637,
-        -76.05925143352232
+        -76.06233832383785,
+        -76.06042654028435
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -76.0627243072181,
+        -76.06007197448768
+      ]
     },
     {
       "family": "snapshot",
@@ -1032,23 +1284,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.17516629711751,
+        -71.17516629711751
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_256-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 907850.0,
-      "treatment_median": 266908.5,
-      "change_percent": -70.61281715070879,
+      "baseline_median": 907860.0,
+      "treatment_median": 266735.5,
+      "change_percent": -70.60071420942771,
       "interval_95_bootstrap": [
-        -70.6321629139306,
-        -70.58696821651085
+        -70.64914294505539,
+        -70.57064756878341
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.66579947331475,
+        -70.55944822733287
+      ]
     },
     {
       "family": "snapshot",
@@ -1057,30 +1317,38 @@
       "samples": 10,
       "baseline_median": 16238.0,
       "treatment_median": 4124.0,
-      "change_percent": -74.60512944419823,
+      "change_percent": -74.6043475583472,
       "interval_95_bootstrap": [
-        -74.60744499499204,
-        -74.6020015155634
+        -74.6073782102605,
+        -74.60278349771767
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.60894198792955,
+        -74.59965499110335
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 76709593.5,
-      "treatment_median": 25211819.0,
-      "change_percent": -67.17117488233234,
+      "baseline_median": 75963015.0,
+      "treatment_median": 24965911.5,
+      "change_percent": -67.20716704948002,
       "interval_95_bootstrap": [
-        -67.7610437318344,
-        -65.29243808320047
+        -68.06101617196424,
+        -67.04999720187539
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -68.93285362895983,
+        -66.53221443973648
+      ]
     },
     {
       "family": "snapshot",
@@ -1096,23 +1364,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -55.536332179930795,
+        -55.536332179930795
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 33829252.0,
-      "treatment_median": 5667673.5,
-      "change_percent": -83.2462346646799,
+      "baseline_median": 33829251.0,
+      "treatment_median": 5667672.5,
+      "change_percent": -83.24623711773248,
       "interval_95_bootstrap": [
-        -83.2462390523694,
-        -83.24622575026575
+        -83.24624894181822,
+        -83.24623119024106
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -83.24625338357228,
+        -83.24622525502272
+      ]
     },
     {
       "family": "snapshot",
@@ -1128,55 +1404,71 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.17516629711751,
+        -71.17516629711751
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 55211369.0,
-      "treatment_median": 15942391.0,
-      "change_percent": -71.12485564339721,
+      "baseline_median": 55211317.0,
+      "treatment_median": 15942581.5,
+      "change_percent": -71.12376384144446,
       "interval_95_bootstrap": [
-        -71.12591036463854,
-        -71.12172536325212
+        -71.1268568634135,
+        -71.12026893461196
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -71.12976626668069,
+        -71.11982304758106
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/admission_age/tenants_64/payload_65536-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 16405.5,
+      "baseline_median": 16403.0,
       "treatment_median": 4163.0,
-      "change_percent": -74.62513714494696,
+      "change_percent": -74.6181745771992,
       "interval_95_bootstrap": [
-        -74.63269050185033,
-        -74.61444681499543
+        -74.635093682438,
+        -74.6052069995732
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.64578466965295,
+        -74.60051241158801
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 407401.0,
-      "treatment_median": 117339.0,
-      "change_percent": -70.05382951591008,
+      "baseline_median": 396730.5,
+      "treatment_median": 126786.0,
+      "change_percent": -67.67924250796989,
       "interval_95_bootstrap": [
-        -73.30004170709464,
-        -69.45524453290687
+        -69.70487582712302,
+        -65.53365602448916
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -70.20128133565973,
+        -64.46841959180729
+      ]
     },
     {
       "family": "snapshot",
@@ -1192,23 +1484,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 3446.0,
+      "baseline_median": 3445.0,
       "treatment_median": 901.5,
-      "change_percent": -73.83923389437028,
+      "change_percent": -73.83164005805516,
       "interval_95_bootstrap": [
-        -73.84593052476427,
-        -73.83163785310849
+        -73.8345428156749,
+        -73.83164005805516
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -73.8345428156749,
+        -73.82023606621526
+      ]
     },
     {
       "family": "snapshot",
@@ -1224,7 +1524,11 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ]
     },
     {
       "family": "snapshot",
@@ -1233,14 +1537,18 @@
       "samples": 10,
       "baseline_median": 8078.0,
       "treatment_median": 2048.0,
-      "change_percent": -74.64100062520225,
+      "change_percent": -74.63481174043929,
       "interval_95_bootstrap": [
         -74.65660190570473,
-        -74.09234661606578
+        -74.08251075677043
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -74.65816979719783,
+        -74.08251075677043
+      ]
     },
     {
       "family": "snapshot",
@@ -1256,23 +1564,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -72.72727272727273,
+        -72.72727272727273
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 785535.5,
-      "treatment_median": 122179.0,
-      "change_percent": -84.46719129130886,
+      "baseline_median": 729045.5,
+      "treatment_median": 120447.0,
+      "change_percent": -83.40805496652337,
       "interval_95_bootstrap": [
-        -85.45209276087463,
-        -83.1609124246443
+        -84.76999961072625,
+        -82.75439065121509
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -85.01213478294588,
+        -82.20331715024024
+      ]
     },
     {
       "family": "snapshot",
@@ -1288,23 +1604,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -33.333333333333336,
+        -33.333333333333336
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 264573.0,
-      "treatment_median": 901.6,
-      "change_percent": -99.65922448624765,
+      "baseline_median": 264572.0,
+      "treatment_median": 901.5,
+      "change_percent": -99.65926099511664,
       "interval_95_bootstrap": [
-        -99.65922448624765,
-        -99.65922448624765
+        -99.65926099511664,
+        -99.65926099511664
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.65926099511664,
+        -99.65925906326329
+      ]
     },
     {
       "family": "snapshot",
@@ -1320,23 +1644,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -66.66666666666667,
+        -66.66666666666667
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_1/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 432524.5,
+      "baseline_median": 432678.0,
       "treatment_median": 2048.0,
-      "change_percent": -99.52650081092091,
+      "change_percent": -99.52659328846161,
       "interval_95_bootstrap": [
-        -99.52670536247123,
-        -99.52648603131601
+        -99.52667754445487,
+        -99.52613324263227
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.52678087445094,
+        -99.52594590020803
+      ]
     },
     {
       "family": "snapshot",
@@ -1352,23 +1684,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -73.05389221556887,
+        -72.89156626506023
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 5343569.5,
-      "treatment_median": 236512.5,
-      "change_percent": -95.55183992295781,
+      "baseline_median": 5355272.0,
+      "treatment_median": 239553.0,
+      "change_percent": -95.54166036518734,
       "interval_95_bootstrap": [
-        -95.64311444156216,
-        -95.34767610492904
+        -95.65175876562535,
+        -95.3685611959473
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -95.97443016808273,
+        -95.30899867490764
+      ]
     },
     {
       "family": "snapshot",
@@ -1384,23 +1724,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -39.50617283950617,
+        -39.50617283950617
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 53332.0,
-      "treatment_median": 12579.0,
-      "change_percent": -76.41378534463361,
+      "baseline_median": 53325.0,
+      "treatment_median": 12578.0,
+      "change_percent": -76.41256438854192,
       "interval_95_bootstrap": [
-        -76.41378534463361,
-        -76.41245851225412
+        -76.41588147949241,
+        -76.4099101633564
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -76.41654479319008,
+        -76.40924647638147
+      ]
     },
     {
       "family": "snapshot",
@@ -1416,55 +1764,71 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -97.53086419753086,
+        -97.53086419753086
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 121689.5,
+      "baseline_median": 121861.0,
       "treatment_median": 26656.0,
-      "change_percent": -78.0934256765891,
+      "change_percent": -78.12589753899934,
       "interval_95_bootstrap": [
-        -78.10550327862532,
-        -78.06415510459355
+        -78.13217817819722,
+        -78.06668202613304
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -78.1465127996056,
+        -78.04716038424272
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_256-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 2522.0,
+      "baseline_median": 2523.0,
       "treatment_median": 394.0,
-      "change_percent": -84.37747819191118,
+      "change_percent": -84.38367023384859,
       "interval_95_bootstrap": [
-        -84.38057421287988,
+        -84.38367023384859,
         -84.37747819191118
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -84.38367023384859,
+        -84.37747819191118
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 10814636.0,
-      "treatment_median": 230114.0,
-      "change_percent": -97.86813232899004,
+      "baseline_median": 10801017.5,
+      "treatment_median": 234082.0,
+      "change_percent": -97.83270387066335,
       "interval_95_bootstrap": [
-        -97.98034080761005,
-        -97.73528443567766
+        -97.98756610535293,
+        -97.75555309633651
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -98.05301512088744,
+        -97.71308050736732
+      ]
     },
     {
       "family": "snapshot",
@@ -1480,23 +1844,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -39.50617283950617,
+        -39.50617283950617
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 4231348.0,
-      "treatment_median": 12579.0,
-      "change_percent": -99.70271884987952,
+      "baseline_median": 4231345.5,
+      "treatment_median": 12578.0,
+      "change_percent": -99.70274199125038,
       "interval_95_bootstrap": [
-        -99.7027190606499,
-        -99.70271853372336
+        -99.70274241275887,
+        -99.70271856885128
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.70274262351259,
+        -99.70271814730943
+      ]
     },
     {
       "family": "snapshot",
@@ -1512,55 +1884,71 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -97.53086419753086,
+        -97.53086419753086
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 6917512.0,
+      "baseline_median": 6917896.5,
       "treatment_median": 26656.0,
-      "change_percent": -99.61465914298326,
+      "change_percent": -99.61468056030881,
       "interval_95_bootstrap": [
-        -99.61470086196516,
-        -99.61455817921541
+        -99.61475019969947,
+        -99.61464301517859
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.61478544037753,
+        -99.61461084044211
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_16/payload_65536-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 2556.0,
+      "baseline_median": 2556.5,
       "treatment_median": 394.0,
-      "change_percent": -84.58528951486699,
+      "change_percent": -84.58830373279524,
       "interval_95_bootstrap": [
-        -84.58830373279524,
-        -84.55507644061153
+        -84.60636314428339,
+        -84.5792539978407
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -84.61538461538461,
+        -84.5732184808144
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 21159867.5,
-      "treatment_median": 479431.5,
-      "change_percent": -97.72525882903497,
+      "baseline_median": 21077460.5,
+      "treatment_median": 483891.5,
+      "change_percent": -97.71391851645248,
       "interval_95_bootstrap": [
-        -97.78663606455713,
-        -97.67060119806328
+        -97.75798217115272,
+        -97.63998476955979
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -97.79089690918674,
+        -97.58039010438043
+      ]
     },
     {
       "family": "snapshot",
@@ -1576,23 +1964,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -39.87538940809969,
+        -39.87538940809969
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 213154.0,
-      "treatment_median": 49971.0,
-      "change_percent": -76.55638646236993,
+      "baseline_median": 213157.5,
+      "treatment_median": 49970.0,
+      "change_percent": -76.55724053693888,
       "interval_95_bootstrap": [
-        -76.55704634551603,
-        -76.55605237542683
+        -76.5575704680396,
+        -76.55641566971616
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -76.55773543126824,
+        -76.55575573321323
+      ]
     },
     {
       "family": "snapshot",
@@ -1608,23 +2004,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.37694704049844,
+        -99.37694704049844
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_256-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 486474.0,
+      "baseline_median": 486547.0,
       "treatment_median": 106400.0,
-      "change_percent": -78.12832751596179,
+      "change_percent": -78.13160814996078,
       "interval_95_bootstrap": [
-        -78.14602725995547,
-        -78.11352579991566
+        -78.15343108167208,
+        -78.11204002369824
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -78.15491122601316,
+        -78.11165728828922
+      ]
     },
     {
       "family": "snapshot",
@@ -1635,28 +2039,36 @@
       "treatment_median": 1500.0,
       "change_percent": -85.09094523407215,
       "interval_95_bootstrap": [
-        -85.09242695289207,
+        -85.09316766505779,
         -85.09094523407215
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -85.0939083772235,
+        -85.09094523407215
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
       "metric": "ns/op",
       "samples": 10,
-      "baseline_median": 43261913.0,
-      "treatment_median": 509816.0,
-      "change_percent": -98.84283257146758,
+      "baseline_median": 43143319.5,
+      "treatment_median": 529632.0,
+      "change_percent": -98.77827698584372,
       "interval_95_bootstrap": [
-        -98.85893633785835,
-        -98.80415477199412
+        -98.85035804974072,
+        -98.73990796985697
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -98.92992949130817,
+        -98.71511121914462
+      ]
     },
     {
       "family": "snapshot",
@@ -1672,23 +2084,31 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -39.87538940809969,
+        -39.87538940809969
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
       "metric": "redis_network_bytes/op",
       "samples": 10,
-      "baseline_median": 16925221.0,
+      "baseline_median": 16925220.0,
       "treatment_median": 49971.0,
-      "change_percent": -99.70475422447954,
+      "change_percent": -99.70475420703542,
       "interval_95_bootstrap": [
-        -99.70475430297812,
-        -99.70475411981474
+        -99.70475431170019,
+        -99.70475405003813
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.70475441636488,
+        -99.70475397153945
+      ]
     },
     {
       "family": "snapshot",
@@ -1704,39 +2124,51 @@
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.37694704049844,
+        -99.37694704049844
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
       "metric": "B/op",
       "samples": 10,
-      "baseline_median": 27674039.5,
+      "baseline_median": 27677815.0,
       "treatment_median": 106400.0,
-      "change_percent": -99.6155241449261,
+      "change_percent": -99.61557659080111,
       "interval_95_bootstrap": [
-        -99.61554887985253,
-        -99.61550190787302
+        -99.61559499319705,
+        -99.61556438183764
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -99.61561746885397,
+        -99.61554210719089
+      ]
     },
     {
       "family": "snapshot",
       "benchmark": "BenchmarkSnapshotCosts/metrics/tenants_64/payload_65536-16",
       "metric": "allocs/op",
       "samples": 10,
-      "baseline_median": 10204.5,
+      "baseline_median": 10210.0,
       "treatment_median": 1500.0,
-      "change_percent": -85.30060235767706,
+      "change_percent": -85.30852105778648,
       "interval_95_bootstrap": [
-        -85.30564263322884,
-        -85.29483817032236
+        -85.31139835487662,
+        -85.30564263322884
       ],
       "regression_over_15_percent": false,
       "family_tests": 72,
-      "familywise_alpha": 0.0006944444444444445
+      "familywise_alpha": 0.0006944444444444445,
+      "interval_familywise_bootstrap": [
+        -85.31427438439363,
+        -85.30348275708478
+      ]
     }
   ]
 }

@@ -1,35 +1,34 @@
 # TaskForge wave 3 research package
 
-Wave 3 studies the cost of the optimized control plane in committed revision
-`b2947f3`. It is deliberately a two-layer package:
+Wave 3 now reports a latest-state rerun at committed revision `5d1d882`
+against the pre-optimization baseline `4446ab3`. The original run at
+`b2947f3` and the treatment amendment are documented in the execution notes.
+The current run measures cumulative source changes with fixed-iteration,
+paired Redis microbenchmarks and correctness gates.
 
-* the **baseline layer** reuses the frozen wave 2 paired study as the external
-  workload and overload context; and
-* the **treatment layer** measures the committed optimization with fixed-iteration,
-  paired Redis microbenchmarks and invariant checks.
-
-The package is written for two audiences from one evidence source. The paper
-(`paper/paper.md`) states the methods, estimands, and limits in research form;
-the blog (`blog/taskforge-wave3.md`) explains the same result in engineering
-language. The completed run and derived analysis are under `data/final/` and
-`results/`.
+The paper (`paper/paper.md`) states the methods, estimands, and limits of this
+control-plane study. The blog (`blog/taskforge-wave3.md`) explains the latest
+product controls and uses this run as evidence about their implementation
+cost. The completed control-plane run and derived analysis are under
+`data/final/` and `results/`.
 
 ## What is new in wave 3
 
-The treatment is the committed control-plane optimization, not a re-tuning of
-the worker. It changes the following observable surfaces:
+The treatment includes the committed Redis control-plane optimization and
+later worker, metrics, and recurring-scheduler changes. The benchmarked
+surfaces are:
 
 | Surface | Mechanism under test | Primary measurement |
 | --- | --- | --- |
 | Publish | one Redis script records the ready entry and built-in queued state | Redis round trips and commands per publish |
-| Queue metrics | one pipeline reads stream length, pending count, and optional consumers | p95 snapshot latency as tenant count grows |
+| Queue metrics | one pipeline reads stream length, pending count, and optional consumers | paired snapshot `ns/op` as tenant count grows |
 | Setup | consumer-group existence is cached after the first successful check | first-use versus steady-state reserve cost |
 | Key construction | concatenation replaces formatted strings on hot paths | allocations and ns/op |
 | Delivery safety | unprocessable delivery handling is bounded and dead-letter size is signalled | invariant/property test outcomes |
 
-The source-level map and exact file set are in `evidence/optimization-map.md`.
-The benchmark protocol is frozen in `analysis-plan.md` before treatment
-measurements are accepted.
+The source-level map is in `evidence/optimization-map.md`. The original
+protocol is retained in `analysis-plan.md`; the treatment change is disclosed
+in `execution-notes.md`.
 
 ## Reproduction
 
@@ -72,11 +71,9 @@ claims.
 
 ## Evidence status
 
-The checked-in wave 2 corpus contains 96 paired measured cells plus eight
-explicitly unsupported recovery cells. It supplies workload context and is not
-relabelled as a control-plane treatment result. The completed control-plane run
-contains 27 publish comparisons, 72 snapshot comparisons, and nine setup/key
-comparisons, each with 30 iterations and ten repetitions. The raw logs,
+The completed control-plane run contains 27 publish comparisons, 72 snapshot
+comparisons, and nine supplementary setup/key comparisons, each with 30
+iterations and ten repetitions. The raw logs,
 metadata, regression gate, and correctness output are under `data/final/`; the
 derived table is `results/analysis.md`. The result is host-local and bounded by
 the documented Redis topology and toolchain.

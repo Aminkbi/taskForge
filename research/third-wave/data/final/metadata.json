@@ -1,29 +1,156 @@
 {
-  "status": "completed-host-local-control-plane-study",
-  "completed_utc": "2026-09-22",
-  "baseline_revision": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
-  "treatment_revision": "b2947f3ddc3eb0f6b189798dc512742e65b8fca7",
+  "started_utc": "2026-09-23T18:51:53.080608+00:00",
   "go_version": "go version go1.27.1-X:nodwarf5 linux/amd64",
-  "cpu_model": "AMD Ryzen 9 5900HS with Radeon Graphics",
-  "logical_cpus": 16,
-  "redis_topology": "dedicated standalone Redis 7 container over loopback TCP; persistence disabled; database 14",
-  "bench_iterations": 30,
-  "repetitions": 10,
-  "bootstrap_resamples": 10000,
-  "bootstrap_seed": 20260922,
-  "primary_families": {
-    "publish": 27,
-    "snapshot": 72,
-    "setup-key": 9
+  "go_env": {
+    "CGO_ENABLED": "1",
+    "GOAMD64": "v1",
+    "GOARCH": "amd64",
+    "GOEXPERIMENT": "nodwarf5",
+    "GOOS": "linux",
+    "GOTOOLCHAIN": "auto"
   },
+  "kernel": "7.2.5-1-cachyos",
+  "logical_cpus": 16,
+  "cpu_model": "AMD Ryzen 9 5900HS with Radeon Graphics",
+  "redis_image": "sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7",
+  "redis_config": "databases\n16\nmaxmemory\n0\nappendonly\nno\nsave\n\nmaxmemory-policy\nnoeviction",
+  "redis_topology": "dedicated standalone Docker Redis over loopback TCP; persistence disabled",
+  "database": 14,
+  "iterations": 30,
+  "repetitions": 10,
+  "arm_order": [
+    "baseline",
+    "treatment"
+  ],
+  "sources": {
+    "baseline": {
+      "commit": "4446ab3a699f9fc749f58b74fdcf35164c492f0c",
+      "tree": "c50159b9314a9a8fe4b2702e72cc60f1f4b2f699",
+      "archive_sha256": "344348d4ccdd97cec52e2cb662b62d9cb3193ca2a857dadfc14db8734332001a",
+      "harness": {
+        "test/benchmark/cleanup_benchmark_test.go": "50e04d7d3684a79748e848e37d14ce4cf46173153248c7af8411d09340d07d39",
+        "test/benchmark/redis_benchmark_test.go": "9018cd43dbe649dd18c1e363e4b2509fcc29fd4699f07c5ba5550f7c9dbc0ff2",
+        "redis/wave3_setup_key_test.go": "35c0417b807a1654b9d5cc3f3b3bbafcdfa30913ee25e714eb18f56529fdd9e3"
+      },
+      "integration_endpoint_overlay_sha256": "5e965201be93c0561251299b3392351e85402be9c30b0220e6d6bc3f481282a3"
+    },
+    "treatment": {
+      "commit": "5d1d882f1e3ab729375eb1a86036395689d8e2c9",
+      "tree": "4799833d5324dc31b98d8eb2f5b540cacfaf6cd5",
+      "archive_sha256": "8aaa2e54954574b1a4013ad9dd9f05da2f8fab124421bb383cea84818a719638",
+      "harness": {
+        "test/benchmark/cleanup_benchmark_test.go": "50e04d7d3684a79748e848e37d14ce4cf46173153248c7af8411d09340d07d39",
+        "test/benchmark/redis_benchmark_test.go": "9018cd43dbe649dd18c1e363e4b2509fcc29fd4699f07c5ba5550f7c9dbc0ff2",
+        "redis/wave3_setup_key_test.go": "35c0417b807a1654b9d5cc3f3b3bbafcdfa30913ee25e714eb18f56529fdd9e3"
+      },
+      "integration_endpoint_overlay_sha256": "21442dd0f868cb296085defe86940624d120c0fb5e78b9a249e6bfc3e3547c85"
+    }
+  },
+  "commands": [
+    {
+      "label": "baseline-correctness",
+      "command": [
+        "go",
+        "test",
+        "-count=1",
+        "-v",
+        "./redis",
+        "./worker",
+        "./test/integration"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "treatment-correctness",
+      "command": [
+        "go",
+        "test",
+        "-count=1",
+        "-v",
+        "./redis",
+        "./worker",
+        "./test/integration"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "baseline",
+      "command": [
+        "go",
+        "test",
+        "-run",
+        "^$",
+        "-bench",
+        "^Benchmark(SnapshotCosts|PublishStateCosts|PublishThroughput)$",
+        "-benchmem",
+        "-benchtime=30x",
+        "-count=10",
+        "./test/benchmark"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "treatment",
+      "command": [
+        "go",
+        "test",
+        "-run",
+        "^$",
+        "-bench",
+        "^Benchmark(SnapshotCosts|PublishStateCosts|PublishThroughput)$",
+        "-benchmem",
+        "-benchtime=30x",
+        "-count=10",
+        "./test/benchmark"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "baseline-setup",
+      "command": [
+        "go",
+        "test",
+        "-run",
+        "^$",
+        "-bench",
+        "^BenchmarkSetupKeyCosts$",
+        "-benchmem",
+        "-benchtime=30x",
+        "-count=10",
+        "./redis"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "treatment-setup",
+      "command": [
+        "go",
+        "test",
+        "-run",
+        "^$",
+        "-bench",
+        "^BenchmarkSetupKeyCosts$",
+        "-benchmem",
+        "-benchtime=30x",
+        "-count=10",
+        "./redis"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "protocol_sha256": "ffe87c0a1b9edf60743a762d5ed143aae098ff2a3047fa4049cb5bd776a677a5",
+  "amendment_sha256": "375b1b2664cccd9a814c86e1c6db4978afde1fabbdc17a4d5fa265a03c54a8e3",
+  "treatment_diff_sha256": "92d2107b03b01c378e0f7db70b76da4c6081b8eb1114132c1b69289b794054ee",
+  "completed_utc": "2026-09-23T18:57:21.495988+00:00",
+  "status": "completed-host-local-latest-state-study",
   "correctness": "baseline and treatment redis, worker, and integration suites passed",
   "files": {
-    "baseline.txt": "feba8028d3657a5a459805ef1dfb487b57f05983eae1d3fb7767a0590adbef5a",
-    "treatment.txt": "c8db9fd4019344cdebd1fa2d2d83257136d03d351280435b52fbfa14ead5fa64",
-    "baseline-setup.txt": "1df79ad56661629f336d5c8dc4e7b0961c243f7fff512a5f1746b94650919e33",
-    "treatment-setup.txt": "488b1abe4a268e9735c31f46be4d3145682e1241f20ea5895d84b7a024e58981",
-    "regression-gate.txt": "a05d6e249e3a73c89b811cda9214a4c77614c7094013fb711fcc77ab39d5b0a7",
-    "correctness-treatment.txt": "7a0af0a989791e538a05bdc115532015e410fb8f5eb92a5da38b18dc628aedc0",
-    "correctness-baseline.txt": "472f17d05831089cd016e97955c16ea98d6933a5a3ac9bf0e90de335795653b9"
+    "baseline-setup.txt": "f0f15df01c7ca7e7ecd925775909fb36ba176dd70fab952cc99e46b2bb755664",
+    "baseline.txt": "20b13db2ee86beca124538312a09a2299ba2a99bee14936f8b0c979ce3fa1122",
+    "correctness-baseline.txt": "1b4651ae3cab3a970d23e70a2881501f0367dffffec0e16ffcc218cbd0fdf070",
+    "correctness-treatment.txt": "39847b9850f1e611ab274a2ef75533389e23f581ef67fbddc4ff7397fa5d1044",
+    "treatment-setup.txt": "843d578fbd1f84041d07658926008ffabf077c41f54000d3804dfb9f887064a4",
+    "treatment.txt": "05c2be930bb83167e7a493a2b58ad4171cc42a98387d2f5317e92c5f947f1c21",
+    "regression-gate.txt": "81fd96b22aa1c1cf4044882e29eb691b13c3dac5b172b29e4905198266468a28"
   }
 }

@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 baseline="${TASKFORGE_WAVE3_BASELINE:-4446ab3a699f9fc749f58b74fdcf35164c492f0c}"
-treatment="${TASKFORGE_WAVE3_TREATMENT:-b2947f3}"
+treatment="${TASKFORGE_WAVE3_TREATMENT:-5d1d882}"
 git cat-file -e "$baseline^{commit}"
 git cat-file -e "$treatment^{commit}"
 tmp="$(mktemp)"

@@ -1,110 +1,40 @@
-# TaskForge: a Redis task runtime that stays understandable under pressure
+# A fast queue can still fail under overload: what TaskForge changes
 
-Background jobs become difficult when several kinds of pressure arrive together. One customer can fill a shared queue. A retry storm can multiply work. A downstream service can fail when too many handlers call it at once. A worker can disappear while Redis still believes it owns a delivery. A scheduler can lose leadership while delayed work becomes due.
+Imagine one queue serving several customers. A large import fills it with low-priority work. A smaller customer's urgent tasks wait behind the import. Retries add more work, while every active handler calls an external API that can safely handle only a few requests at a time. Enqueue latency can look good throughout this incident. The question is how the queue decides what to admit, whose work to serve, and how much to run.
 
-[TaskForge](https://github.com/Aminkbi/taskForge) is a Go runtime for those conditions. It combines an embeddable worker, a Redis Streams broker, optional scheduler and read-only API sidecars, and overload controls behind one set of contracts.
+[TaskForge](https://github.com/Aminkbi/taskForge) is an early-stage Go runtime built around that question. Its simplest worker pool uses FIFO selection and fixed concurrency over a Redis Streams broker. The same runtime can enable admission control, weighted tenant fairness, dependency budgets, and adaptive concurrency. Those controls are useful only when their effect on the workload is worth their cost.
 
-The design starts with a clear delivery rule: execution is at least once. A task can run more than once, so handlers must be idempotent. Redis can reclaim an expired lease and another worker can retry the task, but the runtime does not promise exactly-once execution.
+## Start with the ordinary queue
 
-## The API stays small
+The clean baseline is TaskForge with FIFO selection and a fixed worker limit. It already has leased, **at-least-once** delivery, bounded retries, delayed work, and a dead-letter path. A task can run more than once, so handlers need an idempotent boundary for external effects. Those delivery rules stay in place when overload controls are enabled.
 
-A task is data plus a name. Applications register the code that handles that name, then embed the worker in their own process:
+Keeping the broker and worker path the same gives each comparison a clear question. If a control changes the result, is it protecting a tenant or dependency, or is it simply adding queue time and Redis work? The [configuration model](https://github.com/Aminkbi/taskForge/blob/main/docs/reference/configuration.md) exposes each control independently, so an application can answer that question one change at a time.
 
-```go
-cfg := taskforge.Config{
-    WorkerPools: []taskforge.WorkerPoolConfig{{
-        Name: "default", Queue: "default", Concurrency: 4,
-        TaskTimeout: 30 * time.Second,
-    }},
-}
+| Decision | FIFO/static behavior | Optional TaskForge control |
+| --- | --- | --- |
+| Should more work enter? | Publish the next accepted task | Admission can defer or reject when configured queue, tenant, retry, or age limits are reached |
+| Who runs next? | Take ready work in arrival order | Weighted fairness gives tenant keys configured service weights, reservations, and quotas |
+| How much work may call a dependency? | Worker concurrency is the only broad limit | A named budget holds tokens for the full handler run, across tasks sharing that dependency |
+| How many handlers should run? | Keep a fixed worker limit | Adaptive concurrency adjusts its window using latency, errors, backlog, and starvation signals |
 
-broker, err := taskforgeredis.OpenFromConfig(ctx, cfg, taskforgeredis.Options{
-    Addr: "localhost:6379",
-})
-if err != nil {
-    return err
-}
-defer broker.Close()
+These choices have different failure modes. Deferral lengthens completion time. A dependency budget can reduce throughput while protecting a capacity limit. A feedback controller can react too late or choose a poor window. Fairness weights need to express entitlement rather than simply mirror whichever tenant sends the most tasks. Choose each control based on its measured tradeoffs.
 
-task := taskforge.NewTask(
-    "email.send",
-    []byte(`{"to":"user@example.com"}`),
-    taskforge.WithQueue("default"),
-    taskforge.WithIdempotencyKey("email:user@example.com:welcome"),
-)
-if _, err := broker.Publish(ctx, task, taskforge.PublishOptions{}); err != nil {
-    return err
-}
+## What the latest committed run tells us
 
-registry := taskforge.NewRegistry()
-_ = registry.RegisterFunc("email.send", func(ctx context.Context, task taskforge.Task) error {
-    // Decode task.Payload and perform an idempotent side effect.
-    return nil
-})
+After the latest worker, metrics, and recurring-scheduler changes were committed, I reran the [third-wave control-plane protocol](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave). It compares the current committed revision `5d1d882` with pre-optimization revision `4446ab3`, using the same benchmark harness for both, a dedicated standalone Redis 7.4 process over loopback, Go 1.27.1-X, 30 operations per sample, and ten repetitions. Both revisions passed the recorded Redis, worker, and integration correctness suites. The first attempt at the latest-state run exposed a concurrent recurring-schedule reconciliation race; the committed revision includes its fix.
 
-runtime, err := worker.NewFromConfig(cfg, "default", worker.Options{
-    Broker: broker, Handler: registry,
-})
-if err != nil {
-    return err
-}
-return runtime.Run(ctx)
-```
-
-There is no generic worker binary. The application owns handler registration, idempotency, and the process lifecycle.
-
-## How a task moves
-
-```mermaid
-flowchart LR
-  P[Application publishes task] --> R[Routing and admission]
-  R --> Q[Redis ready or delayed index]
-  Q --> L[Leased delivery]
-  L --> W[Embedded worker handler]
-  W -->|success| A[Acknowledge and terminal state]
-  W -->|retryable error| T[Retry or delayed release]
-  W -->|bounded failure| D[Dead-letter queue]
-  S[Scheduler leadership] --> Q
-  M[Metrics and read-only API] -. observes .-> Q
-  M -. observes .-> W
-```
-
-A task ID names logical work. A stream entry and delivery ID name one broker attempt. A lease owner names the worker allowed to acknowledge, retry, extend, or dead-letter that attempt. A stale owner cannot modify a newer delivery.
-
-New work is routed once. Retries, delayed releases, recurring work, requeues, and dead-letter flows preserve that placement. A dead-letter publish must succeed before the source delivery is acknowledged, so a failed handoff remains recoverable.
-
-The scheduler is optional. Its writes carry a leadership fence, which prevents a former leader from releasing work after a newer leader has taken over. The API sidecar is read-only and exposes operational state rather than becoming a second task-processing plane.
-
-## Protecting tenants and dependencies
-
-TaskForge combines four controls:
-
-- weighted fairness separates entitlement from offered load;
-- admission can reject or defer work when queue, tenant, retry, or age signals exceed policy;
-- dependency budgets lease tokens while a handler uses a named downstream resource; and
-- adaptive concurrency changes the worker window from observed latency, errors, backlog, and starvation signals.
-
-Metrics expose queue depth, reservations, tenant service, SLO attainment, controller actions, dependency over-capacity, retries, and dead-letter growth. Operators can see whether pressure is in a queue, tenant policy, worker, dependency, or Redis.
-
-## What the completed benchmark found
-
-The control-plane study compared a clean parent with an optimized revision using the same benchmark harness, a dedicated standalone Redis process, 30 operations per sample, and ten repetitions. It measured publish paths, queue snapshots across one, 16, and 64 tenants, payloads from 256 bytes to 64 KiB, and setup/key hot paths. The raw logs and derived table are published in the [research package](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave/data/final).
-
-| Case | Before | After | Paired change |
+| Measured path | Earlier revision | Latest revision | Median paired change |
 | --- | ---: | ---: | ---: |
-| Fair publish without a receipt | 153.6 µs | 100.6 µs | −34.8% |
-| Publish throughput | 99.7 µs | 98.5 µs | +0.5%, inconclusive |
-| Metrics snapshot, 64 tenants and 64 KiB payload | 43.3 ms | 0.510 ms | −98.8% |
-| Key construction hot path | 698.5 ns | 286.2 ns | −57.8% |
+| Fair publish, without deduplication | 167.8 µs/op | 104.2 µs/op | −38.4% |
+| Plain publish, without deduplication | 98.7 µs/op | 97.5 µs/op | +0.6%, inconclusive |
+| Queue metrics snapshot, 64 tenants and 64 KiB payload | 43.1 ms/op | 0.530 ms/op | −98.8% |
 
-The largest snapshot gains came from reading stream depth, pending counts, and consumer data through one pipeline instead of repeatedly walking the same state. Fair publish gained from recording the ready entry and built-in queued state in one Redis script. Successful consumer-group setup is cached, while failed setup is retried rather than cached. Hot key construction avoids formatting work.
+The percentage is calculated from paired samples, so it can differ from the change between the displayed medians. The fair-publish and snapshot reductions have family-adjusted intervals below zero; the plain-publish interval crosses zero. The [raw logs](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave/data/final) and [derived analysis](https://github.com/Aminkbi/taskForge/blob/main/research/third-wave/results/analysis.md) show the other factors and the 15% regression gate.
 
-These are host-local control-plane measurements. They do not predict remote-cloud latency, multi-host contention, application handler time, or a universal throughput ranking. The publish-throughput result was effectively unchanged, which is useful: the optimization targets control-plane work rather than claiming that every workload becomes faster.
+This run measures implementation cost across two source revisions. It does **not** compare FIFO/static with admission, adaptive concurrency, or the full set of controls under an overloaded workload. It does not establish a tenant SLO improvement, a remote Redis speedup, or a universal throughput ranking. The latest revision also includes changes beyond the Redis optimization, so the comparison is cumulative.
 
-Correctness gates passed for duplicate publish, queued-state visibility, stale lease fencing, retry and dead-letter behavior, worker handling, and Redis integration. A faster benchmark with a failed invariant would have been a regression; none of the measured comparisons crossed the study's 15% regression guard.
+## The comparison that matters for an application
 
-## Operating boundary
+Start with the same task arrivals and handler behavior, then compare FIFO/static with one control enabled. For admission, record accepted and deferred work, backlog age, and completion deadlines. For fairness, inspect each tenant's share of timely completions against its configured entitlement. For a dependency budget, observe concurrent calls and failures at that dependency as well as queue time. For adaptive concurrency, follow the effective worker window together with latency, errors, and throughput.
 
-TaskForge currently supports a direct standalone Redis primary. Redis Cluster and Sentinel are rejected during validation. Delivery remains at least once, and handlers must be idempotent. Those constraints are deliberate because they keep failure handling and ownership behavior testable.
-
-The full [reliability contract](https://github.com/Aminkbi/taskForge/blob/main/docs/reference/reliability.md), [benchmark method](https://github.com/Aminkbi/taskForge/blob/main/docs/operations/benchmarks.md), [raw measurements](https://github.com/Aminkbi/taskForge/tree/main/research/third-wave/data/final), and [derived analysis](https://github.com/Aminkbi/taskForge/blob/main/research/third-wave/results/analysis.md) are available in the repository. Start with the [README](https://github.com/Aminkbi/taskForge#readme) for the local demo and public API.
+TaskForge gives Go applications a shared runtime for those experiments and for the resulting operating policy. The [README](https://github.com/Aminkbi/taskForge#readme) has an embedded-worker demo, and the [reliability contract](https://github.com/Aminkbi/taskForge/blob/main/docs/reference/reliability.md) states the delivery and Redis boundaries. The useful question is which policy keeps the work your application values moving when load and failures arrive together.
