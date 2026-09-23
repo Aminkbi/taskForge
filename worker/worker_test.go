@@ -38,6 +38,56 @@ func TestWorkerProcessTaskAcksSucceededDelivery(t *testing.T) {
 	}
 }
 
+func TestWorkerAcknowledgeResolved(t *testing.T) {
+	t.Parallel()
+
+	ackErr := errors.New("ack unavailable")
+	tests := []struct {
+		name         string
+		ackErr       error
+		leaseLost    bool
+		wantErr      error
+		wantAckCalls int
+	}{
+		{name: "acknowledges", wantAckCalls: 1},
+		{name: "returns acknowledgement error", ackErr: ackErr, wantErr: ackErr, wantAckCalls: 1},
+		{name: "ignores stale delivery", ackErr: taskforge.ErrStaleDelivery, wantAckCalls: 1},
+		{name: "abandons lost lease", leaseLost: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			broker := &stubBroker{ackErr: test.ackErr}
+			worker := newTestWorker(broker, nil, nil)
+			delivery := testDelivery()
+			delivery.Execution.State = taskforge.StateSucceeded
+			var lease *leaseHandle
+			if test.leaseLost {
+				lease = &leaseHandle{lostCh: make(chan struct{})}
+				close(lease.lostCh)
+			}
+
+			ctx := context.Background()
+			err := worker.acknowledgeResolved(ctx, trace.SpanFromContext(ctx), delivery, lease, "ack_test")
+			if test.wantErr == nil {
+				if err != nil {
+					t.Fatalf("acknowledgeResolved() error = %v, want nil", err)
+				}
+			} else if !errors.Is(err, test.wantErr) {
+				t.Fatalf("acknowledgeResolved() error = %v, want %v", err, test.wantErr)
+			}
+			if len(broker.acked) != test.wantAckCalls {
+				t.Fatalf("Ack calls = %d, want %d", len(broker.acked), test.wantAckCalls)
+			}
+			if test.wantAckCalls > 0 && broker.acked[0].Execution.State != taskforge.StateSucceeded {
+				t.Fatalf("Ack state = %q, want %q", broker.acked[0].Execution.State, taskforge.StateSucceeded)
+			}
+		})
+	}
+}
+
 func TestWorkerProcessTaskRecordsRunningAndTerminalState(t *testing.T) {
 	t.Parallel()
 
@@ -426,6 +476,7 @@ type stubBroker struct {
 	publishOpts []taskforge.PublishOptions
 	rejectRetry bool
 	publishErr  error
+	ackErr      error
 }
 
 func (b *stubBroker) Publish(_ context.Context, msg taskforge.Task, opts taskforge.PublishOptions) (taskforge.PublishResult, error) {
@@ -450,7 +501,7 @@ func (b *stubBroker) Reserve(context.Context, string, string) (taskforge.Deliver
 
 func (b *stubBroker) Ack(_ context.Context, delivery taskforge.Delivery) error {
 	b.acked = append(b.acked, delivery)
-	return nil
+	return b.ackErr
 }
 
 func (b *stubBroker) Nack(_ context.Context, delivery taskforge.Delivery, _ bool) error {

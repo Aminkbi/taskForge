@@ -280,7 +280,7 @@ func (m *Metrics) IncRetryScheduled(queue, taskName, resultClass string) {
 		return
 	}
 	m.TasksRetriedTotal.WithLabelValues(queue).Inc()
-	m.TaskRetrySchedules.WithLabelValues(queue, sanitizeTaskName(taskName), sanitizeResultClass(resultClass)).Inc()
+	m.TaskRetrySchedules.WithLabelValues(queue, sanitizeLabel(taskName, "unknown"), sanitizeLabel(resultClass, "unknown")).Inc()
 }
 
 func (m *Metrics) IncDeadLetterResult(queue, taskName, resultClass string) {
@@ -288,7 +288,7 @@ func (m *Metrics) IncDeadLetterResult(queue, taskName, resultClass string) {
 		return
 	}
 	m.TasksDeadLetteredTotal.WithLabelValues(queue).Inc()
-	m.TaskDeadLetterResults.WithLabelValues(queue, sanitizeTaskName(taskName), sanitizeResultClass(resultClass)).Inc()
+	m.TaskDeadLetterResults.WithLabelValues(queue, sanitizeLabel(taskName, "unknown"), sanitizeLabel(resultClass, "unknown")).Inc()
 }
 
 func (m *Metrics) IncLeaseExtensionFailure(queue string) {
@@ -330,70 +330,70 @@ func (m *Metrics) IncFairnessReservation(queue, bucket string) {
 	if m == nil {
 		return
 	}
-	m.FairnessReservations.WithLabelValues(queue, sanitizeFairnessBucket(bucket)).Inc()
+	m.FairnessReservations.WithLabelValues(queue, sanitizeLabel(bucket, "default")).Inc()
 }
 
 func (m *Metrics) IncFairnessQuotaDeferral(queue, bucket, reason string) {
 	if m == nil {
 		return
 	}
-	m.FairnessQuotaDeferrals.WithLabelValues(queue, sanitizeFairnessBucket(bucket), sanitizeResultClass(reason)).Inc()
+	m.FairnessQuotaDeferrals.WithLabelValues(queue, sanitizeLabel(bucket, "default"), sanitizeLabel(reason, "unknown")).Inc()
 }
 
 func (m *Metrics) IncAdmissionDecision(queue, source, decision, reason string) {
 	if m == nil {
 		return
 	}
-	m.AdmissionDecisions.WithLabelValues(queue, sanitizeAdmissionSource(source), sanitizeAdmissionDecision(decision), sanitizeAdmissionReason(reason)).Inc()
+	m.AdmissionDecisions.WithLabelValues(queue, sanitizeLabel(source, "unknown"), sanitizeLabel(decision, "unknown"), sanitizeLabel(reason, "none")).Inc()
 }
 
 func (m *Metrics) SetWorkerEffectiveConcurrency(pool, queue string, value float64) {
 	if m == nil {
 		return
 	}
-	m.WorkerEffectiveConcurrency.WithLabelValues(sanitizePoolName(pool), queue).Set(value)
+	m.WorkerEffectiveConcurrency.WithLabelValues(sanitizeLabel(pool, "default"), queue).Set(value)
 }
 
 func (m *Metrics) IncWorkerConcurrencyAdjustment(pool, reason, action string) {
 	if m == nil {
 		return
 	}
-	m.WorkerConcurrencyAdjustmentsTotal.WithLabelValues(sanitizePoolName(pool), sanitizeAdaptiveReason(reason), sanitizeAdaptiveAction(action)).Inc()
+	m.WorkerConcurrencyAdjustmentsTotal.WithLabelValues(sanitizeLabel(pool, "default"), sanitizeLabel(reason, "none"), sanitizeLabel(action, "none")).Inc()
 }
 
 func (m *Metrics) IncDependencyBudgetBlocked(budget string) {
 	if m == nil {
 		return
 	}
-	m.DependencyBudgetBlockedTotal.WithLabelValues(sanitizeBudgetName(budget)).Inc()
+	m.DependencyBudgetBlockedTotal.WithLabelValues(sanitizeLabel(budget, "unknown")).Inc()
 }
 
 func (m *Metrics) IncDependencyBudgetLeaseRenewFailure(budget string) {
 	if m == nil {
 		return
 	}
-	m.DependencyBudgetLeaseRenewFailures.WithLabelValues(sanitizeBudgetName(budget)).Inc()
+	m.DependencyBudgetLeaseRenewFailures.WithLabelValues(sanitizeLabel(budget, "unknown")).Inc()
 }
 
 func (m *Metrics) IncWorkerShutdownOutcome(pool, queue, outcome string) {
 	if m == nil {
 		return
 	}
-	m.WorkerShutdownOutcomesTotal.WithLabelValues(sanitizePoolName(pool), queue, sanitizeShutdownOutcome(outcome)).Inc()
+	m.WorkerShutdownOutcomesTotal.WithLabelValues(sanitizeLabel(pool, "default"), queue, sanitizeLabel(outcome, "unknown")).Inc()
 }
 
 func (m *Metrics) AddWorkerAbandonedDeliveries(pool, queue, reason string, count float64) {
 	if m == nil || count <= 0 {
 		return
 	}
-	m.WorkerAbandonedDeliveriesTotal.WithLabelValues(sanitizePoolName(pool), queue, sanitizeAbandonReason(reason)).Add(count)
+	m.WorkerAbandonedDeliveriesTotal.WithLabelValues(sanitizeLabel(pool, "default"), queue, sanitizeLabel(reason, "unknown")).Add(count)
 }
 
 func (m *Metrics) IncWorkerDrainLeaseLoss(pool, queue string) {
 	if m == nil {
 		return
 	}
-	m.WorkerDrainLeaseLossesTotal.WithLabelValues(sanitizePoolName(pool), queue).Inc()
+	m.WorkerDrainLeaseLossesTotal.WithLabelValues(sanitizeLabel(pool, "default"), queue).Inc()
 }
 
 func (m *Metrics) RegisterQueueMetricsCollector(provider QueueMetricsProvider, queues []string) error {
@@ -625,7 +625,7 @@ func (c *fairnessMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		for _, snapshot := range snapshots {
-			bucket := sanitizeFairnessBucket(snapshot.Bucket)
+			bucket := sanitizeLabel(snapshot.Bucket, "default")
 			ch <- prometheus.MustNewConstMetric(c.depth, prometheus.GaugeValue, snapshot.Depth, queue, bucket)
 			ch <- prometheus.MustNewConstMetric(c.reserved, prometheus.GaugeValue, snapshot.Reserved, queue, bucket)
 			ch <- prometheus.MustNewConstMetric(c.oldestReadyAge, prometheus.GaugeValue, snapshot.OldestReadyAge, queue, bucket)
@@ -797,7 +797,7 @@ func (c *dependencyBudgetCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	for _, snapshot := range snapshots {
-		budget := sanitizeBudgetName(snapshot.Budget)
+		budget := sanitizeLabel(snapshot.Budget, "unknown")
 		ch <- prometheus.MustNewConstMetric(c.capacity, prometheus.GaugeValue, snapshot.Capacity, budget)
 		ch <- prometheus.MustNewConstMetric(c.inUse, prometheus.GaugeValue, snapshot.InUse, budget)
 	}
@@ -816,7 +816,7 @@ func (c *workerLifecycleCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	for _, snapshot := range snapshots {
-		state := sanitizeLifecycleState(snapshot.State)
+		state := sanitizeLabel(snapshot.State, "unknown")
 		for _, candidate := range []string{"accepting", "draining", "stopped"} {
 			value := 0.0
 			if state == candidate {
@@ -826,9 +826,9 @@ func (c *workerLifecycleCollector) Collect(ch chan<- prometheus.Metric) {
 				c.state,
 				prometheus.GaugeValue,
 				value,
-				sanitizePoolName(snapshot.Pool),
+				sanitizeLabel(snapshot.Pool, "default"),
 				snapshot.Queue,
-				sanitizeWorkerID(snapshot.WorkerID),
+				sanitizeLabel(snapshot.WorkerID, "unknown"),
 				candidate,
 			)
 		}
@@ -841,31 +841,3 @@ func sanitizeLabel(value, fallback string) string {
 	}
 	return fallback
 }
-
-func sanitizeTaskName(taskName string) string { return sanitizeLabel(taskName, "unknown") }
-
-func sanitizeResultClass(resultClass string) string { return sanitizeLabel(resultClass, "unknown") }
-
-func sanitizeFairnessBucket(bucket string) string { return sanitizeLabel(bucket, "default") }
-
-func sanitizeAdmissionSource(source string) string { return sanitizeLabel(source, "unknown") }
-
-func sanitizeAdmissionDecision(decision string) string { return sanitizeLabel(decision, "unknown") }
-
-func sanitizePoolName(pool string) string { return sanitizeLabel(pool, "default") }
-
-func sanitizeBudgetName(budget string) string { return sanitizeLabel(budget, "unknown") }
-
-func sanitizeAdaptiveReason(reason string) string { return sanitizeLabel(reason, "none") }
-
-func sanitizeAdaptiveAction(action string) string { return sanitizeLabel(action, "none") }
-
-func sanitizeAdmissionReason(reason string) string { return sanitizeLabel(reason, "none") }
-
-func sanitizeLifecycleState(state string) string { return sanitizeLabel(state, "unknown") }
-
-func sanitizeShutdownOutcome(outcome string) string { return sanitizeLabel(outcome, "unknown") }
-
-func sanitizeAbandonReason(reason string) string { return sanitizeLabel(reason, "unknown") }
-
-func sanitizeWorkerID(workerID string) string { return sanitizeLabel(workerID, "unknown") }
