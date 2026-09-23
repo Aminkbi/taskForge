@@ -2345,78 +2345,82 @@ func TestSchedulerFastFailoverDoesNotDuplicateRecurringRun(t *testing.T) {
 }
 
 func TestRecurringSyncDueConcurrentDispatchPublishesOneNominalRun(t *testing.T) {
-	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	for attempt := range 10 {
+		t.Run(fmt.Sprintf("attempt_%d", attempt), func(t *testing.T) {
+			ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
-	now := time.Now().UTC()
-	startAt := now.Add(-time.Second)
-	schedule := schedulerpkg.ScheduleDefinition{
-		ID:            "integration-recurring-concurrent",
-		Interval:      time.Minute,
-		Queue:         "default",
-		TaskName:      "integration.recurring",
-		Payload:       json.RawMessage(`{"hello":"recurring"}`),
-		Enabled:       true,
-		MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
-		StartAt:       &startAt,
-	}
-	store := schedulerpkg.NewRedisScheduleStateStore(client)
-	fence := integrationLeadershipFence("recurring-store", 1)
-	setIntegrationLeadership(t, ctx, client, fence, time.Minute)
-	if err := store.ReconcileConfigured(ctx, fence, []schedulerpkg.ScheduleDefinition{schedule}, now); err != nil {
-		t.Fatalf("ReconcileConfigured() error = %v", err)
-	}
+			now := time.Now().UTC()
+			startAt := now.Add(-time.Second)
+			schedule := schedulerpkg.ScheduleDefinition{
+				ID:            "integration-recurring-concurrent",
+				Interval:      time.Minute,
+				Queue:         "default",
+				TaskName:      "integration.recurring",
+				Payload:       json.RawMessage(`{"hello":"recurring"}`),
+				Enabled:       true,
+				MisfirePolicy: schedulerpkg.MisfirePolicyCoalesce,
+				StartAt:       &startAt,
+			}
+			store := schedulerpkg.NewRedisScheduleStateStore(client)
+			fence := integrationLeadershipFence("recurring-store", 1)
+			setIntegrationLeadership(t, ctx, client, fence, time.Minute)
+			if err := store.ReconcileConfigured(ctx, fence, []schedulerpkg.ScheduleDefinition{schedule}, now); err != nil {
+				t.Fatalf("ReconcileConfigured() error = %v", err)
+			}
 
-	brokerA := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
-		ReserveTimeout: ciReserveTimeout,
-	})
-	brokerB := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
-		ReserveTimeout: ciReserveTimeout,
-	})
-	serviceA := schedulerpkg.NewRecurringService(brokerA, store, []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
-	serviceB := schedulerpkg.NewRecurringService(brokerB, schedulerpkg.NewRedisScheduleStateStore(client), []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
-	serviceFence := integrationLeadershipFence("recurring-service", 1)
-	setIntegrationLeadership(t, ctx, client, serviceFence, time.Minute)
+			brokerA := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+				ReserveTimeout: ciReserveTimeout,
+			})
+			brokerB := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+				ReserveTimeout: ciReserveTimeout,
+			})
+			serviceA := schedulerpkg.NewRecurringService(brokerA, store, []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
+			serviceB := schedulerpkg.NewRecurringService(brokerB, schedulerpkg.NewRedisScheduleStateStore(client), []schedulerpkg.ScheduleDefinition{schedule}, slog.Default())
+			serviceFence := integrationLeadershipFence("recurring-service", 1)
+			setIntegrationLeadership(t, ctx, client, serviceFence, time.Minute)
 
-	start := make(chan struct{})
-	results := make(chan int, 2)
-	errs := make(chan error, 2)
-	syncDue := func(service *schedulerpkg.RecurringService) {
-		<-start
-		dispatched, err := service.SyncDue(ctx, serviceFence, now)
-		if err != nil {
-			errs <- err
-			return
-		}
-		results <- dispatched
-	}
+			start := make(chan struct{})
+			results := make(chan int, 2)
+			errs := make(chan error, 2)
+			syncDue := func(service *schedulerpkg.RecurringService) {
+				<-start
+				dispatched, err := service.SyncDue(ctx, serviceFence, now)
+				if err != nil {
+					errs <- err
+					return
+				}
+				results <- dispatched
+			}
 
-	go syncDue(serviceA)
-	go syncDue(serviceB)
-	close(start)
+			go syncDue(serviceA)
+			go syncDue(serviceB)
+			close(start)
 
-	totalDispatched := 0
-	for range 2 {
-		select {
-		case err := <-errs:
-			t.Fatalf("SyncDue() error = %v", err)
-		case dispatched := <-results:
-			totalDispatched += dispatched
-		}
-	}
+			totalDispatched := 0
+			for range 2 {
+				select {
+				case err := <-errs:
+					t.Fatalf("SyncDue() error = %v", err)
+				case dispatched := <-results:
+					totalDispatched += dispatched
+				}
+			}
 
-	streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
-	if err != nil {
-		t.Fatalf("XLen() error = %v", err)
-	}
-	if streamLen != 1 {
-		t.Fatalf("stream length = %d, want 1", streamLen)
-	}
-	if totalDispatched != 1 {
-		t.Fatalf("total dispatched = %d, want 1", totalDispatched)
-	}
-	finalState := loadRecurringScheduleState(t, ctx, client, schedule.ID)
-	if !finalState.NextRunAt.After(now) {
-		t.Fatalf("next run = %v, want after %v", finalState.NextRunAt, now)
+			streamLen, err := client.XLen(ctx, "taskforge:v2:stream:default").Result()
+			if err != nil {
+				t.Fatalf("XLen() error = %v", err)
+			}
+			if streamLen != 1 {
+				t.Fatalf("stream length = %d, want 1", streamLen)
+			}
+			if totalDispatched != 1 {
+				t.Fatalf("total dispatched = %d, want 1", totalDispatched)
+			}
+			finalState := loadRecurringScheduleState(t, ctx, client, schedule.ID)
+			if !finalState.NextRunAt.After(now) {
+				t.Fatalf("next run = %v, want after %v", finalState.NextRunAt, now)
+			}
+		})
 	}
 }
 
