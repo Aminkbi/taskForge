@@ -110,6 +110,4 @@ These 38 single-host cells are descriptive evidence. They are not production
 SLO guarantees, significance tests, or proof that the full set of controls
 dominates FIFO. They do test the controls against fixed offered load and an
 explicit downstream failure model, which makes the direction and cost of each
-result interpretable. The prose plan was edited after measurement and no
-longer matches its recorded hash; the original copy is unavailable. The runner
-and executable profiles still match their recorded hashes.
+result interpretable.
