@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 export GOCACHE ?= /tmp/taskforge-gocache
 
-.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke research-test experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package third-wave-check third-wave-run third-wave-analysis third-wave-controls-check lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
+.PHONY: run-scheduler run-api run-demo test-demo test simulation-test simulation-replay model-check integration-test coverage race-test fuzz-smoke security-check benchmark-regression certification-report bench bench-smoke research-test experiment-smoke experiment-trace experiment-neutral experiment-neutral-smoke frontier-check research-experiments research-analysis research-check artifact-integrity research-package second-wave-freeze second-wave-run second-wave-analysis second-wave-check second-wave-package third-wave-check third-wave-run third-wave-analysis third-wave-controls-check queue-controls-run queue-controls-check lint fmt docs-check certification-check release-smoke release-validate vuln-check compose-up compose-down compose-reset
 
 run-scheduler:
 	$(GO) run ./cmd/scheduler
@@ -151,3 +151,13 @@ compose-down:
 
 compose-reset:
 	docker compose down -v
+
+queue-controls-run:
+	@test -n "$(QUEUE_CONTROLS_OUTPUT)" || { echo "QUEUE_CONTROLS_OUTPUT is required"; exit 2; }
+	python3 scripts/queue-controls-run.py --output "$(abspath $(QUEUE_CONTROLS_OUTPUT))"
+
+queue-controls-check:
+	@test -d research/queue-controls/data
+	python3 scripts/queue-controls-analysis.py --data research/queue-controls/data --output /tmp/taskforge-queue-controls-analysis
+	cmp research/queue-controls/data/analysis/analysis.json /tmp/taskforge-queue-controls-analysis/analysis.json
+	cmp research/queue-controls/data/analysis/analysis.md /tmp/taskforge-queue-controls-analysis/analysis.md

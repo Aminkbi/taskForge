@@ -9,7 +9,7 @@ test -s "$data/metadata.json"
 test -s "$data/analysis.json"
 test -s "$data/analysis.md"
 test -s "research/third-wave/control-comparison/plan.md"
-test -s "research/third-wave/blog/taskforge-wave3.md"
+test -s "research/third-wave/blog/taskforge-queue-controls.md"
 
 analysis_tmp="$(mktemp -d)"
 trap 'rm -rf "$analysis_tmp"' EXIT

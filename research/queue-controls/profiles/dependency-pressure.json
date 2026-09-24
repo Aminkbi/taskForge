@@ -1,0 +1,58 @@
+{
+  "name": "dependency-pressure",
+  "warmup": 2000000000,
+  "steady_state": 6000000000,
+  "cooldown": 2000000000,
+  "phases": [
+    {
+      "name": "warmup",
+      "duration": 2000000000,
+      "rate_per_second": 50
+    },
+    {
+      "name": "measurement",
+      "duration": 6000000000,
+      "rate_per_second": 260
+    },
+    {
+      "name": "recovery",
+      "duration": 2000000000,
+      "rate_per_second": 50
+    }
+  ],
+  "tenants": [
+    {
+      "name": "noisy",
+      "offered_weight": 9,
+      "entitlement_weight": 1
+    },
+    {
+      "name": "protected",
+      "offered_weight": 1,
+      "entitlement_weight": 1
+    }
+  ],
+  "service_times": [
+    {
+      "duration": 10000000,
+      "weight": 1
+    }
+  ],
+  "delayed_fraction": 0,
+  "delay": 0,
+  "slo": 500000000,
+  "max_attempts": 3,
+  "retry_backoff": 20000000,
+  "downstream": {
+    "name": "modeled-api",
+    "capacity": 4,
+    "base_latency": 10000000,
+    "max_latency": 100000000,
+    "base_failure_rate": 0,
+    "latency_slope": 3,
+    "failure_slope": 0.4,
+    "collapse_at": 2,
+    "collapse_failure_rate": 0.9
+  },
+  "minimum_tail_count": 250
+}

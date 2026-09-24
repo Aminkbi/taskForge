@@ -1,0 +1,186 @@
+diff --git a/research/cmd/experiment-neutral/main.go b/research/cmd/experiment-neutral/main.go
+index a7bc9f1..3153e0d 100644
+--- a/research/cmd/experiment-neutral/main.go
++++ b/research/cmd/experiment-neutral/main.go
+@@ -58,25 +58,16 @@ func main() {
+ 	if err := client.Ping(ctx).Err(); err != nil {
+ 		expcli.Fatal("connect Redis: %v", err)
+ 	}
+-	factories := map[string]func() experiment.OpenLoopAdapter{
+-		"taskforge-fifo-static": func() experiment.OpenLoopAdapter {
+-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-fifo-static", Client: client, Concurrency: *concurrency, DisableFairness: true, DisableAdaptive: true, DisableDependencyBudget: true})
+-		},
+-		"taskforge-full": func() experiment.OpenLoopAdapter {
+-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-full", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity})
+-		},
+-		"taskforge-no-fairness": func() experiment.OpenLoopAdapter {
+-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-fairness", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity, DisableFairness: true})
+-		},
+-		"taskforge-no-admission": func() experiment.OpenLoopAdapter {
+-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-admission", Client: client, Concurrency: *concurrency, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity})
+-		},
+-		"taskforge-no-dependency-budget": func() experiment.OpenLoopAdapter {
+-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-dependency-budget", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity, DisableDependencyBudget: true})
+-		},
+-		"asynq": func() experiment.OpenLoopAdapter {
+-			return asynqadapter.New(asynqadapter.Config{Redis: basynq.RedisClientOpt{Network: *network, Addr: *addr, DB: *db}, Client: client, Concurrency: *concurrency})
+-		},
++	factories := map[string]func() experiment.OpenLoopAdapter{}
++	for _, name := range []string{"taskforge-fifo-static", "taskforge-static-capacity", "taskforge-full", "taskforge-no-fairness", "taskforge-no-adaptive", "taskforge-no-admission", "taskforge-no-dependency-budget", "taskforge-fairness-only", "taskforge-admission-only", "taskforge-budget-only", "taskforge-adaptive-only"} {
++		factories[name] = func() experiment.OpenLoopAdapter {
++			config := controlConfig(name, *concurrency, *admissionPending, trace.Profile.Downstream.Capacity)
++			config.Client = client
++			return taskforgeadapter.New(config)
++		}
++	}
++	factories["asynq"] = func() experiment.OpenLoopAdapter {
++		return asynqadapter.New(asynqadapter.Config{Redis: basynq.RedisClientOpt{Network: *network, Addr: *addr, DB: *db}, Client: client, Concurrency: *concurrency})
+ 	}
+ 	selected := strings.Split(*systems, ",")
+ 	for index := range selected {
+@@ -107,3 +98,30 @@ func main() {
+ 		fmt.Printf("%s (excluded=%t)\n", path, result.Excluded)
+ 	}
+ }
++
++// controlConfig keeps one-control comparisons identical except for the named
++// policy. A capacity-matched static arm tests whether adaptation beats tuning.
++func controlConfig(name string, concurrency int, admission int64, capacity int) taskforgeadapter.Config {
++	c := taskforgeadapter.Config{Name: name, Concurrency: concurrency, MaxConcurrency: concurrency * 2, DependencyBudgetCapacity: capacity,
++		DisableFairness: true, DisableAdaptive: true, DisableDependencyBudget: true}
++	switch name {
++	case "taskforge-static-capacity":
++		c.Concurrency = capacity
++	case "taskforge-fairness-only":
++		c.DisableFairness = false
++	case "taskforge-admission-only":
++		c.AdmissionMaxPending = admission
++	case "taskforge-budget-only":
++		c.DisableDependencyBudget = false
++	case "taskforge-adaptive-only":
++		c.DisableAdaptive = false
++	case "taskforge-full", "taskforge-no-fairness", "taskforge-no-adaptive", "taskforge-no-admission", "taskforge-no-dependency-budget":
++		c.DisableFairness = name == "taskforge-no-fairness"
++		c.DisableAdaptive = name == "taskforge-no-adaptive"
++		c.DisableDependencyBudget = name == "taskforge-no-dependency-budget"
++		if name != "taskforge-no-admission" {
++			c.AdmissionMaxPending = admission
++		}
++	}
++	return c
++}
+diff --git a/research/internal/experiment/adapters/taskforge/adapter.go b/research/internal/experiment/adapters/taskforge/adapter.go
+index 06cb89c..919c87f 100644
+--- a/research/internal/experiment/adapters/taskforge/adapter.go
++++ b/research/internal/experiment/adapters/taskforge/adapter.go
+@@ -8,6 +8,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"log/slog"
++	"math"
+ 	"strconv"
+ 	"sync"
+ 	"time"
+@@ -107,8 +108,9 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime)
+ 	}
+ 	if !a.config.DisableFairness {
+ 		rules := make([]tfredis.FairnessRule, 0, len(runtime.Trace.Profile.Tenants))
+-		for _, tenant := range runtime.Trace.Profile.Tenants {
+-			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.EntitlementWeight*1000))})
++		weights := fairnessWeights(runtime.Trace.Profile.Tenants)
++		for i, tenant := range runtime.Trace.Profile.Tenants {
++			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: weights[i]})
+ 		}
+ 		fairness, err := tfredis.NewFairnessPolicy(tfredis.FairnessRule{}, rules)
+ 		if err != nil {
+@@ -304,3 +306,23 @@ func (a *Adapter) Stop(ctx context.Context) error {
+ 	}
+ 	return result
+ }
++
++// Reduce fixed-point entitlements to their smallest integer ratio. The broker
++// spends Weight consecutive tickets on each tenant, so 1000:1000 has a very
++// different short-term latency profile from the intended 1:1 alternation.
++func fairnessWeights(tenants []experiment.OpenLoopTenant) []int {
++	weights := make([]int, len(tenants))
++	divisor := 0
++	for i, tenant := range tenants {
++		weights[i] = max(1, int(math.Round(tenant.EntitlementWeight*1000)))
++		a, b := divisor, weights[i]
++		for b != 0 {
++			a, b = b, a%b
++		}
++		divisor = a
++	}
++	for i := range weights {
++		weights[i] /= divisor
++	}
++	return weights
++}
+diff --git a/research/internal/experiment/adapters/taskforge/adapter_test.go b/research/internal/experiment/adapters/taskforge/adapter_test.go
+index c01b2d6..98d133b 100644
+--- a/research/internal/experiment/adapters/taskforge/adapter_test.go
++++ b/research/internal/experiment/adapters/taskforge/adapter_test.go
+@@ -1,12 +1,33 @@
+ package taskforge
+ 
+ import (
++	"slices"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/aminkbi/taskforge/research/internal/experiment"
+ )
+ 
++func TestFairnessWeightsUseShortReservationCycles(t *testing.T) {
++	for _, tc := range []struct {
++		entitlements []float64
++		want         []int
++	}{
++		{[]float64{1, 1}, []int{1, 1}},
++		{[]float64{1, 8, 1}, []int{1, 8, 1}},
++		{[]float64{0.5, 1.5}, []int{1, 3}},
++		{[]float64{2, 2}, []int{1, 1}},
++	} {
++		tenants := make([]experiment.OpenLoopTenant, len(tc.entitlements))
++		for i, weight := range tc.entitlements {
++			tenants[i].EntitlementWeight = weight
++		}
++		if got := fairnessWeights(tenants); !slices.Equal(got, tc.want) {
++			t.Fatalf("weights %v produce %v, want %v", tc.entitlements, got, tc.want)
++		}
++	}
++}
++
+ func TestNeedsSchedulerOnlyForDeferredWork(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/research/cmd/experiment-neutral/main_test.go b/research/cmd/experiment-neutral/main_test.go
+new file mode 100644
+index 0000000..b6d0060
+--- /dev/null
++++ b/research/cmd/experiment-neutral/main_test.go
+@@ -0,0 +1,23 @@
++package main
++
++import "testing"
++
++func TestSingleControlArms(t *testing.T) {
++	for _, control := range []string{"fairness", "admission", "budget", "adaptive"} {
++		c := controlConfig("taskforge-"+control+"-only", 8, 32, 4)
++		if c.Concurrency != 8 || c.MaxConcurrency != 16 || c.DisableFairness != (control != "fairness") || c.DisableAdaptive != (control != "adaptive") || c.DisableDependencyBudget != (control != "budget") || (c.AdmissionMaxPending > 0) != (control == "admission") {
++			t.Fatalf("%s enables unexpected controls: %+v", control, c)
++		}
++	}
++}
++
++func TestAdaptiveAblationAndCapacityBaseline(t *testing.T) {
++	c := controlConfig("taskforge-no-adaptive", 8, 32, 4)
++	if !c.DisableAdaptive || c.DisableFairness || c.DisableDependencyBudget || c.AdmissionMaxPending != 32 {
++		t.Fatalf("adaptive ablation changes other controls: %+v", c)
++	}
++	c = controlConfig("taskforge-static-capacity", 8, 32, 4)
++	if c.Concurrency != 4 || c.MaxConcurrency != 16 || !c.DisableAdaptive || !c.DisableFairness || !c.DisableDependencyBudget || c.AdmissionMaxPending != 0 {
++		t.Fatalf("capacity baseline: %+v", c)
++	}
++}

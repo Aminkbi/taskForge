@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -107,8 +108,9 @@ func (a *Adapter) Start(ctx context.Context, runtime experiment.AdapterRuntime) 
 	}
 	if !a.config.DisableFairness {
 		rules := make([]tfredis.FairnessRule, 0, len(runtime.Trace.Profile.Tenants))
-		for _, tenant := range runtime.Trace.Profile.Tenants {
-			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: max(1, int(tenant.EntitlementWeight*1000))})
+		weights := fairnessWeights(runtime.Trace.Profile.Tenants)
+		for i, tenant := range runtime.Trace.Profile.Tenants {
+			rules = append(rules, tfredis.FairnessRule{Name: tenant.Name, Keys: []string{tenant.Name}, Weight: weights[i]})
 		}
 		fairness, err := tfredis.NewFairnessPolicy(tfredis.FairnessRule{}, rules)
 		if err != nil {
@@ -303,4 +305,24 @@ func (a *Adapter) Stop(ctx context.Context) error {
 		}
 	}
 	return result
+}
+
+// Reduce fixed-point entitlements to their smallest integer ratio. The broker
+// spends Weight consecutive tickets on each tenant, so 1000:1000 has a very
+// different short-term latency profile from the intended 1:1 alternation.
+func fairnessWeights(tenants []experiment.OpenLoopTenant) []int {
+	weights := make([]int, len(tenants))
+	divisor := 0
+	for i, tenant := range tenants {
+		weights[i] = max(1, int(math.Round(tenant.EntitlementWeight*1000)))
+		a, b := divisor, weights[i]
+		for b != 0 {
+			a, b = b, a%b
+		}
+		divisor = a
+	}
+	for i := range weights {
+		weights[i] /= divisor
+	}
+	return weights
 }

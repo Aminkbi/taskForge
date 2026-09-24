@@ -1,11 +1,32 @@
 package taskforge
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/aminkbi/taskforge/research/internal/experiment"
 )
+
+func TestFairnessWeightsUseShortReservationCycles(t *testing.T) {
+	for _, tc := range []struct {
+		entitlements []float64
+		want         []int
+	}{
+		{[]float64{1, 1}, []int{1, 1}},
+		{[]float64{1, 8, 1}, []int{1, 8, 1}},
+		{[]float64{0.5, 1.5}, []int{1, 3}},
+		{[]float64{2, 2}, []int{1, 1}},
+	} {
+		tenants := make([]experiment.OpenLoopTenant, len(tc.entitlements))
+		for i, weight := range tc.entitlements {
+			tenants[i].EntitlementWeight = weight
+		}
+		if got := fairnessWeights(tenants); !slices.Equal(got, tc.want) {
+			t.Fatalf("weights %v produce %v, want %v", tc.entitlements, got, tc.want)
+		}
+	}
+}
 
 func TestNeedsSchedulerOnlyForDeferredWork(t *testing.T) {
 	t.Parallel()

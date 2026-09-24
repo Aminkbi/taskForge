@@ -58,25 +58,16 @@ func main() {
 	if err := client.Ping(ctx).Err(); err != nil {
 		expcli.Fatal("connect Redis: %v", err)
 	}
-	factories := map[string]func() experiment.OpenLoopAdapter{
-		"taskforge-fifo-static": func() experiment.OpenLoopAdapter {
-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-fifo-static", Client: client, Concurrency: *concurrency, DisableFairness: true, DisableAdaptive: true, DisableDependencyBudget: true})
-		},
-		"taskforge-full": func() experiment.OpenLoopAdapter {
-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-full", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity})
-		},
-		"taskforge-no-fairness": func() experiment.OpenLoopAdapter {
-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-fairness", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity, DisableFairness: true})
-		},
-		"taskforge-no-admission": func() experiment.OpenLoopAdapter {
-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-admission", Client: client, Concurrency: *concurrency, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity})
-		},
-		"taskforge-no-dependency-budget": func() experiment.OpenLoopAdapter {
-			return taskforgeadapter.New(taskforgeadapter.Config{Name: "taskforge-no-dependency-budget", Client: client, Concurrency: *concurrency, AdmissionMaxPending: *admissionPending, DependencyBudgetCapacity: trace.Profile.Downstream.Capacity, DisableDependencyBudget: true})
-		},
-		"asynq": func() experiment.OpenLoopAdapter {
-			return asynqadapter.New(asynqadapter.Config{Redis: basynq.RedisClientOpt{Network: *network, Addr: *addr, DB: *db}, Client: client, Concurrency: *concurrency})
-		},
+	factories := map[string]func() experiment.OpenLoopAdapter{}
+	for _, name := range []string{"taskforge-fifo-static", "taskforge-static-capacity", "taskforge-full", "taskforge-no-fairness", "taskforge-no-adaptive", "taskforge-no-admission", "taskforge-no-dependency-budget", "taskforge-fairness-only", "taskforge-admission-only", "taskforge-budget-only", "taskforge-adaptive-only"} {
+		factories[name] = func() experiment.OpenLoopAdapter {
+			config := controlConfig(name, *concurrency, *admissionPending, trace.Profile.Downstream.Capacity)
+			config.Client = client
+			return taskforgeadapter.New(config)
+		}
+	}
+	factories["asynq"] = func() experiment.OpenLoopAdapter {
+		return asynqadapter.New(asynqadapter.Config{Redis: basynq.RedisClientOpt{Network: *network, Addr: *addr, DB: *db}, Client: client, Concurrency: *concurrency})
 	}
 	selected := strings.Split(*systems, ",")
 	for index := range selected {
@@ -106,4 +97,31 @@ func main() {
 		}
 		fmt.Printf("%s (excluded=%t)\n", path, result.Excluded)
 	}
+}
+
+// controlConfig keeps one-control comparisons identical except for the named
+// policy. A capacity-matched static arm tests whether adaptation beats tuning.
+func controlConfig(name string, concurrency int, admission int64, capacity int) taskforgeadapter.Config {
+	c := taskforgeadapter.Config{Name: name, Concurrency: concurrency, MaxConcurrency: concurrency * 2, DependencyBudgetCapacity: capacity,
+		DisableFairness: true, DisableAdaptive: true, DisableDependencyBudget: true}
+	switch name {
+	case "taskforge-static-capacity":
+		c.Concurrency = capacity
+	case "taskforge-fairness-only":
+		c.DisableFairness = false
+	case "taskforge-admission-only":
+		c.AdmissionMaxPending = admission
+	case "taskforge-budget-only":
+		c.DisableDependencyBudget = false
+	case "taskforge-adaptive-only":
+		c.DisableAdaptive = false
+	case "taskforge-full", "taskforge-no-fairness", "taskforge-no-adaptive", "taskforge-no-admission", "taskforge-no-dependency-budget":
+		c.DisableFairness = name == "taskforge-no-fairness"
+		c.DisableAdaptive = name == "taskforge-no-adaptive"
+		c.DisableDependencyBudget = name == "taskforge-no-dependency-budget"
+		if name != "taskforge-no-admission" {
+			c.AdmissionMaxPending = admission
+		}
+	}
+	return c
 }

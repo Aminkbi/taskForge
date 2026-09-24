@@ -1,0 +1,2404 @@
+{
+  "schema": "taskforge-queue-controls-analysis/v1",
+  "method": "fixed immutable open-loop traces; per-cell metrics and paired seed differences",
+  "rows": [
+    {
+      "profile": "fairness-pressure",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 513,
+      "slo_success": 0.14246042765898362,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3539.373056,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1322,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1322,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.772408,
+      "dispatch_p99_ms": 1.054586
+    },
+    {
+      "profile": "fairness-pressure",
+      "seed": 20260925,
+      "system": "taskforge-fairness-only",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 759,
+      "slo_success": 0.210774784782005,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3571.504128,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1330,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1330,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.0250059999999999,
+      "dispatch_p99_ms": 1.050703
+    },
+    {
+      "profile": "fairness-pressure",
+      "seed": 20260926,
+      "system": "taskforge-fairness-only",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 745,
+      "slo_success": 0.20688697584004442,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3541.166848,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1306,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1306,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.0204870000000001,
+      "dispatch_p99_ms": 1.043565
+    },
+    {
+      "profile": "fairness-pressure",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 508,
+      "slo_success": 0.14107192446542627,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3559.635968,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1328,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1328,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.6843870000000001,
+      "dispatch_p99_ms": 1.049387
+    },
+    {
+      "profile": "admission-pressure",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 518,
+      "slo_success": 0.14384893085254097,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3509.531904,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1312,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1312,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.7040149999999992,
+      "dispatch_p99_ms": 1.053974
+    },
+    {
+      "profile": "admission-pressure",
+      "seed": 20260925,
+      "system": "taskforge-admission-only",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 1109,
+      "slo_success": 0.3079700083310192,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 6427.34208,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 22,
+      "deferred_backlog_max": 1226,
+      "total_backlog_max": 1242,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 3.153614,
+      "dispatch_p99_ms": 0.91908
+    },
+    {
+      "profile": "admission-pressure",
+      "seed": 20260926,
+      "system": "taskforge-admission-only",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 1121,
+      "slo_success": 0.3113024159955568,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 6455.710976,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 20,
+      "deferred_backlog_max": 1229,
+      "total_backlog_max": 1245,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 3.1685529999999993,
+      "dispatch_p99_ms": 0.826677
+    },
+    {
+      "profile": "admission-pressure",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 3601,
+      "accepted": 3601,
+      "completed": 3601,
+      "slo_compliant": 508,
+      "slo_success": 0.14107192446542627,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 3505.086208,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1309,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1309,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.7087389999999978,
+      "dispatch_p99_ms": 1.055495
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260925,
+      "system": "taskforge-static-capacity",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 341,
+      "slo_success": 0.21844971172325434,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2319.373056,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 420,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 420,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.6636179999999996,
+      "dispatch_p99_ms": 1.063036
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 443,
+      "slo_compliant": 20,
+      "slo_success": 0.012812299807815503,
+      "accepted_fraction": 1.0,
+      "unresolved": 1118,
+      "conditional_p99_ms": 20132.146944,
+      "downstream_failure_rate": 0.8487035551991446,
+      "downstream_over_capacity_rate": 0.9721999465383587,
+      "ready_backlog_max": 1398,
+      "deferred_backlog_max": 6,
+      "total_backlog_max": 1493,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.6336249999999986,
+      "dispatch_p99_ms": 1.061848
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260925,
+      "system": "taskforge-budget-only",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 328,
+      "slo_success": 0.21012171684817424,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2361.40032,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 429,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 429,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.8703299999999992,
+      "dispatch_p99_ms": 1.05715
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260926,
+      "system": "taskforge-budget-only",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 323,
+      "slo_success": 0.20691864189622036,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2371.730944,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 431,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 431,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.8968670000000003,
+      "dispatch_p99_ms": 1.057099
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260926,
+      "system": "taskforge-static-capacity",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 349,
+      "slo_success": 0.22357463164638053,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2216.851712,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 404,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 404,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.4787960000000009,
+      "dispatch_p99_ms": 1.058931
+    },
+    {
+      "profile": "dependency-pressure",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 414,
+      "slo_compliant": 22,
+      "slo_success": 0.014093529788597053,
+      "accepted_fraction": 1.0,
+      "unresolved": 1147,
+      "conditional_p99_ms": 20140.450048,
+      "downstream_failure_rate": 0.8563758389261745,
+      "downstream_over_capacity_rate": 0.9720805369127516,
+      "ready_backlog_max": 1395,
+      "deferred_backlog_max": 7,
+      "total_backlog_max": 1489,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.6515809999999966,
+      "dispatch_p99_ms": 1.052966
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260925,
+      "system": "taskforge-static-capacity",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 347,
+      "slo_success": 0.22229340166559897,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2228.51072,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 408,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 408,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.48533700000000124,
+      "dispatch_p99_ms": 1.058348
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 459,
+      "slo_compliant": 19,
+      "slo_success": 0.012171684817424727,
+      "accepted_fraction": 1.0,
+      "unresolved": 1102,
+      "conditional_p99_ms": 20053.974272,
+      "downstream_failure_rate": 0.8450026723677178,
+      "downstream_over_capacity_rate": 0.9722073757349011,
+      "ready_backlog_max": 1400,
+      "deferred_backlog_max": 6,
+      "total_backlog_max": 1496,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.6360360000000007,
+      "dispatch_p99_ms": 1.054918
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260925,
+      "system": "taskforge-adaptive-only",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1556,
+      "slo_compliant": 147,
+      "slo_success": 0.09417040358744394,
+      "accepted_fraction": 1.0,
+      "unresolved": 5,
+      "conditional_p99_ms": 3909.679104,
+      "downstream_failure_rate": 0.10316649642492338,
+      "downstream_over_capacity_rate": 0.6235955056179775,
+      "ready_backlog_max": 456,
+      "deferred_backlog_max": 6,
+      "total_backlog_max": 460,
+      "controller_min": 4,
+      "controller_max": 9,
+      "redis_cpu_seconds": 0.5967739999999999,
+      "dispatch_p99_ms": 1.05835
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260926,
+      "system": "taskforge-adaptive-only",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1560,
+      "slo_compliant": 303,
+      "slo_success": 0.19410634208840488,
+      "accepted_fraction": 1.0,
+      "unresolved": 1,
+      "conditional_p99_ms": 3648.317952,
+      "downstream_failure_rate": 0.09090909090909091,
+      "downstream_over_capacity_rate": 0.625,
+      "ready_backlog_max": 426,
+      "deferred_backlog_max": 4,
+      "total_backlog_max": 428,
+      "controller_min": 4,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.5938739999999996,
+      "dispatch_p99_ms": 1.055507
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260926,
+      "system": "taskforge-static-capacity",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 1561,
+      "slo_compliant": 331,
+      "slo_success": 0.21204356181934658,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 2241.798144,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 412,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 412,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.5580600000000011,
+      "dispatch_p99_ms": 1.067104
+    },
+    {
+      "profile": "adaptive-pressure",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 1561,
+      "accepted": 1561,
+      "completed": 414,
+      "slo_compliant": 19,
+      "slo_success": 0.012171684817424727,
+      "accepted_fraction": 1.0,
+      "unresolved": 1147,
+      "conditional_p99_ms": 19933.89952,
+      "downstream_failure_rate": 0.857449088960343,
+      "downstream_over_capacity_rate": 0.9721329046087889,
+      "ready_backlog_max": 1392,
+      "deferred_backlog_max": 6,
+      "total_backlog_max": 1487,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 1.7184409999999986,
+      "dispatch_p99_ms": 1.054111
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260925,
+      "system": "taskforge-budget-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.129088,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.259563,
+      "dispatch_p99_ms": 1.072959
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.028224,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.208753999999999,
+      "dispatch_p99_ms": 1.069885
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260925,
+      "system": "taskforge-adaptive-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.913024,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.21204499999999982,
+      "dispatch_p99_ms": 1.065114
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260925,
+      "system": "taskforge-fairness-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.54176,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.27047500000000113,
+      "dispatch_p99_ms": 1.065244
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260925,
+      "system": "taskforge-admission-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.494912,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2509599999999992,
+      "dispatch_p99_ms": 1.078089
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260926,
+      "system": "taskforge-fairness-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.929088,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 1,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 1,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2869830000000029,
+      "dispatch_p99_ms": 1.071177
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260926,
+      "system": "taskforge-admission-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.371776,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2583920000000006,
+      "dispatch_p99_ms": 1.090301
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260926,
+      "system": "taskforge-budget-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.065088,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2487429999999975,
+      "dispatch_p99_ms": 1.075404
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260926,
+      "system": "taskforge-adaptive-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.85312,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.21167099999999905,
+      "dispatch_p99_ms": 1.071138
+    },
+    {
+      "profile": "stable-light",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.957056,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2119099999999996,
+      "dispatch_p99_ms": 1.068958
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260925,
+      "system": "taskforge-budget-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.136768,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2755510000000001,
+      "dispatch_p99_ms": 1.08635
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260925,
+      "system": "taskforge-static-capacity",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.861824,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.24016400000000004,
+      "dispatch_p99_ms": 1.081127
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260925,
+      "system": "taskforge-fifo-static",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.928128,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.23414100000000104,
+      "dispatch_p99_ms": 1.082559
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260925,
+      "system": "taskforge-adaptive-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.908672,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.24314799999999792,
+      "dispatch_p99_ms": 1.076895
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260926,
+      "system": "taskforge-budget-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 23.022848,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.2740709999999993,
+      "dispatch_p99_ms": 1.0727
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260926,
+      "system": "taskforge-adaptive-only",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.991104,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.24419299999999922,
+      "dispatch_p99_ms": 1.090388
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260926,
+      "system": "taskforge-static-capacity",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.93888,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 4,
+      "controller_max": 4,
+      "redis_cpu_seconds": 0.23180600000000595,
+      "dispatch_p99_ms": 1.07458
+    },
+    {
+      "profile": "fragile-light",
+      "seed": 20260926,
+      "system": "taskforge-fifo-static",
+      "offered": 300,
+      "accepted": 300,
+      "completed": 300,
+      "slo_compliant": 300,
+      "slo_success": 1.0,
+      "accepted_fraction": 1.0,
+      "unresolved": 0,
+      "conditional_p99_ms": 22.917888,
+      "downstream_failure_rate": 0.0,
+      "downstream_over_capacity_rate": 0.0,
+      "ready_backlog_max": 0,
+      "deferred_backlog_max": 0,
+      "total_backlog_max": 0,
+      "controller_min": 8,
+      "controller_max": 8,
+      "redis_cpu_seconds": 0.23616299999999768,
+      "dispatch_p99_ms": 1.07149
+    }
+  ],
+  "contrasts": [
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.06706470424881977,
+      "values": [
+        0.06831435712302139,
+        0.06581505137461816
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 6.830975999999964,
+      "values": [
+        32.13107200000013,
+        -18.469120000000203
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -7.0,
+      "values": [
+        8,
+        -22
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -7.0,
+      "values": [
+        8,
+        -22
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.29434899999999997,
+      "values": [
+        0.2525979999999999,
+        0.33610000000000007
+      ]
+    },
+    {
+      "profile": "fairness-pressure",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": -0.004852500000000037,
+      "values": [
+        -0.003883000000000081,
+        -0.005821999999999994
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.16717578450430437,
+      "values": [
+        0.1641210774784782,
+        0.17023049153013053
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 2934.2174720000003,
+      "values": [
+        2917.8101760000004,
+        2950.624768
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -1289.5,
+      "values": [
+        -1290,
+        -1289
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 1227.5,
+      "values": [
+        1226,
+        1229
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -67.0,
+      "values": [
+        -70,
+        -64
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 2.4547065000000012,
+      "values": [
+        2.449599000000001,
+        2.4598140000000015
+      ]
+    },
+    {
+      "profile": "admission-pressure",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": -0.18185600000000002,
+      "values": [
+        -0.13489399999999996,
+        -0.22881800000000008
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.19506726457399104,
+      "values": [
+        0.19730941704035873,
+        0.19282511210762332
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -17769.732863999998,
+      "values": [
+        -17770.746624,
+        -17768.719104
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": -0.8525396970626595,
+      "values": [
+        -0.8487035551991446,
+        -0.8563758389261745
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": -0.9721402417255551,
+      "values": [
+        -0.9721999465383587,
+        -0.9720805369127516
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -966.5,
+      "values": [
+        -969,
+        -964
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": -6.5,
+      "values": [
+        -6,
+        -7
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -1061.0,
+      "values": [
+        -1064,
+        -1058
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": -0.7590044999999979,
+      "values": [
+        -0.7632949999999994,
+        -0.7547139999999963
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": -0.00028249999999996334,
+      "values": [
+        -0.004697999999999869,
+        0.004132999999999942
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.20755925688661114,
+      "values": [
+        0.20563741191543883,
+        0.20948110185778349
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -17868.186112,
+      "values": [
+        -17812.773888,
+        -17923.598336
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": -0.8525396970626595,
+      "values": [
+        -0.8487035551991446,
+        -0.8563758389261745
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": -0.9721402417255551,
+      "values": [
+        -0.9721999465383587,
+        -0.9720805369127516
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -984.5,
+      "values": [
+        -978,
+        -991
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": -6.5,
+      "values": [
+        -6,
+        -7
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -1079.0,
+      "values": [
+        -1073,
+        -1085
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": -1.0713959999999974,
+      "values": [
+        -0.970006999999999,
+        -1.1727849999999957
+      ]
+    },
+    {
+      "profile": "dependency-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.0035765000000000935,
+      "values": [
+        0.001188000000000189,
+        0.005964999999999998
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.13196668802049968,
+      "values": [
+        0.08199871877001921,
+        0.18193465727098015
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -16214.938368,
+      "values": [
+        -16144.295168,
+        -16285.581568
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": -0.7541880869970232,
+      "values": [
+        -0.7418361759427944,
+        -0.7665399980512521
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": -0.34787238736285625,
+      "values": [
+        -0.34861187011692363,
+        -0.3471329046087889
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -955.0,
+      "values": [
+        -944,
+        -966
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": -1.0,
+      "values": [
+        0,
+        -2
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -1047.5,
+      "values": [
+        -1036,
+        -1059
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.5,
+      "values": [
+        1,
+        0
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": -1.0819145,
+      "values": [
+        -1.0392620000000008,
+        -1.124566999999999
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.002413999999999916,
+      "values": [
+        0.0034319999999998796,
+        0.0013959999999999528
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.20499679692504805,
+      "values": [
+        0.21012171684817424,
+        0.19987187700192185
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -17758.782464,
+      "values": [
+        -17825.463552,
+        -17692.101376
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": -0.8512258806640304,
+      "values": [
+        -0.8450026723677178,
+        -0.857449088960343
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": -0.972170140171845,
+      "values": [
+        -0.9722073757349011,
+        -0.9721329046087889
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": -986.0,
+      "values": [
+        -992,
+        -980
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": -6.0,
+      "values": [
+        -6,
+        -6
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": -1081.5,
+      "values": [
+        -1088,
+        -1075
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": -1.1555399999999985,
+      "values": [
+        -1.1506989999999995,
+        -1.1603809999999974
+      ]
+    },
+    {
+      "profile": "adaptive-pressure",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.008211500000000038,
+      "values": [
+        0.003430000000000044,
+        0.012993000000000032
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 0.7427839999999986,
+      "values": [
+        0.5135359999999984,
+        0.9720319999999987
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 1.0,
+      "values": [
+        1,
+        1
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 1.0,
+      "values": [
+        1,
+        1
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.0683970000000027,
+      "values": [
+        0.061721000000002135,
+        0.07507300000000328
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-fairness-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": -0.001210999999999962,
+      "values": [
+        -0.004640999999999895,
+        0.002218999999999971
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 0.44070399999999843,
+      "values": [
+        0.46668799999999777,
+        0.4147199999999991
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.044344000000000605,
+      "values": [
+        0.04220600000000019,
+        0.04648200000000102
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-admission-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.014773499999999995,
+      "values": [
+        0.0082040000000001,
+        0.02134299999999989
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 0.10444799999999788,
+      "values": [
+        0.10086399999999784,
+        0.10803199999999791
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.043820999999999444,
+      "values": [
+        0.05080900000000099,
+        0.036832999999997895
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.0047599999999999865,
+      "values": [
+        0.003074000000000021,
+        0.006445999999999952
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -0.10956800000000122,
+      "values": [
+        -0.11520000000000152,
+        -0.10393600000000092
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.0015260000000001384,
+      "values": [
+        0.003291000000000821,
+        -0.00023900000000054433
+      ]
+    },
+    {
+      "profile": "stable-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": -0.001295500000000116,
+      "values": [
+        -0.004771000000000081,
+        0.0021799999999998487
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 0.15679999999999872,
+      "values": [
+        0.20863999999999905,
+        0.10495999999999839
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.03965900000000033,
+      "values": [
+        0.04140999999999906,
+        0.03790800000000161
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-budget-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.0025004999999999056,
+      "values": [
+        0.003790999999999878,
+        0.0012099999999999334
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": 0.02687999999999846,
+      "values": [
+        -0.019456000000001694,
+        0.07321599999999862
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.008518499999999207,
+      "values": [
+        0.009006999999996879,
+        0.008030000000001536
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-adaptive-only minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.006616999999999873,
+      "values": [
+        -0.005664000000000113,
+        0.01889799999999986
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "slo_success",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "accepted_fraction",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "conditional_p99_ms",
+      "median_difference": -0.02265600000000134,
+      "values": [
+        -0.06630400000000236,
+        0.020991999999999678
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_failure_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "downstream_over_capacity_rate",
+      "median_difference": 0.0,
+      "values": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "ready_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "deferred_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "total_backlog_max",
+      "median_difference": 0.0,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_min",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "controller_max",
+      "median_difference": -4.0,
+      "values": [
+        -4,
+        -4
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "redis_cpu_seconds",
+      "median_difference": 0.0008330000000036364,
+      "values": [
+        0.006022999999999001,
+        -0.004356999999991729
+      ]
+    },
+    {
+      "profile": "fragile-light",
+      "contrast": "taskforge-static-capacity minus taskforge-fifo-static",
+      "metric": "dispatch_p99_ms",
+      "median_difference": 0.0008289999999999687,
+      "values": [
+        -0.0014320000000000999,
+        0.003090000000000037
+      ]
+    }
+  ]
+}

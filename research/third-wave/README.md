@@ -1,6 +1,19 @@
 # TaskForge third-wave research
 
-The [Dev.to draft](blog/taskforge-wave3.md) reports the latest-state overload-control comparison. Every arm uses product source commit `0cc8a56`. The baseline is TaskForge with FIFO selection and static concurrency; the other arms use the full control set or remove one relevant control. The [fixed comparison plan](control-comparison/plan.md) describes the workloads and limits.
+The [Dev.to draft](blog/taskforge-queue-controls.md) reports the corrected
+project-wide queue-control comparison. The earlier closed-loop comparison is
+retained below as historical evidence. The current fixed-arrival protocol and
+results live in [`research/queue-controls`](../queue-controls/); run
+`make queue-controls-check` to regenerate its derived analysis.
+
+## Historical closed-loop comparison
+
+The historical control-comparison run uses TaskForge commit `0cc8a56`, FIFO
+selection and static concurrency as its baseline, and the full control set or
+one disabled control as the other arms. Its [fixed plan](control-comparison/plan.md)
+and [retained evidence](control-comparison/data/final/) remain useful for
+auditing the original result, but the closed-loop producer and constant
+dependency model is unsuitable as the article's primary causal evidence.
 
 ## Control-comparison evidence
 

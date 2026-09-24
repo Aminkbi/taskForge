@@ -7,7 +7,7 @@ cd "$ROOT"
 test -s research/third-wave/evidence/manifest.json
 test -s research/third-wave/analysis-plan.md
 test -s research/third-wave/paper/paper.md
-test -s research/third-wave/blog/taskforge-wave3.md
+test -s research/third-wave/blog/taskforge-queue-controls.md
 test -s research/third-wave/evidence/optimization-map.md
 test -s research/third-wave/results/analysis.json
 test -s research/third-wave/results/analysis.md
