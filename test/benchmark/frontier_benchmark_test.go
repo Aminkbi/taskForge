@@ -66,13 +66,17 @@ func BenchmarkControlPlaneCategories(b *testing.B) {
 }
 
 func BenchmarkShortTaskReservationFeeder(b *testing.B) {
-	for _, batch := range []bool{false, true} {
-		name := "sequential"
-		if batch {
-			name = "bounded_batch"
-		}
-		b.Run(name, func(b *testing.B) {
-			env := newBenchEnv(b, 30*time.Second)
+	for _, variant := range []struct {
+		name  string
+		batch bool
+		mode  taskforgeredis.StateMode
+	}{
+		{name: "sequential", mode: taskforgeredis.StateModeFull},
+		{name: "bounded_batch", batch: true, mode: taskforgeredis.StateModeFull},
+		{name: "delivery_only", batch: true, mode: taskforgeredis.StateModeDeliveryOnly},
+	} {
+		b.Run(variant.name, func(b *testing.B) {
+			env := newBenchEnvWithOptions(b, 30*time.Second, taskforgeredis.Options{ReserveTimeout: benchReserveTimeout, StateMode: variant.mode})
 			for index := 0; index < b.N; index++ {
 				if _, err := env.broker.Publish(env.ctx, benchmarkMessage("short-feeder", index), taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 					b.Fatal(err)
@@ -81,16 +85,16 @@ func BenchmarkShortTaskReservationFeeder(b *testing.B) {
 
 			done := make(chan struct{})
 			counter := &ackCounter{remaining: int64(b.N), done: done}
-			base := &countingBroker{Broker: env.broker, counter: counter}
+			base := &countingBroker{broker: env.broker, counter: counter}
 			var broker taskforge.Broker = base
-			if batch {
+			if variant.batch {
 				broker = &batchCountingBroker{countingBroker: base}
 			}
 			var running atomic.Int64
 			var peak atomic.Int64
 			var handlerNanos atomic.Int64
 			worker, err := runtimepkg.New(runtimepkg.Options{
-				Broker: broker, StateStore: env.broker,
+				Broker: broker, DeadLetter: env.broker, StateStore: env.broker,
 				Handler: taskforge.HandlerFunc(func(context.Context, taskforge.Task) error {
 					current := running.Add(1)
 					for observed := peak.Load(); current > observed && !peak.CompareAndSwap(observed, current); observed = peak.Load() {
@@ -138,24 +142,48 @@ type ackCounter struct {
 }
 
 type countingBroker struct {
-	*taskforgeredis.Broker
+	broker  *taskforgeredis.Broker
 	counter *ackCounter
 }
 
+func (b *countingBroker) Publish(ctx context.Context, task taskforge.Task, opts taskforge.PublishOptions) (taskforge.PublishResult, error) {
+	return b.broker.Publish(ctx, task, opts)
+}
+
+func (b *countingBroker) Reserve(ctx context.Context, queue, consumerID string) (taskforge.Delivery, error) {
+	return b.broker.Reserve(ctx, queue, consumerID)
+}
+
 func (b *countingBroker) Ack(ctx context.Context, delivery taskforge.Delivery) error {
-	if err := b.Broker.Ack(ctx, delivery); err != nil {
+	if err := b.broker.Ack(ctx, delivery); err != nil {
 		return err
 	}
 	b.recordAck()
 	return nil
 }
 
+func (b *countingBroker) Nack(ctx context.Context, delivery taskforge.Delivery, requeue bool) error {
+	return b.broker.Nack(ctx, delivery, requeue)
+}
+
+func (b *countingBroker) ExtendLease(ctx context.Context, delivery taskforge.Delivery, ttl time.Duration) error {
+	return b.broker.ExtendLease(ctx, delivery, ttl)
+}
+
+func (b *countingBroker) ExtendLeases(ctx context.Context, deliveries []taskforge.Delivery) ([]error, error) {
+	return b.broker.ExtendLeases(ctx, deliveries)
+}
+
+func (b *countingBroker) StateWritesEnabled() bool {
+	return b.broker.StateWritesEnabled()
+}
+
 func (b *countingBroker) OwnsStateStore(store taskforge.StateStore) bool {
-	return b.Broker.OwnsStateStore(store)
+	return b.broker.OwnsStateStore(store)
 }
 
 func (b *countingBroker) AckAndRecord(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) error {
-	if err := b.Broker.AckAndRecord(ctx, delivery, state); err != nil {
+	if err := b.broker.AckAndRecord(ctx, delivery, state); err != nil {
 		return err
 	}
 	b.recordAck()
@@ -171,7 +199,35 @@ func (b *countingBroker) recordAck() {
 type batchCountingBroker struct{ *countingBroker }
 
 func (b *batchCountingBroker) ReserveBatch(ctx context.Context, queue, consumerID string, max int) ([]taskforge.Delivery, error) {
-	return b.Broker.ReserveBatch(ctx, queue, consumerID, max)
+	return b.broker.ReserveBatch(ctx, queue, consumerID, max)
+}
+
+type reserveBatchCapability interface {
+	ReserveBatch(context.Context, string, string, int) ([]taskforge.Delivery, error)
+}
+
+type leaseBatchCapability interface {
+	ExtendLeases(context.Context, []taskforge.Delivery) ([]error, error)
+}
+
+type stateWritesCapability interface {
+	StateWritesEnabled() bool
+}
+
+func TestCountingBrokerMethodSetMatchesVariant(t *testing.T) {
+	var broker taskforge.Broker = &countingBroker{}
+	if _, ok := broker.(reserveBatchCapability); ok {
+		t.Fatal("sequential counting broker unexpectedly advertises ReserveBatch")
+	}
+	if _, ok := broker.(leaseBatchCapability); !ok {
+		t.Fatal("counting broker does not advertise batch lease renewal")
+	}
+	if _, ok := broker.(stateWritesCapability); !ok {
+		t.Fatal("counting broker does not advertise state policy")
+	}
+	if _, ok := taskforge.Broker(&batchCountingBroker{countingBroker: &countingBroker{}}).(reserveBatchCapability); !ok {
+		t.Fatal("batch counting broker does not advertise ReserveBatch")
+	}
 }
 
 func benchmarkDelivery(index int) taskforge.Delivery {

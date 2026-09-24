@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aminkbi/taskforge"
@@ -11,33 +12,14 @@ import (
 )
 
 type leaseHandle struct {
-	cancel   context.CancelFunc
-	doneCh   chan struct{}
-	lostCh   chan struct{}
-	closeMu  sync.Mutex
-	closeSet bool
-	errMu    sync.RWMutex
-	err      error
-}
-
-func startLeaseExtender(ctx context.Context, logger *slog.Logger, b taskforge.Broker, delivery taskforge.Delivery, ttl time.Duration) *leaseHandle {
-	if ttl <= 0 {
-		return nil
-	}
-	return startRenewalLoop(
-		ctx,
-		logger,
-		delivery,
-		ttl/2,
-		"broker lease extension failed",
-		func(renewCtx context.Context) error {
-			if err := b.ExtendLease(renewCtx, delivery, ttl); err != nil {
-				return err
-			}
-			delivery.Execution.LeaseExpiresAt = time.Now().UTC().Add(ttl)
-			return nil
-		},
-	)
+	cancel    context.CancelFunc
+	doneCh    chan struct{}
+	lostCh    chan struct{}
+	closeMu   sync.Mutex
+	closeSet  bool
+	errMu     sync.RWMutex
+	err       error
+	expiresAt atomic.Int64
 }
 
 func startBudgetExtender(ctx context.Context, logger *slog.Logger, manager BudgetManager, delivery taskforge.Delivery, leaseKey string, budget TaskBudget, ttl time.Duration) *leaseHandle {
@@ -95,7 +77,7 @@ func startRenewalLoop(ctx context.Context, logger *slog.Logger, delivery taskfor
 }
 
 func (h *leaseHandle) Stop() {
-	if h == nil {
+	if h == nil || h.cancel == nil {
 		return
 	}
 	h.cancel()
@@ -125,6 +107,26 @@ func (h *leaseHandle) IsLost() bool {
 	default:
 		return false
 	}
+}
+
+func (h *leaseHandle) setExpiresAt(expiresAt time.Time) {
+	if expiresAt.IsZero() {
+		h.expiresAt.Store(0)
+		return
+	}
+	h.expiresAt.Store(expiresAt.UnixNano())
+}
+
+func (h *leaseHandle) hasExpiry() bool {
+	return h != nil && h.expiresAt.Load() != 0
+}
+
+func (h *leaseHandle) leaseExpired(now time.Time) bool {
+	if h == nil {
+		return false
+	}
+	value := h.expiresAt.Load()
+	return value != 0 && !time.Unix(0, value).After(now)
 }
 
 func (h *leaseHandle) Err() error {

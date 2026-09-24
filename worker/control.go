@@ -42,6 +42,10 @@ type stateFinalizingBroker interface {
 	AckAndRecord(ctx context.Context, delivery taskforge.Delivery, state taskforge.State) error
 }
 
+type stateWritesPolicy interface {
+	StateWritesEnabled() bool
+}
+
 type AdaptiveConfig struct {
 	Enabled                bool
 	MinConcurrency         int

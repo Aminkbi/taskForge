@@ -91,9 +91,9 @@ They contain check IDs and `passed`, `failed`, or `skipped` states, and may
 include machine-specific benchmark deltas. Results from different commits or
 environments must not be combined.
 
-Redis-backed commands require a writable Redis primary on
-`localhost:6379`. `make experiment-smoke` may start the repository's Redis
-Compose service and uses dedicated database 14. `make release-validate`
+Redis-backed commands require an explicitly configured writable Redis primary
+and a non-zero dedicated database. `make experiment-smoke` may start the
+repository's Redis Compose service and uses dedicated database 14. `make release-validate`
 requires a working Docker daemon with Buildx. Generated experiment and release
 outputs are local evidence for the exact tree and environment that produced
 them; they are intentionally not committed as certification results.

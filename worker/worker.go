@@ -146,7 +146,15 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 	reserveCtx, cancelReserve := context.WithCancel(ctx)
 	defer cancelReserve()
 	execCtx, cancelExec := context.WithCancel(ctx)
-	defer cancelExec()
+	leaseCtx, cancelLeases := context.WithCancel(ctx)
+	leases := newLeaseCoordinator(leaseCtx, w.Logger, w.Broker)
+	var leaseWG sync.WaitGroup
+	leaseWG.Go(leases.run)
+	defer func() {
+		cancelExec()
+		cancelLeases()
+		leaseWG.Wait()
+	}()
 
 	reserveWake := make(chan struct{}, 1)
 	dispatchWake := make(chan struct{}, 1)
@@ -159,7 +167,7 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 	go w.lifecycleRefreshLoop(stopRefresh, state)
 
 	loops.Go(func() {
-		if err := w.reserveLoop(reserveCtx, execCtx, state, reserveWake, dispatchWake); err != nil {
+		if err := w.reserveLoop(reserveCtx, leaseCtx, leases, state, reserveWake, dispatchWake); err != nil {
 			select {
 			case errCh <- err:
 			default:
@@ -205,7 +213,7 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 		go func() {
 			select {
 			case <-force:
-				w.forceStop(ctx, state, cancelReserve, cancelExec)
+				w.forceStop(ctx, state, cancelReserve, cancelExec, cancelLeases)
 				select {
 				case forcedReturn <- struct{}{}:
 				default:
@@ -231,15 +239,23 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 	case <-ctx.Done():
 		cancelReserve()
 		cancelExec()
-		w.stopPendingReservations(ctx, state, "context_canceled")
+		cancelLeases()
+		notify(reserveWake)
+		notify(dispatchWake)
 		<-done
+		leaseWG.Wait()
+		w.stopPendingReservations(ctx, state, "context_canceled")
 		w.finishStopped(ctx, state)
 		return nil
 	case <-forcedReturn:
 		loops.Wait()
+		cancelLeases()
+		leaseWG.Wait()
 		w.finishStopped(ctx, state)
 		return nil
 	case <-done:
+		cancelLeases()
+		leaseWG.Wait()
 		w.finishStopped(ctx, state)
 		return nil
 	case err := <-errCh:
@@ -248,12 +264,15 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 		notify(reserveWake)
 		notify(dispatchWake)
 		<-done
+		cancelLeases()
+		leaseWG.Wait()
+		w.stopPendingReservations(ctx, state, "reserve_failed")
 		w.finishStopped(ctx, state)
 		return err
 	}
 }
 
-func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}) error {
+func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, leases *leaseCoordinator, state *workerState, reserveWake, dispatchWake chan struct{}) error {
 	if w.RecoveryHealth != nil {
 		w.RecoveryHealth.MarkReady("worker reserve and reclaim loop healthy")
 	}
@@ -314,18 +333,55 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, state *workerState, 
 		}
 
 		entries := make([]*pendingDelivery, 0, len(deliveries))
+		registrationRejected := false
 		for _, delivery := range deliveries {
+			handle, err := leases.register(delivery, w.deliveryLeaseTTL(delivery))
+			if err != nil {
+				for _, entry := range entries {
+					if entry.brokerLease != nil {
+						entry.brokerLease.Stop()
+					}
+				}
+				w.abandonReservedEntries(ctx, state, len(deliveries), "lease_registration_rejected")
+				if errors.Is(err, errLeaseAlreadyExpired) {
+					registrationRejected = true
+					break
+				}
+				if errors.Is(err, errLeaseCoordinatorStopped) || errors.Is(err, context.Canceled) {
+					return nil
+				}
+				return fmt.Errorf("worker register delivery lease: %w", err)
+			}
 			entries = append(entries, &pendingDelivery{
 				delivery:     delivery,
 				ownershipKey: delivery.OwnershipKey(),
-				brokerLease:  startLeaseExtender(leaseCtx, w.Logger, w.Broker, delivery, w.deliveryLeaseTTL(delivery)),
+				brokerLease:  handle,
 			})
 		}
+		if registrationRejected {
+			continue
+		}
 		if err := w.recordTaskStates(ctx, deliveries, taskforge.StateLeased); err != nil {
+			for _, entry := range entries {
+				if entry.brokerLease != nil {
+					entry.brokerLease.Stop()
+				}
+			}
+			w.abandonReservedEntries(ctx, state, len(entries), "leased_state_write_failed")
 			return err
 		}
 
 		state.mu.Lock()
+		if state.lifecycleState != "accepting" {
+			state.mu.Unlock()
+			for _, entry := range entries {
+				if entry.brokerLease != nil {
+					entry.brokerLease.Stop()
+				}
+			}
+			w.abandonReservedEntries(ctx, state, len(entries), "worker_stopping")
+			return nil
+		}
 		state.pending = append(state.pending, entries...)
 		state.mu.Unlock()
 		for _, entry := range entries {
@@ -506,6 +562,9 @@ func (w *Worker) nextDispatchable(ctx context.Context, state *workerState, reser
 		if w.dropPendingIfLeaseLost(state, reserveWake, dispatchWake, entry) {
 			continue
 		}
+		if leasePendingExpired(entry, time.Now()) {
+			continue
+		}
 
 		delivery := entry.delivery
 		releaseGlobal, ok := tryAcquireTaskSlot(w.GlobalTaskLimiter, delivery.Message.Name)
@@ -531,6 +590,12 @@ func (w *Worker) nextDispatchable(ctx context.Context, state *workerState, reser
 			continue
 		}
 
+		if leasePendingExpired(entry, time.Now()) {
+			w.releaseBudget(ctx, budgetLease, delivery)
+			releasePool()
+			releaseGlobal()
+			continue
+		}
 		if entry.brokerLease != nil && entry.brokerLease.IsLost() {
 			w.releaseBudget(ctx, budgetLease, delivery)
 			releasePool()
@@ -549,6 +614,13 @@ func (w *Worker) nextDispatchable(ctx context.Context, state *workerState, reser
 		}
 		index := indexPendingEntry(state.pending, entry)
 		if index < 0 {
+			state.mu.Unlock()
+			w.releaseBudget(ctx, budgetLease, delivery)
+			releasePool()
+			releaseGlobal()
+			continue
+		}
+		if leasePendingExpired(state.pending[index], time.Now()) {
 			state.mu.Unlock()
 			w.releaseBudget(ctx, budgetLease, delivery)
 			releasePool()
@@ -954,7 +1026,27 @@ func (w *Worker) reserveCapacity(state *workerState) int {
 	return max(w.Prefetch-state.running-len(state.pending), 0)
 }
 
+func leasePendingExpired(entry *pendingDelivery, now time.Time) bool {
+	if entry == nil || entry.brokerLease == nil {
+		return false
+	}
+	if entry.brokerLease.hasExpiry() {
+		return entry.brokerLease.leaseExpired(now)
+	}
+	return deliveryLeaseExpired(entry.delivery, now)
+}
+
+func deliveryLeaseExpired(delivery taskforge.Delivery, now time.Time) bool {
+	expiresAt := delivery.Execution.LeaseExpiresAt
+	return !expiresAt.IsZero() && !expiresAt.After(now)
+}
+
 func (w *Worker) deliveryLeaseTTL(delivery taskforge.Delivery) time.Duration {
+	leasedAt := delivery.Execution.LeasedAt
+	expiresAt := delivery.Execution.LeaseExpiresAt
+	if !leasedAt.IsZero() && expiresAt.After(leasedAt) {
+		return expiresAt.Sub(leasedAt)
+	}
 	ttl := delivery.Message.VisibilityTimeout
 	if ttl <= 0 {
 		ttl = w.LeaseTTL
@@ -1073,6 +1165,20 @@ func (w *Worker) dropPendingIfLeaseLost(state *workerState, reserveWake, dispatc
 	return true
 }
 
+func (w *Worker) abandonReservedEntries(ctx context.Context, state *workerState, count int, reason string) {
+	if count <= 0 {
+		return
+	}
+	state.mu.Lock()
+	state.abandonedDeliveries += count
+	snapshot := w.lifecycleSnapshotLocked(state)
+	state.mu.Unlock()
+	w.publishLifecycleSnapshot(ctx, snapshot)
+	if w.Metrics != nil {
+		w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, reason, float64(count))
+	}
+}
+
 func (w *Worker) stopPendingReservations(ctx context.Context, state *workerState, reason string) {
 	state.mu.Lock()
 	pending := append([]*pendingDelivery(nil), state.pending...)
@@ -1089,7 +1195,9 @@ func (w *Worker) stopPendingReservations(ctx context.Context, state *workerState
 	}
 
 	w.publishLifecycleSnapshot(ctx, snapshot)
-	w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, reason, float64(len(pending)))
+	if w.Metrics != nil {
+		w.Metrics.AddWorkerAbandonedDeliveries(w.PoolName, w.Queue, reason, float64(len(pending)))
+	}
 }
 
 func (w *Worker) abandonIfLeaseLost(delivery taskforge.Delivery, brokerLease *leaseHandle, phase string) bool {
@@ -1232,9 +1340,10 @@ func (w *Worker) beginDrain(ctx context.Context, state *workerState, shutdownTim
 	return true
 }
 
-func (w *Worker) forceStop(ctx context.Context, state *workerState, cancelReserve, cancelExec context.CancelFunc) {
+func (w *Worker) forceStop(ctx context.Context, state *workerState, cancelReserve, cancelExec, cancelLeases context.CancelFunc) {
 	cancelReserve()
 	cancelExec()
+	cancelLeases()
 
 	var pending []*pendingDelivery
 	var pendingAbandoned int

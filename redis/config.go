@@ -11,6 +11,11 @@ import (
 // Redis broker options. Connection, logging, state-store, and routing fields in
 // base are preserved; product-control fields come from config.
 func OptionsFromConfig(base Options, config taskforge.Config) (Options, error) {
+	stateMode, err := normalizeStateMode(base.StateMode)
+	if err != nil {
+		return Options{}, fmt.Errorf("redis options: %w", err)
+	}
+	base.StateMode = stateMode
 	normalized, err := config.Normalize()
 	if err != nil {
 		return Options{}, fmt.Errorf("redis options: %w", err)
@@ -67,7 +72,7 @@ func NewFromConfig(config taskforge.Config, base Options) (*Broker, error) {
 	if err != nil {
 		return nil, err
 	}
-	return New(options), nil
+	return NewChecked(options)
 }
 
 // OpenFromConfig validates product configuration and the Redis connection

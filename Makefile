@@ -15,7 +15,10 @@ run-demo:
 	$(GO) run ./examples/overload
 
 test-demo:
-	TASKFORGE_RUN_INTEGRATION=1 $(GO) test -count=1 ./test/integration/... -run '^TestOverloadDemoExecutableContract$$'
+	@test -n "$(TASKFORGE_INTEGRATION_REDIS_ADDR)" || { echo "TASKFORGE_INTEGRATION_REDIS_ADDR is required"; exit 2; }
+	@test -n "$(TASKFORGE_INTEGRATION_REDIS_DB)" || { echo "TASKFORGE_INTEGRATION_REDIS_DB is required"; exit 2; }
+	@test "$(TASKFORGE_INTEGRATION_REDIS_DB)" != "0" || { echo "TASKFORGE_INTEGRATION_REDIS_DB must be non-zero"; exit 2; }
+	TASKFORGE_RUN_INTEGRATION=1 TASKFORGE_INTEGRATION_REDIS_ADDR="$(TASKFORGE_INTEGRATION_REDIS_ADDR)" TASKFORGE_INTEGRATION_REDIS_DB="$(TASKFORGE_INTEGRATION_REDIS_DB)" $(GO) test -count=1 ./test/integration/... -run '^TestOverloadDemoExecutableContract$$'
 
 test:
 	$(SHELL) ./scripts/test.sh
@@ -32,7 +35,10 @@ model-check:
 	$(GO) run ./internal/modelcheck/cmd/modelcheck -model all -max-depth 32 -max-states 100000
 
 integration-test:
-	TASKFORGE_RUN_INTEGRATION=1 $(GO) test ./test/integration/...
+	@test -n "$(TASKFORGE_INTEGRATION_REDIS_ADDR)" || { echo "TASKFORGE_INTEGRATION_REDIS_ADDR is required"; exit 2; }
+	@test -n "$(TASKFORGE_INTEGRATION_REDIS_DB)" || { echo "TASKFORGE_INTEGRATION_REDIS_DB is required"; exit 2; }
+	@test "$(TASKFORGE_INTEGRATION_REDIS_DB)" != "0" || { echo "TASKFORGE_INTEGRATION_REDIS_DB must be non-zero"; exit 2; }
+	TASKFORGE_RUN_INTEGRATION=1 TASKFORGE_INTEGRATION_REDIS_ADDR="$(TASKFORGE_INTEGRATION_REDIS_ADDR)" TASKFORGE_INTEGRATION_REDIS_DB="$(TASKFORGE_INTEGRATION_REDIS_DB)" $(GO) test ./test/integration/...
 
 coverage:
 	$(SHELL) ./scripts/coverage.sh
@@ -56,7 +62,7 @@ bench:
 	$(SHELL) ./scripts/bench.sh
 
 bench-smoke:
-	$(GO) test -run '^$$' -bench . -benchtime=1x ./...
+	$(GO) test -p 1 -run '^$$' -bench . -benchtime=1x ./...
 
 experiment-smoke:
 	$(SHELL) ./scripts/experiment-smoke.sh

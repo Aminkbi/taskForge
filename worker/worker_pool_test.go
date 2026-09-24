@@ -807,7 +807,7 @@ func newQueueWorkerForTest(b taskforge.Broker, queue string, handler taskforge.H
 }
 
 func testDeliveryWithQueue(id, queue, taskName string) taskforge.Delivery {
-	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	return taskforge.Delivery{
 		Message: taskforge.Task{
 			ID:        id,
@@ -820,8 +820,8 @@ func testDeliveryWithQueue(id, queue, taskName string) taskforge.Delivery {
 			DeliveryID:      id + "-delivery",
 			DeliveryCount:   1,
 			FirstEnqueuedAt: now.Add(-time.Minute),
-			LeasedAt:        now,
-			LeaseExpiresAt:  now.Add(30 * time.Second),
+			LeasedAt:        time.Time{},
+			LeaseExpiresAt:  time.Time{},
 			LeaseOwner:      "worker-test",
 			State:           taskforge.StateLeased,
 		},

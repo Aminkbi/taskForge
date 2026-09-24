@@ -52,6 +52,7 @@ type Config struct {
 	RedisDB               int
 	RedisTLS              redis.TLSOptions
 	RedisConnectTimeout   time.Duration
+	StateMode             redis.StateMode
 	RoutingPolicy         *redis.RoutingPolicy
 	Control               taskforge.Config
 
@@ -196,6 +197,10 @@ func Load(defaultServiceName string) (Config, error) {
 	}
 	if cfg.RedisConnectTimeout, err = getEnvPositiveDuration("TASKFORGE_REDIS_CONNECT_TIMEOUT", defaultRedisConnectTimeout); err != nil {
 		return Config{}, err
+	}
+	cfg.StateMode = redis.StateMode(getEnv("TASKFORGE_STATE_MODE", string(redis.StateModeFull)))
+	if cfg.StateMode != redis.StateModeFull && cfg.StateMode != redis.StateModeDeliveryOnly {
+		return Config{}, fmt.Errorf("TASKFORGE_STATE_MODE: expected full or delivery_only")
 	}
 	if cfg.ShutdownTimeout, err = getEnvPositiveDuration("TASKFORGE_SHUTDOWN_TIMEOUT", defaultShutdownTimeout); err != nil {
 		return Config{}, err
@@ -419,7 +424,7 @@ func (c Config) RedisOptions(client *goredis.Client, logger *slog.Logger) (redis
 	}
 	options, err := redis.OptionsFromConfig(redis.Options{
 		Addr: c.RedisAddr, Password: c.RedisPassword, DB: c.RedisDB, TLSConfig: tlsConfig,
-		Client: client, Logger: logger, RoutingPolicy: c.RoutingPolicy,
+		Client: client, Logger: logger, RoutingPolicy: c.RoutingPolicy, StateMode: c.StateMode,
 	}, c.Control)
 	if err != nil {
 		return redis.Options{}, fmt.Errorf("invalid validated configuration: %w", err)

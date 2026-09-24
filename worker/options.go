@@ -72,7 +72,14 @@ func New(options Options) (*Worker, error) {
 	if options.DeadLetter == nil {
 		return nil, fmt.Errorf("new worker: %w", errDeadLetterPublisherUnavailable)
 	}
-	if options.StateStore == nil {
+	if options.StateStore != nil {
+		if policy, ok := options.Broker.(stateWritesPolicy); ok && !policy.StateWritesEnabled() {
+			owner, owns := options.Broker.(stateFinalizingBroker)
+			if !owns || !owner.OwnsStateStore(options.StateStore) {
+				return nil, fmt.Errorf("new worker: custom state store is incompatible with delivery-only broker state")
+			}
+		}
+	} else {
 		options.StateStore, _ = options.Broker.(taskforge.StateStore)
 	}
 	if options.QueueMetrics == nil {

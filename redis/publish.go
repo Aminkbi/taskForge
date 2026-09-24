@@ -15,7 +15,7 @@ func (b *Broker) publishReadyTask(ctx context.Context, msg taskforge.Task, paylo
 	queue := taskforge.EffectiveQueue(msg)
 	taskKey := ""
 	stateArgs := []any{0}
-	if store, ok := b.stateStore.(*stateStore); ok {
+	if store, ok := b.stateStore.(*stateStore); ok && b.stateMode != StateModeDeliveryOnly {
 		record, err := store.queuedRecord(msg, now)
 		if err != nil {
 			return false, false, err

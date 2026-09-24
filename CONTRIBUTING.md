@@ -11,7 +11,7 @@ Start with the [architecture map](docs/development/agent-context.md). Common che
 make test
 make lint
 make race-test
-make integration-test # requires Redis on localhost:6379
+make integration-test # set TASKFORGE_INTEGRATION_REDIS_ADDR/DB to a dedicated Redis
 ```
 
 ## Pull Requests

@@ -24,10 +24,7 @@ import (
 	runtimepkg "github.com/aminkbi/taskforge/worker"
 )
 
-const (
-	benchReserveTimeout = 10 * time.Millisecond
-	benchRedisDB        = 14
-)
+const benchReserveTimeout = 10 * time.Millisecond
 
 type benchEnv struct {
 	ctx        context.Context
@@ -172,7 +169,7 @@ func BenchmarkReclaimLatencyAfterWorkerDeath(b *testing.B) {
 	env := newBenchEnv(b, 20*time.Millisecond)
 	var total time.Duration
 
-	b.ResetTimer()
+	b.StopTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := env.broker.Publish(env.ctx, benchmarkMessage("reclaim", i), taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
 			b.Fatalf("Publish() error = %v", err)
@@ -182,17 +179,18 @@ func BenchmarkReclaimLatencyAfterWorkerDeath(b *testing.B) {
 		}
 
 		time.Sleep(30 * time.Millisecond)
+		b.StartTimer()
 		start := time.Now()
 		delivery, err := env.broker.Reserve(env.ctx, "default", "bench-reclaimer")
 		if err != nil {
 			b.Fatalf("Reserve() reclaim error = %v", err)
 		}
 		total += time.Since(start)
+		b.StopTimer()
 		if err := env.broker.Ack(env.ctx, delivery); err != nil {
 			b.Fatalf("Ack() error = %v", err)
 		}
 	}
-	b.StopTimer()
 
 	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "ns/reclaim")
 }
@@ -549,18 +547,25 @@ func newBenchEnvWithOptions(b *testing.B, leaseTTL time.Duration, options taskfo
 		b.Skip("set TASKFORGE_RUN_BENCHMARKS=1 to run Redis benchmarks")
 	}
 
-	db := benchRedisDB
-	if raw := os.Getenv("TASKFORGE_REDIS_DB"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			b.Fatalf("parse TASKFORGE_REDIS_DB: %v", err)
-		}
-		db = parsed
+	addr := os.Getenv("TASKFORGE_REDIS_ADDR")
+	if addr == "" {
+		b.Fatal("TASKFORGE_REDIS_ADDR is required for Redis benchmarks")
+	}
+	rawDB := os.Getenv("TASKFORGE_REDIS_DB")
+	if rawDB == "" {
+		b.Fatal("TASKFORGE_REDIS_DB is required for Redis benchmarks")
+	}
+	db, err := strconv.Atoi(rawDB)
+	if err != nil {
+		b.Fatalf("parse TASKFORGE_REDIS_DB: %v", err)
+	}
+	if db <= 0 {
+		b.Fatal("TASKFORGE_REDIS_DB must be a non-zero dedicated database")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	client, err := taskforgeredis.Connect(ctx, taskforgeredis.Options{
-		Addr: envOrDefault("TASKFORGE_REDIS_ADDR", "localhost:6379"),
+		Addr: addr,
 		DB:   db,
 	})
 	if err != nil {
@@ -652,13 +657,6 @@ func newBenchWorker(b taskforge.Broker, deadLetters taskforge.DeadLetterPublishe
 		Concurrency: 1,
 		Prefetch:    1,
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func clearBenchKeys(b *testing.B, ctx context.Context, client *redis.Client) {

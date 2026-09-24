@@ -58,7 +58,7 @@ both modules, and research commands are invoked with `go -C research`.
 | Concurrent worker, lease, or scheduler behavior | `make race-test` |
 | Deterministic protocol fault schedules | `make simulation-test` |
 | Exhaustive bounded protocol state spaces | `make model-check` |
-| Redis behavior | `make integration-test` (Redis on `localhost:6379`) |
+| Redis behavior | `make integration-test` with `TASKFORGE_INTEGRATION_REDIS_ADDR` and a non-zero `TASKFORGE_INTEGRATION_REDIS_DB` |
 | Reliability claim/check/artifact linkage | `make certification-check` |
 | Research tooling (nested module) | `go -C research test ./...` or `make research-test` |
 | Registered research evidence or generated report | `make research-check` |

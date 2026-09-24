@@ -12,7 +12,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/aminkbi/taskforge"
-	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
 )
 
@@ -258,7 +257,8 @@ func (b *Broker) reserveFairCandidate(ctx context.Context, queue, consumerName s
 		deliverySpanAttributes(delivery)...,
 	)
 	defer span.End()
-	logging.WithDelivery(b.logger, delivery).Info("reserved task delivery")
+	logDeliveryReservation(ctx, b.logger, delivery)
+	b.recordLeaseDeadlines(ctx, streamKey, []taskforge.Delivery{delivery})
 	return delivery, true, nil
 }
 
@@ -267,51 +267,16 @@ func (b *Broker) reclaimFairExpiredDelivery(ctx context.Context, queue, consumer
 	if err != nil {
 		return taskforge.Delivery{}, false, err
 	}
-
-	type pendingCommand struct {
-		fairnessKey string
-		streamKey   string
-		pending     *redis.XPendingExtCmd
-	}
-	commands := make([]pendingCommand, 0, len(keys))
-	pipe := b.client.Pipeline()
+	groupName := b.groupName(queue)
 	for _, fairnessKey := range keys {
-		streamKey := b.fairnessStreamKey(queue, fairnessKey)
-		commands = append(commands, pendingCommand{
-			fairnessKey: fairnessKey,
-			streamKey:   streamKey,
-			pending: pipe.XPendingExt(ctx, &redis.XPendingExtArgs{
-				Stream: streamKey,
-				Group:  b.groupName(queue),
-				Start:  "-",
-				End:    "+",
-				Count:  1,
-			}),
-		})
-	}
-	_, _ = pipe.Exec(ctx)
-
-	for _, command := range commands {
-		pending, err := command.pending.Result()
-		if err != nil {
-			if errors.Is(err, redis.Nil) || isMissingGroup(err) || isMissingStream(err) {
-				continue
-			}
-			return taskforge.Delivery{}, false, fmt.Errorf("reclaim task: fairness inspect pending %q: %w", command.fairnessKey, err)
-		}
-		if len(pending) == 0 {
-			continue
-		}
-
-		delivery, ok, err := b.reclaimExpiredDelivery(ctx, queue, command.streamKey, b.groupName(queue), consumerName)
+		delivery, claimed, err := b.reclaimExpiredDelivery(ctx, queue, b.fairnessStreamKey(queue, fairnessKey), groupName, consumerName)
 		if err != nil {
 			return taskforge.Delivery{}, false, err
 		}
-		if ok {
+		if claimed {
 			return delivery, true, nil
 		}
 	}
-
 	return taskforge.Delivery{}, false, nil
 }
 

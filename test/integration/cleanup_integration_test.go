@@ -83,9 +83,6 @@ func TestRedisPublishCombinesQueuedState(t *testing.T) {
 					}
 					commands, trips := counter.snapshot()
 					want := 1
-					if dedup {
-						want++
-					}
 					if trips != want {
 						t.Fatalf("publish trips = %d, want %d; commands %v", trips, want, commands)
 					}
@@ -139,6 +136,30 @@ func TestRedisPublishCombinesQueuedState(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestRedisExtendLeaseUsesOneCommand(t *testing.T) {
+	ctx, broker, client := newIntegrationBroker(t, time.Minute)
+	msg := taskforge.Task{ID: "one-command-renew", Name: "renew", Queue: "default"}
+	if _, err := broker.Publish(ctx, msg, taskforge.PublishOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := broker.Reserve(ctx, "default", "renew-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := broker.ExtendLease(ctx, delivery, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	counter := &commandCounter{}
+	client.AddHook(counter)
+	if err := broker.ExtendLease(ctx, delivery, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	commands, trips := counter.snapshot()
+	if trips != 1 || !slices.Equal(commands, []string{"evalsha"}) {
+		t.Fatalf("ExtendLease() trips = %d, commands = %v; want one evalsha", trips, commands)
 	}
 }
 

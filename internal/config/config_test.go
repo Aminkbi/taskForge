@@ -25,6 +25,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("TASKFORGE_REDIS_PASSWORD", "")
 	t.Setenv("TASKFORGE_REDIS_DB", "")
 	t.Setenv("TASKFORGE_REDIS_CONNECT_TIMEOUT", "")
+	t.Setenv("TASKFORGE_STATE_MODE", "")
 	t.Setenv("TASKFORGE_REDIS_TLS_ENABLED", "")
 	t.Setenv("TASKFORGE_REDIS_TLS_CA_FILE", "")
 	t.Setenv("TASKFORGE_REDIS_TLS_CERT_FILE", "")
@@ -82,6 +83,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.RedisTLS.Enabled || cfg.RedisConnectTimeout != defaultRedisConnectTimeout {
 		t.Fatalf("unexpected default Redis connectivity: %+v timeout=%v", cfg.RedisTLS, cfg.RedisConnectTimeout)
+	}
+	if cfg.StateMode != taskforgeredis.StateModeFull {
+		t.Fatalf("StateMode = %q, want full", cfg.StateMode)
 	}
 	if len(control.DependencyBudgets) != 0 {
 		t.Fatalf("Control.DependencyBudgets length = %d, want 0", len(control.DependencyBudgets))
@@ -400,6 +404,25 @@ func TestLoadInvalidDuration(t *testing.T) {
 	_, err := Load("taskforge-test")
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadStateMode(t *testing.T) {
+	t.Setenv("TASKFORGE_STATE_MODE", "delivery_only")
+	cfg, err := Load("taskforge-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StateMode != taskforgeredis.StateModeDeliveryOnly {
+		t.Fatalf("StateMode = %q, want delivery_only", cfg.StateMode)
+	}
+	options, err := cfg.RedisOptions(nil, nil)
+	if err != nil || options.StateMode != taskforgeredis.StateModeDeliveryOnly {
+		t.Fatalf("RedisOptions() StateMode = %q, error = %v", options.StateMode, err)
+	}
+	t.Setenv("TASKFORGE_STATE_MODE", "invalid")
+	if _, err := Load("taskforge-test"); err == nil || !strings.Contains(err.Error(), "TASKFORGE_STATE_MODE") {
+		t.Fatalf("Load() error = %v, want state mode error", err)
 	}
 }
 

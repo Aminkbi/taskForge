@@ -45,9 +45,9 @@ go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 - `integration`: Redis-backed tests.
 - `race`: `go test -race ./...`.
 - `benchmark-smoke`: each benchmark once.
-- `benchmark-regression`: validates versioned baseline metadata in CI. Local
-  measured comparisons require two repeated benchmark logs through
-  `make benchmark-regression BENCHMARK_ARGS='before.txt after.txt'`.
+- `benchmark-regression`: requires two repeated benchmark logs locally. CI uses
+  the explicit `TASKFORGE_BENCHMARK_METADATA_ONLY=1` mode to validate versioned
+  baseline metadata without claiming a measured comparison.
 - `experiment-smoke`: every comparative workload/variant with raw and derived evidence.
 - `docs-and-examples`: active documentation, certification linkage, and the public demo contract.
 - `release-smoke`: release binaries and images without publishing.

@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -28,6 +29,11 @@ func TestOwnsStateStoreOnlyForBuiltInStore(t *testing.T) {
 	custom := &Broker{stateStore: customStateStore{}}
 	if custom.OwnsStateStore(custom) {
 		t.Fatal("custom state store was incorrectly treated as atomically co-located")
+	}
+	deliveryOnly := New(Options{StateMode: StateModeDeliveryOnly})
+	defer deliveryOnly.Close()
+	if !deliveryOnly.OwnsStateStore(deliveryOnly) {
+		t.Fatal("delivery-only broker state store was not recognized")
 	}
 }
 
@@ -57,6 +63,100 @@ func TestNewDefaultsReserveTimeout(t *testing.T) {
 	b := New(Options{LeaseTTL: 30 * time.Second})
 	if b.reserveTTL != defaultReserveTimeout {
 		t.Fatalf("reserveTTL = %v, want %v", b.reserveTTL, defaultReserveTimeout)
+	}
+}
+
+func TestNewBoundsReclaimBatchSize(t *testing.T) {
+	t.Parallel()
+	if got := New(Options{}).reclaimBatchSize; got != defaultReclaimBatchSize {
+		t.Fatalf("default reclaim batch size = %d, want %d", got, defaultReclaimBatchSize)
+	}
+	if got := New(Options{ReclaimBatchSize: 1000}).reclaimBatchSize; got != maxReclaimBatchSize {
+		t.Fatalf("bounded reclaim batch size = %d, want %d", got, maxReclaimBatchSize)
+	}
+}
+
+func TestNewCheckedRejectsUnknownStateMode(t *testing.T) {
+	t.Parallel()
+	if _, err := NewChecked(Options{StateMode: StateMode("invalid")}); err == nil {
+		t.Fatal("NewChecked() error = nil, want invalid state mode error")
+	}
+	b := New(Options{StateMode: StateMode("invalid")})
+	defer b.Close()
+	if _, err := b.Publish(context.Background(), taskforge.Task{ID: "invalid-state"}, taskforge.PublishOptions{}); err == nil {
+		t.Fatal("invalid broker accepted a publish")
+	}
+	if b.StateWritesEnabled() {
+		t.Fatal("invalid broker reported state writes enabled")
+	}
+}
+
+func TestStateWritesEnabledModes(t *testing.T) {
+	t.Parallel()
+	if !New(Options{StateMode: StateModeFull}).StateWritesEnabled() {
+		t.Fatal("full state mode disabled state writes")
+	}
+	if New(Options{StateMode: StateModeDeliveryOnly}).StateWritesEnabled() {
+		t.Fatal("delivery-only state mode enabled state writes")
+	}
+}
+
+func TestEffectiveLeaseTTLNormalizesToMilliseconds(t *testing.T) {
+	t.Parallel()
+	b := New(Options{LeaseTTL: 500 * time.Microsecond})
+	if got := b.effectiveLeaseTTL(taskforge.Task{VisibilityTimeout: 500 * time.Microsecond}); got != time.Millisecond {
+		t.Fatalf("effective lease TTL = %v, want %v", got, time.Millisecond)
+	}
+}
+
+type reservationLogHandler struct {
+	minimum slog.Level
+	records []slog.Record
+}
+
+func (h *reservationLogHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.minimum
+}
+
+func (h *reservationLogHandler) Handle(_ context.Context, record slog.Record) error {
+	h.records = append(h.records, record)
+	return nil
+}
+
+func (h *reservationLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *reservationLogHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestReservationLoggingIsDebugOnly(t *testing.T) {
+	t.Parallel()
+	delivery := taskforge.Delivery{Message: taskforge.Task{ID: "log", Queue: "default"}}
+	infoHandler := &reservationLogHandler{minimum: slog.LevelInfo}
+	logDeliveryReservation(context.Background(), slog.New(infoHandler), delivery)
+	if len(infoHandler.records) != 0 {
+		t.Fatalf("info reservation records = %d, want 0", len(infoHandler.records))
+	}
+	debugHandler := &reservationLogHandler{minimum: slog.LevelDebug}
+	logDeliveryReservation(context.Background(), slog.New(debugHandler), delivery)
+	if len(debugHandler.records) != 1 {
+		t.Fatalf("debug reservation records = %d, want 1", len(debugHandler.records))
+	}
+}
+
+func TestNormalizeLeaseTTLToRedisPrecision(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{name: "sub millisecond", in: 500 * time.Microsecond, want: time.Millisecond},
+		{name: "fractional millisecond", in: 1500 * time.Microsecond, want: time.Millisecond},
+		{name: "exact millisecond", in: 2 * time.Millisecond, want: 2 * time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := normalizeLeaseTTL(test.in); got != test.want {
+				t.Fatalf("normalizeLeaseTTL(%v) = %v, want %v", test.in, got, test.want)
+			}
+		})
 	}
 }
 

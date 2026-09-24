@@ -601,7 +601,7 @@ func newTestWorker(b taskforge.Broker, deadLetterPublisher taskforge.DeadLetterP
 }
 
 func testDelivery() taskforge.Delivery {
-	now := time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	return taskforge.Delivery{
 		Message: taskforge.Task{
 			ID:        "task-1",
@@ -614,8 +614,8 @@ func testDelivery() taskforge.Delivery {
 			DeliveryID:      "delivery-1",
 			DeliveryCount:   1,
 			FirstEnqueuedAt: now.Add(-time.Minute),
-			LeasedAt:        now,
-			LeaseExpiresAt:  now.Add(30 * time.Second),
+			LeasedAt:        time.Time{},
+			LeaseExpiresAt:  time.Time{},
 			LeaseOwner:      "worker-1",
 			State:           taskforge.StateLeased,
 		},

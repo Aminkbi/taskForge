@@ -162,12 +162,13 @@ rebuilds the measured binary, and compares its digest.
 
 ## Preconditions
 
-- Redis at `localhost:6379`, or set `TASKFORGE_REDIS_ADDR`.
-- A dedicated DB through `TASKFORGE_REDIS_DB` when needed.
+- An explicitly configured Redis endpoint in `TASKFORGE_REDIS_ADDR`.
+- A dedicated non-zero DB through `TASKFORGE_REDIS_DB`; do not run against the
+  application Redis or database `0`.
 - `TASKFORGE_RUN_BENCHMARKS=1`; add `TASKFORGE_RUN_HEAVY_BENCHMARKS=1` for the
   100,000-schedule case.
 
-The harness is `test/benchmark/`:
+The harness is `test/benchmark/` plus the Redis package benchmarks:
 
 ```bash
 TASKFORGE_RUN_BENCHMARKS=1 make bench
@@ -199,9 +200,9 @@ their counters cover the entire Redis server. This is a host-local regression
 check, not a statistical significance test; investigate failures and repeat
 matched runs when workstation noise is material.
 
-Without input logs, `make benchmark-regression` validates only the presence of
-versioned baseline metadata and explicitly reports that no comparison was run.
-CI uses this metadata-only mode; smoke validation is a separate job.
+Without input logs, the regression command fails closed. CI sets
+`TASKFORGE_BENCHMARK_METADATA_ONLY=1` for the explicit metadata-only check and
+reports that no comparison was run; smoke validation is a separate job.
 
 ## Covered scenarios
 

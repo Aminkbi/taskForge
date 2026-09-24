@@ -31,6 +31,9 @@ func TestOptionsFromConfigCompilesBrokerControls(t *testing.T) {
 	if options.LeaseTTL != 20*time.Second || options.ReserveTimeout != 25*time.Millisecond {
 		t.Fatalf("unexpected broker timing options: %+v", options)
 	}
+	if options.StateMode != StateModeFull {
+		t.Fatalf("StateMode = %q, want full", options.StateMode)
+	}
 	if options.DependencyBudgets["external-api"] != 4 || options.Retention.SucceededState != time.Hour {
 		t.Fatalf("unexpected broker budget/retention options: %+v", options)
 	}
@@ -48,5 +51,13 @@ func TestOptionsFromConfigRejectsInvalidModel(t *testing.T) {
 	_, err := OptionsFromConfig(Options{}, taskforge.Config{LeaseTTL: -time.Second})
 	if err == nil {
 		t.Fatal("OptionsFromConfig() error = nil, want validation error")
+	}
+}
+
+func TestOptionsFromConfigRejectsUnknownStateMode(t *testing.T) {
+	t.Parallel()
+	_, err := OptionsFromConfig(Options{StateMode: StateMode("invalid")}, taskforge.DefaultConfig())
+	if err == nil {
+		t.Fatal("OptionsFromConfig() error = nil, want state mode error")
 	}
 }

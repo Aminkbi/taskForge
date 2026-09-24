@@ -172,6 +172,9 @@ jobs:
             research/go.sum
 
       - name: Integration tests
+        env:
+          TASKFORGE_INTEGRATION_REDIS_ADDR: 127.0.0.1:6379
+          TASKFORGE_INTEGRATION_REDIS_DB: 14
         run: make integration-test
 
   race:
@@ -223,6 +226,8 @@ jobs:
             research/go.sum
 
       - name: Benchmark regression baseline
+        env:
+          TASKFORGE_BENCHMARK_METADATA_ONLY: "1"
         run: make benchmark-regression
 
   experiment-smoke:
@@ -283,6 +288,9 @@ jobs:
         run: make docs-check
 
       - name: Run public demo executable contract
+        env:
+          TASKFORGE_INTEGRATION_REDIS_ADDR: 127.0.0.1:6379
+          TASKFORGE_INTEGRATION_REDIS_DB: 14
         run: make test-demo
 
   release-smoke:

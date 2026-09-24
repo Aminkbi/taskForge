@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -48,14 +49,15 @@ func TestRedisStandaloneConnectionValidation(t *testing.T) {
 
 func TestOverloadDemoExecutableContract(t *testing.T) {
 	ctx, _, _ := newIntegrationBroker(t, 30*time.Second)
+	redisAddr, redisDB := integrationRedisConfig(t)
 	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	command := exec.CommandContext(commandCtx, "go", "run", "./examples/overload")
 	command.Dir = filepath.Clean(filepath.Join("..", ".."))
 	command.Env = append(os.Environ(),
-		"TASKFORGE_DEMO_REDIS_ADDR=localhost:6379",
-		"TASKFORGE_DEMO_REDIS_DB=0",
+		"TASKFORGE_DEMO_REDIS_ADDR="+redisAddr,
+		"TASKFORGE_DEMO_REDIS_DB="+strconv.Itoa(redisDB),
 	)
 	output, err := command.Output()
 	if err != nil {
@@ -1538,7 +1540,8 @@ func TestRedisReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
 	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
 
 	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, observability.NewMetrics(), taskforgeredis.Options{
-		ReserveTimeout: ciReserveTimeout,
+		ReserveTimeout:   ciReserveTimeout,
+		ReclaimBatchSize: 8,
 	})
 
 	for i := 0; i < 20; i++ {
@@ -1585,6 +1588,160 @@ func TestRedisReclaimsExpiredDeliveryBeyondInitialPendingWindow(t *testing.T) {
 	}
 	if reclaimed.Execution.DeliveryCount < 2 {
 		t.Fatalf("reclaimed delivery count = %d, want >= 2", reclaimed.Execution.DeliveryCount)
+	}
+}
+
+func TestRedisReclaimUsesIndexedExpiredDeliveryWithLargeHealthyBacklog(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		ReserveTimeout:   ciReserveTimeout,
+		ReclaimBatchSize: 8,
+		StateMode:        taskforgeredis.StateModeDeliveryOnly,
+	})
+	payload := bytes.Repeat([]byte("x"), 512*1024)
+	for index := range 32 {
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
+			ID:                "large-healthy-" + strconv.Itoa(index),
+			Name:              "integration.reclaim.large",
+			Queue:             "default",
+			Payload:           payload,
+			VisibilityTimeout: time.Hour,
+			CreatedAt:         time.Now().UTC(),
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() healthy %d error = %v", index, err)
+		}
+	}
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
+		ID:                "large-expired",
+		Name:              "integration.reclaim.large",
+		Queue:             "default",
+		Payload:           payload,
+		VisibilityTimeout: 500 * time.Millisecond,
+		CreatedAt:         time.Now().UTC(),
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() expired error = %v", err)
+	}
+	for index := range 33 {
+		if _, err := brokerInstance.Reserve(ctx, "default", "large-owner"); err != nil {
+			t.Fatalf("Reserve() pending %d error = %v", index, err)
+		}
+	}
+	time.Sleep(600 * time.Millisecond)
+	counter := &commandCounter{}
+	client.AddHook(counter)
+	reclaimed, err := brokerInstance.Reserve(ctx, "default", "large-reclaimer")
+	if err != nil {
+		t.Fatalf("Reserve() reclaimed error = %v", err)
+	}
+	commands, _ := counter.snapshot()
+	if reclaimed.Message.ID != "large-expired" {
+		t.Fatalf("reclaimed task = %q, want large-expired", reclaimed.Message.ID)
+	}
+	if countCommand(commands, "xrange") > 1 {
+		t.Fatalf("reclaim loaded %d payloads, want at most one: %v", countCommand(commands, "xrange"), commands)
+	}
+	if err := brokerInstance.Ack(ctx, reclaimed); err != nil {
+		t.Fatalf("Ack() reclaimed error = %v", err)
+	}
+}
+
+func TestRedisReclaimBackfillAdvancesPastHealthyBatches(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		ReserveTimeout:   20 * time.Millisecond,
+		ReclaimBatchSize: 8,
+		StateMode:        taskforgeredis.StateModeDeliveryOnly,
+	})
+	for index := range 40 {
+		if _, err := brokerInstance.Publish(ctx, taskforge.Task{
+			ID:                "backfill-healthy-" + strconv.Itoa(index),
+			Name:              "integration.reclaim.backfill",
+			Queue:             "default",
+			VisibilityTimeout: time.Hour,
+			CreatedAt:         time.Now().UTC(),
+		}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+			t.Fatalf("Publish() healthy %d error = %v", index, err)
+		}
+	}
+	if _, err := brokerInstance.Publish(ctx, taskforge.Task{
+		ID:                "backfill-expired",
+		Name:              "integration.reclaim.backfill",
+		Queue:             "default",
+		VisibilityTimeout: 300 * time.Millisecond,
+		CreatedAt:         time.Now().UTC(),
+	}, taskforge.PublishOptions{Source: taskforge.PublishSourceNew}); err != nil {
+		t.Fatalf("Publish() expired error = %v", err)
+	}
+	for range 41 {
+		if _, err := brokerInstance.Reserve(ctx, "default", "backfill-owner"); err != nil {
+			t.Fatalf("Reserve() pending error = %v", err)
+		}
+	}
+	if err := client.Del(ctx, "taskforge:v2:stream:default:lease-deadlines").Err(); err != nil {
+		t.Fatalf("delete lease deadline index: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		reclaimed, err := brokerInstance.Reserve(ctx, "default", "backfill-reclaimer")
+		if err == nil {
+			if reclaimed.Message.ID != "backfill-expired" {
+				t.Fatalf("reclaimed task = %q, want backfill-expired", reclaimed.Message.ID)
+			}
+			if err := brokerInstance.Ack(ctx, reclaimed); err != nil {
+				t.Fatalf("Ack() reclaimed error = %v", err)
+			}
+			return
+		}
+		if !errors.Is(err, taskforge.ErrNoTask) {
+			t.Fatalf("Reserve() backfill error = %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reclaim backfill did not reach expired delivery")
+		}
+	}
+}
+
+func TestRedisReclaimDoesNotTrustStaleLeaseIndex(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	brokerInstance := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		ReserveTimeout:   20 * time.Millisecond,
+		ReclaimBatchSize: 8,
+		StateMode:        taskforgeredis.StateModeDeliveryOnly,
+	})
+	for _, task := range []taskforge.Task{
+		{ID: "stale-index-expired", Name: "integration.reclaim.stale-index", Queue: "default", VisibilityTimeout: 50 * time.Millisecond},
+		{ID: "stale-index-healthy", Name: "integration.reclaim.stale-index", Queue: "default", VisibilityTimeout: time.Hour},
+	} {
+		if _, err := brokerInstance.Publish(ctx, task, taskforge.PublishOptions{}); err != nil {
+			t.Fatalf("Publish(%s) error = %v", task.ID, err)
+		}
+	}
+	expired, err := brokerInstance.Reserve(ctx, "default", "stale-index-owner")
+	if err != nil {
+		t.Fatalf("Reserve(expired) error = %v", err)
+	}
+	if _, err := brokerInstance.Reserve(ctx, "default", "stale-index-owner"); err != nil {
+		t.Fatalf("Reserve(healthy) error = %v", err)
+	}
+	indexKey := "taskforge:v2:stream:default:lease-deadlines"
+	if err := client.ZRem(ctx, indexKey, expired.Execution.DeliveryID).Err(); err != nil {
+		t.Fatalf("remove indexed expired delivery: %v", err)
+	}
+	if err := client.ZAdd(ctx, indexKey, redis.Z{Score: float64(time.Now().Add(time.Hour).UnixMilli()), Member: "stale-index-member"}).Err(); err != nil {
+		t.Fatalf("add stale index member: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	reclaimed, err := brokerInstance.Reserve(ctx, "default", "stale-index-reclaimer")
+	if err != nil {
+		t.Fatalf("Reserve(reclaim) error = %v", err)
+	}
+	if reclaimed.Message.ID != expired.Message.ID {
+		t.Fatalf("reclaimed task = %q, want %q", reclaimed.Message.ID, expired.Message.ID)
+	}
+	if err := brokerInstance.Ack(ctx, reclaimed); err != nil {
+		t.Fatalf("Ack(reclaimed) error = %v", err)
 	}
 }
 
@@ -2113,6 +2270,95 @@ func TestRedisPublishDeduplicationKeyPublishesOnce(t *testing.T) {
 	}
 	if streamLen != 1 {
 		t.Fatalf("stream length = %d, want 1", streamLen)
+	}
+}
+
+func TestRedisDeliveryOnlySkipsStateWrites(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, 30*time.Second)
+	broker := newIntegrationBrokerWithOptions(client, slog.Default(), 30*time.Second, nil, taskforgeredis.Options{
+		StateMode:      taskforgeredis.StateModeDeliveryOnly,
+		ReserveTimeout: ciReserveTimeout,
+	})
+	msg := taskforge.Task{ID: "delivery-only", Name: "integration.delivery_only", Queue: "default", CreatedAt: time.Now().UTC()}
+	if _, err := broker.Publish(ctx, msg, taskforge.PublishOptions{}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	delivery, err := broker.Reserve(ctx, "default", "delivery-only-owner")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	if err := broker.RecordDeliveryBatch(ctx, []taskforge.Delivery{delivery}, taskforge.StateLeased); err != nil {
+		t.Fatalf("RecordDeliveryBatch() error = %v", err)
+	}
+	if err := broker.RecordDelivery(ctx, delivery, taskforge.StateRunning, []byte("result")); err != nil {
+		t.Fatalf("RecordDelivery() error = %v", err)
+	}
+	if err := broker.AckAndRecord(ctx, delivery, taskforge.StateSucceeded); err != nil {
+		t.Fatalf("AckAndRecord() error = %v", err)
+	}
+	if _, err := broker.Get(ctx, msg.ID); !errors.Is(err, taskforge.ErrTaskNotFound) {
+		t.Fatalf("Get() error = %v, want ErrTaskNotFound", err)
+	}
+	if count, err := client.Exists(ctx, "taskforge:v2:task:"+msg.ID).Result(); err != nil || count != 0 {
+		t.Fatalf("task state key count = %d, error = %v", count, err)
+	}
+	eta := time.Now().Add(time.Hour)
+	delayed := taskforge.Task{ID: "delivery-only-delayed", Name: msg.Name, Queue: msg.Queue, ETA: &eta}
+	if _, err := broker.Publish(ctx, delayed, taskforge.PublishOptions{}); err != nil {
+		t.Fatalf("Publish(delayed) error = %v", err)
+	}
+	if count, err := client.Exists(ctx, "taskforge:v2:task:"+delayed.ID).Result(); err != nil || count != 0 {
+		t.Fatalf("delayed task state key count = %d, error = %v", count, err)
+	}
+}
+
+func TestRedisBatchRenewalFencesStaleOwner(t *testing.T) {
+	ctx, broker, _ := newIntegrationBroker(t, 30*time.Second)
+	shortTTL := 50 * time.Millisecond
+	longTTL := time.Hour
+	for _, item := range []struct {
+		id  string
+		ttl time.Duration
+	}{{"short-lease", shortTTL}, {"long-lease", longTTL}} {
+		if _, err := broker.Publish(ctx, taskforge.Task{ID: item.id, Name: "integration.renew", Queue: "default", VisibilityTimeout: item.ttl}, taskforge.PublishOptions{}); err != nil {
+			t.Fatalf("Publish(%s) error = %v", item.id, err)
+		}
+	}
+	first, err := broker.Reserve(ctx, "default", "owner-a")
+	if err != nil {
+		t.Fatalf("Reserve(first) error = %v", err)
+	}
+	second, err := broker.Reserve(ctx, "default", "owner-a")
+	if err != nil {
+		t.Fatalf("Reserve(second) error = %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := broker.Reserve(ctx, "default", "owner-b"); err != nil {
+		t.Fatalf("Reserve(reclaimed) error = %v", err)
+	}
+	errs, batchErr := broker.ExtendLeases(ctx, []taskforge.Delivery{first, second})
+	if batchErr != nil || len(errs) != 2 || !errors.Is(errs[0], taskforge.ErrStaleDelivery) || errs[1] != nil {
+		t.Fatalf("ExtendLeases() = %v, %v, want stale owner then success", errs, batchErr)
+	}
+}
+
+func TestRedisExtendLeaseAcceptsCallerTTLVariant(t *testing.T) {
+	ctx, broker, _ := newIntegrationBroker(t, time.Minute)
+	if _, err := broker.Publish(ctx, taskforge.Task{ID: "ttl-variant", Name: "integration.ttl", Queue: "default"}, taskforge.PublishOptions{}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	delivery, err := broker.Reserve(ctx, "default", "ttl-owner")
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	if err := broker.ExtendLease(ctx, delivery, time.Millisecond); err != nil {
+		t.Fatalf("short caller ExtendLease() error = %v", err)
+	}
+	if err := broker.ExtendLease(ctx, delivery, time.Minute); err != nil {
+		t.Fatalf("authoritative ExtendLease() error = %v", err)
+	}
+	if err := broker.Ack(ctx, delivery); err != nil {
+		t.Fatalf("Ack() error = %v", err)
 	}
 }
 
@@ -2954,15 +3200,13 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 		t.Skip("set TASKFORGE_RUN_INTEGRATION=1 to run Redis integration tests")
 	}
 
+	addr, db := integrationRedisConfig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 
-	client, err := taskforgeredis.Connect(ctx, taskforgeredis.Options{
-		Addr: "localhost:6379",
-		DB:   0,
-	})
+	client, err := taskforgeredis.Connect(ctx, taskforgeredis.Options{Addr: addr, DB: db})
 	if err != nil {
-		t.Skipf("Redis unavailable or unsupported: %v", err)
+		t.Fatalf("Redis integration endpoint %s/%d unavailable or unsupported: %v", addr, db, err)
 	}
 	t.Cleanup(func() {
 		_ = client.Close()
@@ -2973,6 +3217,26 @@ func newIntegrationBroker(t *testing.T, leaseTTL time.Duration) (context.Context
 	return ctx, newIntegrationBrokerWithOptions(client, slog.Default(), leaseTTL, nil, taskforgeredis.Options{
 		ReserveTimeout: ciReserveTimeout,
 	}), client
+}
+
+func integrationRedisConfig(t *testing.T) (string, int) {
+	t.Helper()
+	addr := os.Getenv("TASKFORGE_INTEGRATION_REDIS_ADDR")
+	if addr == "" {
+		t.Fatal("TASKFORGE_INTEGRATION_REDIS_ADDR is required for Redis integration tests")
+	}
+	rawDB := os.Getenv("TASKFORGE_INTEGRATION_REDIS_DB")
+	if rawDB == "" {
+		t.Fatal("TASKFORGE_INTEGRATION_REDIS_DB is required for Redis integration tests")
+	}
+	db, err := strconv.Atoi(rawDB)
+	if err != nil {
+		t.Fatalf("parse TASKFORGE_INTEGRATION_REDIS_DB: %v", err)
+	}
+	if db <= 0 {
+		t.Fatalf("TASKFORGE_INTEGRATION_REDIS_DB must be a non-zero dedicated database, got %d", db)
+	}
+	return addr, db
 }
 
 func clearIntegrationKeys(t *testing.T, ctx context.Context, client *redis.Client) {

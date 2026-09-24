@@ -90,12 +90,19 @@ func Connect(ctx context.Context, options Options) (*goredis.Client, error) {
 
 // Open creates a broker with an owned, validated Redis connection.
 func Open(ctx context.Context, options Options) (*Broker, error) {
+	if _, err := normalizeStateMode(options.StateMode); err != nil {
+		return nil, err
+	}
 	client, err := Connect(ctx, options)
 	if err != nil {
 		return nil, err
 	}
 	options.Client = client
-	broker := New(options)
+	broker, err := NewChecked(options)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 	broker.ownedClient = true
 	return broker, nil
 }

@@ -70,6 +70,7 @@ TASKFORGE_HTTP_MAX_HEADER_BYTES=16384
 TASKFORGE_REDIS_ADDR=localhost:6379
 TASKFORGE_REDIS_PASSWORD=
 TASKFORGE_REDIS_DB=0
+TASKFORGE_STATE_MODE=full
 TASKFORGE_REDIS_CONNECT_TIMEOUT=5s
 TASKFORGE_REDIS_TLS_ENABLED=false
 TASKFORGE_REDIS_TLS_CA_FILE=
@@ -117,8 +118,16 @@ files together only when the Redis server requires mutual TLS. Set
 address. TLS verification cannot be disabled.
 
 `TASKFORGE_REDIS_CONNECT_TIMEOUT` bounds the sidecars' startup validation.
-Embedded applications should use `redis.OpenFromConfig`, which performs the
-same validation before returning a broker. See the [Redis operating
+`TASKFORGE_STATE_MODE=delivery_only` skips queued, leased, running, and terminal
+task state writes, including result payload storage. Delivery and lease behavior
+is unchanged. Task lookup cannot track new tasks in this mode; records written
+before the mode change remain until their normal retention expires. The default
+`full` mode retains the complete task state history. Delivery-only mode applies
+to the broker-managed state path; workers reject an explicitly supplied custom
+state store in that mode so state writes cannot be bypassed. Embedded
+applications should use `redis.NewChecked`, `redis.Open`, or
+`redis.OpenFromConfig`, which validate the mode before returning a broker. See
+the [Redis operating
 model](../operations/redis.md) for persistence and recovery requirements.
 
 Worker policies use `TASKFORGE_WORKER_POOLS_JSON`:

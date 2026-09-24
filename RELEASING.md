@@ -62,7 +62,7 @@ attestation builds succeed. No local dry-run signs or publishes an artifact.
 - `make test`
 - `make lint`
 - `make race-test`
-- `TASKFORGE_RUN_INTEGRATION=1 make integration-test`
+- `TASKFORGE_INTEGRATION_REDIS_ADDR=... TASKFORGE_INTEGRATION_REDIS_DB=14 make integration-test`
 - `make release-smoke`
 - Review `CHANGELOG.md`
 - Confirm release artifacts include `SHA256SUMS`
