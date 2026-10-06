@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/aminkbi/taskforge"
+	"github.com/aminkbi/taskforge/internal/app/bootstrap"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/healthcheck"
@@ -29,13 +30,10 @@ type App struct {
 }
 
 func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) (*App, error) {
-	options, err := cfg.RedisOptions(nil, logger.With("component", "redis"))
+	client, b, err := bootstrap.NewRedis(cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("configure Redis: %w", err)
+		return nil, err
 	}
-	client := taskforgeredis.NewClient(options)
-	options.Client = client
-	b := taskforgeredis.New(options)
 	store := schedulerpkg.NewRedisScheduleStateStore(client)
 	elector := schedulerpkg.NewRedisLeaderElector(
 		client,
@@ -52,16 +50,19 @@ func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics)
 		cfg.Control.Scheduler.Schedules,
 		logger.With("component", "scheduler-recurring"),
 	)
-	queues := make([]string, 0, len(cfg.Control.WorkerPools))
-	for _, pool := range cfg.Control.WorkerPools {
-		queues = append(queues, pool.Queue)
+	queues := bootstrap.Queues(cfg)
+	if err := bootstrap.RegisterCommonMetrics(metrics, b, queues); err != nil {
+		_ = client.Close()
+		return nil, err
 	}
-	_ = metrics.RegisterQueueMetricsCollector(b, queues)
-	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
-	_ = metrics.RegisterSchedulerLagCollector(b, queues)
-	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
-	_ = metrics.RegisterDependencyBudgetCollector(b)
-	_ = metrics.RegisterSchedulerLeadershipCollector(schedulerLeadershipMetricsProvider{elector: elector})
+	if err := metrics.RegisterSchedulerLagCollector(b, queues); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("register scheduler lag metrics: %w", err)
+	}
+	if err := metrics.RegisterSchedulerLeadershipCollector(schedulerLeadershipMetricsProvider{elector: elector}); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("register scheduler leadership metrics: %w", err)
+	}
 	schedulerRuntime := schedulerpkg.New(
 		b,
 		recurring,

@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"log/slog"
 
+	"github.com/aminkbi/taskforge/internal/app/bootstrap"
 	schedulerapp "github.com/aminkbi/taskforge/internal/app/scheduler"
 	"github.com/aminkbi/taskforge/internal/config"
-	"github.com/aminkbi/taskforge/internal/logging"
 	"github.com/aminkbi/taskforge/internal/observability"
-	"github.com/aminkbi/taskforge/internal/shutdown"
 )
 
 var (
@@ -18,62 +16,16 @@ var (
 )
 
 func main() {
-	if printVersion("taskforge-scheduler") {
-		return
-	}
-
-	ctx, stop := shutdown.NotifyContext(context.Background())
-	defer stop()
-
-	cfg, err := config.Load("taskforge-scheduler")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
-		os.Exit(1)
-	}
-
-	logger, err := logging.New(cfg.LogLevel)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "build logger: %v\n", err)
-		os.Exit(1)
-	}
-
-	shutdownTracing, err := observability.SetupTracing(ctx, observability.TraceConfig{
-		Enabled:     cfg.OTELEnabled,
-		ServiceName: cfg.ServiceName,
-	}, logger)
-	if err != nil {
-		logger.Error("setup tracing", "error", err)
-		os.Exit(1)
-	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-		defer cancel()
-		if err := shutdownTracing(shutdownCtx); err != nil {
-			logger.Error("shutdown tracing", "error", err)
+	bootstrap.Run("taskforge-scheduler", version, commit, func(ctx context.Context, cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) error {
+		app, err := schedulerapp.New(cfg, logger, metrics)
+		if err != nil {
+			logger.Error("configure scheduler", "error", err)
+			return err
 		}
-	}()
-
-	metrics := observability.NewMetrics()
-	app, err := schedulerapp.New(cfg, logger, metrics)
-	if err != nil {
-		logger.Error("configure scheduler", "error", err)
-		os.Exit(1)
-	}
-	if err := app.Run(ctx); err != nil {
-		logger.Error("scheduler exited with error", "error", err)
-		os.Exit(1)
-	}
-}
-
-func printVersion(name string) bool {
-	if len(os.Args) < 2 {
-		return false
-	}
-	switch os.Args[1] {
-	case "version", "--version", "-version":
-		fmt.Fprintf(os.Stdout, "%s %s (%s)\n", name, version, commit)
-		return true
-	default:
-		return false
-	}
+		if err := app.Run(ctx); err != nil {
+			logger.Error("scheduler exited with error", "error", err)
+			return err
+		}
+		return nil
+	})
 }
