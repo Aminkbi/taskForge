@@ -143,133 +143,39 @@ func (w *Worker) run(ctx context.Context, drain <-chan struct{}, force <-chan st
 	w.Metrics.SetWorkerEffectiveConcurrency(w.PoolName, w.Queue, float64(w.Concurrency))
 	w.publishLifecycleState(ctx, state)
 
-	reserveCtx, cancelReserve := context.WithCancel(ctx)
-	defer cancelReserve()
-	execCtx, cancelExec := context.WithCancel(ctx)
-	leaseCtx, cancelLeases := context.WithCancel(ctx)
-	leases := newLeaseCoordinator(leaseCtx, w.Logger, w.Broker)
-	var leaseWG sync.WaitGroup
-	leaseWG.Go(leases.run)
-	defer func() {
-		cancelExec()
-		cancelLeases()
-		leaseWG.Wait()
-	}()
+	supervisor := newWorkerSupervisor(ctx, w, state, drain, force, shutdownTimeout)
+	supervisor.start()
+	defer supervisor.close()
 
-	reserveWake := make(chan struct{}, 1)
-	dispatchWake := make(chan struct{}, 1)
-	errCh := make(chan error, 1)
-	var loops sync.WaitGroup
-	var executions sync.WaitGroup
-	forcedReturn := make(chan struct{}, 1)
-	stopRefresh := make(chan struct{})
-
-	go w.lifecycleRefreshLoop(stopRefresh, state)
-
-	loops.Go(func() {
-		if err := w.reserveLoop(reserveCtx, leaseCtx, leases, state, reserveWake, dispatchWake); err != nil {
-			select {
-			case errCh <- err:
-			default:
-			}
-		}
-	})
-
-	loops.Go(func() {
-		if err := w.dispatchLoop(execCtx, state, reserveWake, dispatchWake, errCh, &executions); err != nil {
-			select {
-			case errCh <- err:
-			default:
-			}
-		}
-	})
-
-	if w.Adaptive.Enabled {
-		loops.Go(func() {
-			if err := w.adaptiveLoop(reserveCtx, state, reserveWake, dispatchWake); err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-			}
-		})
-	}
-
-	if drain != nil {
-		go func() {
-			select {
-			case <-drain:
-				if w.beginDrain(ctx, state, shutdownTimeout) {
-					cancelReserve()
-					notify(reserveWake)
-					notify(dispatchWake)
-				}
-			case <-execCtx.Done():
-			}
-		}()
-	}
-
-	if force != nil {
-		go func() {
-			select {
-			case <-force:
-				w.forceStop(ctx, state, cancelReserve, cancelExec, cancelLeases)
-				select {
-				case forcedReturn <- struct{}{}:
-				default:
-				}
-				notify(reserveWake)
-				notify(dispatchWake)
-			case <-execCtx.Done():
-			}
-		}()
-	}
-
-	done := make(chan struct{})
-	go func() {
-		loops.Wait()
-		if !w.isStopped(state) {
-			executions.Wait()
-		}
-		close(done)
-	}()
-	defer close(stopRefresh)
-
-	select {
-	case <-ctx.Done():
-		cancelReserve()
-		cancelExec()
-		cancelLeases()
-		notify(reserveWake)
-		notify(dispatchWake)
-		<-done
-		leaseWG.Wait()
+	event, runErr := supervisor.await()
+	switch event {
+	case workerContextCanceled:
+		supervisor.stopAll()
+		supervisor.waitDone()
+		supervisor.stopLeases()
 		w.stopPendingReservations(ctx, state, "context_canceled")
 		w.finishStopped(ctx, state)
 		return nil
-	case <-forcedReturn:
-		loops.Wait()
-		cancelLeases()
-		leaseWG.Wait()
+	case workerForceReturned:
+		supervisor.waitLoops()
+		supervisor.stopLeases()
 		w.finishStopped(ctx, state)
 		return nil
-	case <-done:
-		cancelLeases()
-		leaseWG.Wait()
+	case workerLoopsDone:
+		supervisor.stopLeases()
 		w.finishStopped(ctx, state)
 		return nil
-	case err := <-errCh:
+	case workerError:
 		w.beginDrain(ctx, state, 0)
-		cancelReserve()
-		notify(reserveWake)
-		notify(dispatchWake)
-		<-done
-		cancelLeases()
-		leaseWG.Wait()
+		supervisor.stopReservation()
+		notify(supervisor.dispatchWake)
+		supervisor.waitDone()
+		supervisor.stopLeases()
 		w.stopPendingReservations(ctx, state, "reserve_failed")
 		w.finishStopped(ctx, state)
-		return err
+		return runErr
 	}
+	return nil
 }
 
 func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, leases *leaseCoordinator, state *workerState, reserveWake, dispatchWake chan struct{}) error {
