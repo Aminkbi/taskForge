@@ -304,17 +304,7 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, leases *leaseCoordin
 			continue
 		}
 
-		var deliveries []taskforge.Delivery
-		var err error
-		if batcher, ok := w.Broker.(reservationBatcher); ok && capacity > 1 {
-			deliveries, err = batcher.ReserveBatch(ctx, w.Queue, w.consumerKey(), capacity)
-		} else {
-			var delivery taskforge.Delivery
-			delivery, err = w.Broker.Reserve(ctx, w.Queue, w.consumerKey())
-			if err == nil {
-				deliveries = []taskforge.Delivery{delivery}
-			}
-		}
+		deliveries, err := w.reserveDeliveries(ctx, capacity)
 		if err != nil {
 			switch {
 			case errors.Is(err, taskforge.ErrNoTask):
@@ -332,64 +322,87 @@ func (w *Worker) reserveLoop(ctx, leaseCtx context.Context, leases *leaseCoordin
 			continue
 		}
 
-		entries := make([]*pendingDelivery, 0, len(deliveries))
-		registrationRejected := false
-		for _, delivery := range deliveries {
-			handle, err := leases.register(delivery, w.deliveryLeaseTTL(delivery))
-			if err != nil {
-				for _, entry := range entries {
-					if entry.brokerLease != nil {
-						entry.brokerLease.Stop()
-					}
-				}
-				w.abandonReservedEntries(ctx, state, len(deliveries), "lease_registration_rejected")
-				if errors.Is(err, errLeaseAlreadyExpired) {
-					registrationRejected = true
-					break
-				}
-				if errors.Is(err, errLeaseCoordinatorStopped) || errors.Is(err, context.Canceled) {
-					return nil
-				}
-				return fmt.Errorf("worker register delivery lease: %w", err)
-			}
-			entries = append(entries, &pendingDelivery{
-				delivery:     delivery,
-				ownershipKey: delivery.OwnershipKey(),
-				brokerLease:  handle,
-			})
-		}
-		if registrationRejected {
-			continue
-		}
-		if err := w.recordTaskStates(ctx, deliveries, taskforge.StateLeased); err != nil {
-			for _, entry := range entries {
-				if entry.brokerLease != nil {
-					entry.brokerLease.Stop()
-				}
-			}
-			w.abandonReservedEntries(ctx, state, len(entries), "leased_state_write_failed")
+		continueLoop, err := w.commitReservedBatch(ctx, leaseCtx, leases, state, reserveWake, dispatchWake, deliveries)
+		if err != nil {
 			return err
 		}
-
-		state.mu.Lock()
-		if state.lifecycleState != "accepting" {
-			state.mu.Unlock()
-			for _, entry := range entries {
-				if entry.brokerLease != nil {
-					entry.brokerLease.Stop()
-				}
-			}
-			w.abandonReservedEntries(ctx, state, len(entries), "worker_stopping")
+		if !continueLoop {
 			return nil
 		}
-		state.pending = append(state.pending, entries...)
-		state.mu.Unlock()
-		for _, entry := range entries {
-			w.Metrics.IncReserved(taskforge.EffectiveQueue(entry.delivery.Message))
-			go w.watchLeaseLoss(leaseCtx, state, reserveWake, dispatchWake, entry)
-		}
-		notify(dispatchWake)
 	}
+}
+
+func (w *Worker) reserveDeliveries(ctx context.Context, capacity int) ([]taskforge.Delivery, error) {
+	if batcher, ok := w.Broker.(reservationBatcher); ok && capacity > 1 {
+		return batcher.ReserveBatch(ctx, w.Queue, w.consumerKey(), capacity)
+	}
+
+	delivery, err := w.Broker.Reserve(ctx, w.Queue, w.consumerKey())
+	if err != nil {
+		return nil, err
+	}
+	return []taskforge.Delivery{delivery}, nil
+}
+
+// commitReservedBatch makes a reserved batch visible to dispatch only after all
+// leases and leased-state records are ready. A false result asks reserveLoop to
+// stop because the worker entered a terminal lifecycle state.
+func (w *Worker) commitReservedBatch(
+	ctx, leaseCtx context.Context,
+	leases *leaseCoordinator,
+	state *workerState,
+	reserveWake, dispatchWake chan struct{},
+	deliveries []taskforge.Delivery,
+) (bool, error) {
+	entries := make([]*pendingDelivery, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		handle, err := leases.register(delivery, w.deliveryLeaseTTL(delivery))
+		if err != nil {
+			w.rollbackReservedBatch(ctx, state, entries, len(deliveries), "lease_registration_rejected")
+			if errors.Is(err, errLeaseAlreadyExpired) {
+				return true, nil
+			}
+			if errors.Is(err, errLeaseCoordinatorStopped) || errors.Is(err, context.Canceled) {
+				return false, nil
+			}
+			return false, fmt.Errorf("worker register delivery lease: %w", err)
+		}
+		entries = append(entries, &pendingDelivery{
+			delivery:     delivery,
+			ownershipKey: delivery.OwnershipKey(),
+			brokerLease:  handle,
+		})
+	}
+
+	if err := w.recordTaskStates(ctx, deliveries, taskforge.StateLeased); err != nil {
+		w.rollbackReservedBatch(ctx, state, entries, len(entries), "leased_state_write_failed")
+		return false, err
+	}
+
+	state.mu.Lock()
+	if state.lifecycleState != "accepting" {
+		state.mu.Unlock()
+		w.rollbackReservedBatch(ctx, state, entries, len(entries), "worker_stopping")
+		return false, nil
+	}
+	state.pending = append(state.pending, entries...)
+	state.mu.Unlock()
+
+	for _, entry := range entries {
+		w.Metrics.IncReserved(taskforge.EffectiveQueue(entry.delivery.Message))
+		go w.watchLeaseLoss(leaseCtx, state, reserveWake, dispatchWake, entry)
+	}
+	notify(dispatchWake)
+	return true, nil
+}
+
+func (w *Worker) rollbackReservedBatch(ctx context.Context, state *workerState, entries []*pendingDelivery, count int, reason string) {
+	for _, entry := range entries {
+		if entry.brokerLease != nil {
+			entry.brokerLease.Stop()
+		}
+	}
+	w.abandonReservedEntries(ctx, state, count, reason)
 }
 
 func (w *Worker) dispatchLoop(execCtx context.Context, state *workerState, reserveWake, dispatchWake chan struct{}, errCh chan<- error, executions *sync.WaitGroup) error {
