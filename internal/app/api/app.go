@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 
 	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/app/api/dashboard"
+	"github.com/aminkbi/taskforge/internal/app/bootstrap"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/httpserver"
 	"github.com/aminkbi/taskforge/internal/observability"
@@ -28,25 +28,19 @@ type App struct {
 }
 
 func New(cfg config.Config, logger *slog.Logger, metrics *observability.Metrics) (*App, error) {
-	options, err := cfg.RedisOptions(nil, logger.With("component", "redis"))
+	client, b, err := bootstrap.NewRedis(cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("configure Redis: %w", err)
+		return nil, err
 	}
-	client := taskforgeredis.NewClient(options)
-	options.Client = client
-	b := taskforgeredis.New(options)
-
-	queues := make([]string, 0, len(cfg.Control.WorkerPools))
-	for _, pool := range cfg.Control.WorkerPools {
-		queues = append(queues, pool.Queue)
+	queues := bootstrap.Queues(cfg)
+	if err := bootstrap.RegisterCommonMetrics(metrics, b, queues); err != nil {
+		_ = client.Close()
+		return nil, err
 	}
-	slices.Sort(queues)
-	queues = slices.Compact(queues)
-	_ = metrics.RegisterQueueMetricsCollector(b, queues)
-	_ = metrics.RegisterFairnessMetricsCollector(b, queues)
-	_ = metrics.RegisterDeadLetterMetricsCollector(b, queues)
-	_ = metrics.RegisterAdmissionStatusCollector(b, queues)
-	_ = metrics.RegisterDependencyBudgetCollector(b)
+	if err := metrics.RegisterDeadLetterMetricsCollector(b, queues); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("register dead letter metrics: %w", err)
+	}
 
 	server := httpserver.New(cfg.HTTPServerConfig(), logger.With("component", "httpserver"), metrics.Handler(), nil, func(mux *http.ServeMux) {
 		mux.Handle("/", httpserver.ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

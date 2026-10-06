@@ -15,6 +15,8 @@ import (
 	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/config"
 	"github.com/aminkbi/taskforge/internal/observability"
+	taskforgeredis "github.com/aminkbi/taskforge/redis"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type stubAdmissionProvider struct{}
@@ -194,6 +196,31 @@ func TestNewAllowsEmptyWorkerPools(t *testing.T) {
 	}
 	if app == nil {
 		t.Fatal("New() returned nil")
+	}
+}
+
+func TestNewRejectsDeadLetterMetricsRegistrationConflict(t *testing.T) {
+	t.Parallel()
+
+	metrics := observability.NewMetrics()
+	broker := taskforgeredis.New(taskforgeredis.Options{})
+	t.Cleanup(func() { _ = broker.Close() })
+	if err := metrics.RegisterDeadLetterMetricsCollector(broker, []string{"default"}); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(config.Config{
+		RedisAddr: ":6379",
+		Control: taskforge.Config{WorkerPools: []taskforge.WorkerPoolConfig{{
+			Name: "default", Queue: "default", Concurrency: 1,
+		}}},
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), metrics)
+	if app != nil {
+		_ = app.client.Close()
+		t.Fatal("New() returned an app despite a collector registration conflict")
+	}
+	var duplicate prometheus.AlreadyRegisteredError
+	if !errors.As(err, &duplicate) || !strings.Contains(err.Error(), "register dead letter metrics") {
+		t.Fatalf("New() error = %v, want dead letter registration conflict", err)
 	}
 }
 
