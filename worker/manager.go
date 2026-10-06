@@ -12,6 +12,28 @@ type Manager struct {
 	ShutdownTimeout time.Duration
 }
 
+type managerSupervisor struct {
+	drainWorkers chan struct{}
+	forceWorkers chan struct{}
+	drainOnce    sync.Once
+	forceOnce    sync.Once
+}
+
+func newManagerSupervisor() *managerSupervisor {
+	return &managerSupervisor{
+		drainWorkers: make(chan struct{}),
+		forceWorkers: make(chan struct{}),
+	}
+}
+
+func (s *managerSupervisor) drain() {
+	s.drainOnce.Do(func() { close(s.drainWorkers) })
+}
+
+func (s *managerSupervisor) force() {
+	s.forceOnce.Do(func() { close(s.forceWorkers) })
+}
+
 func (m *Manager) Run(ctx context.Context) error {
 	if len(m.Workers) == 0 {
 		<-ctx.Done()
@@ -19,16 +41,13 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 
 	errCh := make(chan error, len(m.Workers))
-	drainWorkers := make(chan struct{})
-	forceWorkers := make(chan struct{})
+	supervisor := newManagerSupervisor()
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
-	var drainOnce sync.Once
-	var forceOnce sync.Once
 	var wg sync.WaitGroup
 	for _, worker := range m.Workers {
 		wg.Go(func() {
-			if err := worker.run(runCtx, drainWorkers, forceWorkers, m.ShutdownTimeout); err != nil {
+			if err := worker.run(runCtx, supervisor.drainWorkers, supervisor.forceWorkers, m.ShutdownTimeout); err != nil {
 				errCh <- err
 			}
 		})
@@ -42,13 +61,9 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		drainOnce.Do(func() {
-			close(drainWorkers)
-		})
+		supervisor.drain()
 		if m.ShutdownTimeout <= 0 {
-			forceOnce.Do(func() {
-				close(forceWorkers)
-			})
+			supervisor.force()
 			<-done
 			return nil
 		}
@@ -56,16 +71,12 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-done:
 			return nil
 		case <-time.After(m.ShutdownTimeout):
-			forceOnce.Do(func() {
-				close(forceWorkers)
-			})
+			supervisor.force()
 			<-done
 		}
 		return nil
 	case err := <-errCh:
-		forceOnce.Do(func() {
-			close(forceWorkers)
-		})
+		supervisor.force()
 		<-done
 		return err
 	}
