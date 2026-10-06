@@ -799,82 +799,16 @@ func (w *Worker) processTask(ctx context.Context, delivery taskforge.Delivery, b
 			"error", policyErr,
 		)
 	}
-	switch action {
-	case outcomeRetry:
-		retryDelivery, transitionErr := transitionDelivery(failedDelivery, taskforge.StateRetryScheduled)
-		if transitionErr != nil {
-			observability.MarkSpanError(span, transitionErr)
-			return fmt.Errorf("worker mark delivery retry_scheduled: %w", transitionErr)
-		}
-		if w.abandonIfLeaseLost(retryDelivery, brokerLease, "publish_retry") {
-			return nil
-		}
-		if _, publishErr := w.Broker.Publish(resolutionCtx, next, taskforge.PublishOptions{
-			Source:           taskforge.PublishSourceRetry,
-			DeduplicationKey: fmt.Sprintf("retry:%s", failedDelivery.OwnershipKey()),
-		}); publishErr != nil {
-			observability.MarkSpanError(span, publishErr)
-			var admissionErr *taskforge.AdmissionError
-			if errors.As(publishErr, &admissionErr) {
-				overloadedEnvelope := taskforge.NewDeadLetterEnvelope(failedDelivery, taskforge.FailureClassOverloaded, publishErr.Error(), w.Clock.Now())
-				deadLetterDelivery, transitionErr := transitionDelivery(failedDelivery, taskforge.StateDeadLettered)
-				if transitionErr != nil {
-					observability.MarkSpanError(span, transitionErr)
-					return fmt.Errorf("worker mark delivery dead_lettered after retry rejection: %w", transitionErr)
-				}
-				if dlqErr := w.publishDeadLetter(resolutionCtx, overloadedEnvelope); dlqErr != nil {
-					observability.MarkSpanError(span, dlqErr)
-					if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
-						if w.leaseOwnershipLost(nackErr) {
-							w.logLeaseLoss(failedDelivery, "nack_after_dead_letter_failure", brokerLease)
-							return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-						}
-						observability.MarkSpanError(span, nackErr)
-						return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
-					}
-					return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-				}
-				w.Metrics.IncDeadLetterResult(queue, msg.Name, string(taskforge.FailureClassOverloaded))
-				return w.acknowledgeResolved(resolutionCtx, span, deadLetterDelivery, brokerLease, "ack_dead_lettered_retry_rejected")
-			}
-			if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
-				if w.leaseOwnershipLost(nackErr) {
-					w.logLeaseLoss(failedDelivery, "nack_retry_publish_failed", brokerLease)
-					return fmt.Errorf("publish retry task: %w", publishErr)
-				}
-				observability.MarkSpanError(span, nackErr)
-				return errors.Join(fmt.Errorf("publish retry task: %w", publishErr), fmt.Errorf("nack original task: %w", nackErr))
-			}
-			return fmt.Errorf("publish retry task: %w", publishErr)
-		}
-		w.Metrics.IncRetryScheduled(queue, msg.Name, string(failureClass))
-		return w.acknowledgeResolved(resolutionCtx, span, retryDelivery, brokerLease, "ack_retry_scheduled")
-	case outcomeDeadLetter:
-		deadLetterDelivery, transitionErr := transitionDelivery(failedDelivery, taskforge.StateDeadLettered)
-		if transitionErr != nil {
-			observability.MarkSpanError(span, transitionErr)
-			return fmt.Errorf("worker mark delivery dead_lettered: %w", transitionErr)
-		}
-		if w.abandonIfLeaseLost(deadLetterDelivery, brokerLease, "publish_dead_letter") {
-			return nil
-		}
-		if dlqErr := w.publishDeadLetter(resolutionCtx, envelope); dlqErr != nil {
-			observability.MarkSpanError(span, dlqErr)
-			if nackErr := w.requeue(resolutionBase, failedDelivery); nackErr != nil {
-				if w.leaseOwnershipLost(nackErr) {
-					w.logLeaseLoss(failedDelivery, "nack_dead_letter_publish_failed", brokerLease)
-					return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-				}
-				observability.MarkSpanError(span, nackErr)
-				return errors.Join(fmt.Errorf("publish dead-letter task: %w", dlqErr), fmt.Errorf("nack original task: %w", nackErr))
-			}
-			return fmt.Errorf("publish dead-letter task: %w", dlqErr)
-		}
-		w.Metrics.IncDeadLetterResult(queue, msg.Name, string(failureClass))
-		return w.acknowledgeResolved(resolutionCtx, span, deadLetterDelivery, brokerLease, "ack_dead_lettered")
-	default:
-		return w.acknowledgeResolved(resolutionCtx, span, failedDelivery, brokerLease, "ack_failed_delivery")
-	}
+	return w.resolveTaskFailure(taskFailureResolution{
+		resolutionCtx: resolutionCtx,
+		requeueCtx:    resolutionBase,
+		span:          span,
+		delivery:      failedDelivery,
+		brokerLease:   brokerLease,
+		next:          next,
+		envelope:      envelope,
+		failureClass:  failureClass,
+	}, action)
 }
 
 func (w *Worker) acknowledgeResolved(ctx context.Context, span trace.Span, delivery taskforge.Delivery, brokerLease *leaseHandle, phase string) error {
