@@ -1,89 +1,65 @@
-# Architecture Map
+# Architecture map
 
-Use this file to route repository work. It is the canonical owner for agent and
-contributor architecture guidance; product usage belongs in the
-[README](../../README.md), deployment settings in the
-[configuration reference](../reference/configuration.md), and recovery steps
-in [runbooks](../operations/runbooks.md).
+Read this map first, then open the owning package and its nearby tests. TaskForge
+is one Go module; `main` contains software and its engineering checks.
 
 ## Ownership
 
-| Change concerns | Start here |
+| Change | Start here |
 | --- | --- |
 | Public task, delivery, state, retry, configuration, handler, DLQ, broker contracts | module-root `*.go` |
 | Redis transport, persistence, routing, fairness, admission, budgets | `redis/` |
 | Embedded execution, leases, drain, concurrency | `worker/` |
-| Delayed/retry release, recurring work, leadership | `internal/scheduler/` |
+| Delayed/retry release, recurrence, leadership | `internal/scheduler/` |
 | Sidecar environment decoding | `internal/config/` |
 | Scheduler/API wiring | `cmd/<role>/`, then `internal/app/<role>/` |
 | Metrics, HTTP, health, logging, shutdown | matching `internal/` package |
-| Redis-backed end-to-end behavior | `test/integration/` |
-| Comparative experiments, research artifact, paper | `research/` (nested Go module `github.com/aminkbi/taskforge/research`) |
+| Redis behavior and performance | `test/integration/`, `test/benchmark/`, `redis/*bench*` |
+| Protocol fault schedules and bounded models | `internal/sim/`, `internal/modelcheck/` |
+| Reliability claims and release evidence | `certification/`, `cmd/certify/` |
+| Validation, builds, CI | `Makefile`, `scripts/`, `.github/workflows/` |
 
-`taskforge` is dependency-free: it must not import `redis`, `worker`, or
-`internal`. Applications register handlers and embed `worker`; there is no
-generic standalone worker binary.
-
-Research tooling is a separate nested module at `research/`
-(`github.com/aminkbi/taskforge/research`) with a `replace` directive back to the
-product module. The dependency direction is one-way: research imports the
-product, never the reverse. Because `go test`, `go vet`, `staticcheck`, and
-`govulncheck` do not cross module boundaries, every module-scoped gate runs in
-both modules, and research commands are invoked with `go -C research`.
+The module-root `taskforge` package is dependency-free and must not import
+`redis`, `worker`, or `internal`. Applications register handlers and embed
+`worker`; scheduler and API are optional sidecars.
 
 ## Invariants
 
-- Delivery is at least once; duplicate execution is possible and handlers must
-  be idempotent. Exactly-once is not offered.
+- Delivery is at least once; handlers must be idempotent.
 - Task ID identifies logical work. Queue/fairness stream plus stream-local
-  delivery ID identifies a broker entry; the consumer owner fences one lease.
-  Stale or expired owners cannot acknowledge, extend, retry, or dead-letter
-  newer work.
-- A retry keeps task identity and is bounded by delivery policy. DLQ publish
-  must succeed before its source delivery is acknowledged.
-- Scheduler writes require current leadership fencing. Routing is chosen on a
-  new publish; retry, due release, recurrence, DLQ, and requeue preserve the
-  existing placement.
-- Embedded applications use the validated module-root configuration model;
-  sidecars decode `TASKFORGE_` environment settings into that same model through
-  `internal/config`. Copy payloads and headers at API ownership boundaries.
+  delivery ID identifies a broker entry; consumer ownership fences its lease.
+  Stale or expired owners cannot ack, extend, retry, or dead-letter newer work.
+- Retry preserves task identity and obeys delivery policy. DLQ publication
+  succeeds before source acknowledgement.
+- Scheduler writes require current leadership fencing. New publishes choose
+  placement; retry, due release, recurrence, DLQ, and requeue preserve it.
+- Embedded applications use module-root configuration. Sidecars decode
+  `TASKFORGE_` settings through `internal/config`. Copy payloads and headers at
+  API ownership boundaries.
 
-## Narrow validation
+## Validation
 
-| Change | Run first |
+Use the narrowest check while iterating; run the relevant gate before finishing.
+
+| Change | Command |
 | --- | --- |
-| One package | `go test ./path/to/package -run TestName` |
+| One package/test | `go test ./path/to/package -run TestName` |
 | General Go change | `make test` |
-| Formatting or static analysis | `make lint` |
-| Concurrent worker, lease, or scheduler behavior | `make race-test` |
-| Deterministic protocol fault schedules | `make simulation-test` |
-| Exhaustive bounded protocol state spaces | `make model-check` |
-| Redis behavior | `make integration-test` with `TASKFORGE_INTEGRATION_REDIS_ADDR` and a non-zero `TASKFORGE_INTEGRATION_REDIS_DB` |
-| Reliability claim/check/artifact linkage | `make certification-check` |
-| Research tooling (nested module) | `go -C research test ./...` or `make research-test` |
-| Registered research evidence or generated report | `make research-check` |
-| Documentation links | `make docs-check` |
+| Formatting/static analysis | `make lint` |
+| Worker, lease, scheduler concurrency | `make race-test` |
+| Protocol faults or model changes | `make simulation-test`, `make model-check` |
+| Redis behavior | `make integration-test` with `TASKFORGE_INTEGRATION_REDIS_ADDR` and non-zero `TASKFORGE_INTEGRATION_REDIS_DB` |
+| Performance | `make bench`; method and prerequisites in [benchmarks](../operations/benchmarks.md) |
+| Reliability linkage | `make certification-check` |
+| Documentation/examples | `make docs-check`, `make test-demo` for demo behavior |
+| Build/release tooling | `make release-validate` |
 
-Use `make run-demo` for the public embedded-worker path and `make compose-up`
-for the scheduler/API stack. See [toolchain policy](toolchain.md) for pinned
-inputs and CI tracks.
+## Documentation
 
-## Documentation ownership
+Usage and public API: [README](../../README.md). Contracts: `docs/reference/`.
+Operations and benchmarks: `docs/operations/`. Tooling and protocol models:
+`docs/development/`. Release procedure: [RELEASING](../../RELEASING.md).
 
-- README: product scope, quick start, public API.
-- `docs/reference/`: configuration and HTTP endpoint contracts.
-- `docs/reference/reliability.md`: reliability claims, evidence, and assumptions.
-- `docs/operations/`: runbooks, benchmark method, and routing operation.
-- `docs/development/`: this map, toolchain policy, and Redis development reset.
-- `docs/roadmap/01`–`30`: immutable history, not active guidance.
-
-## Context reduction record
-
-The count covers README, agent/contributor guides, and `docs/development/`,
-`docs/reference/`, and `docs/operations/`; it excludes `docs/roadmap/`.
-Before: 1,453 lines / 9,382 words. After: 741 lines / 3,046 words.
-
-Intentional duplication is limited to: the one-sentence at-least-once warning
-in the README and agent guides; commands in the README for onboarding and this
-map for change routing; and links to the canonical owner from topic-adjacent
-documents.
+Roadmaps `01`–`30` are immutable history, not current architecture or a task list.
+The full research repository is preserved at tag `research/archive-2026-10`;
+use a separate checkout of that tag for research work.

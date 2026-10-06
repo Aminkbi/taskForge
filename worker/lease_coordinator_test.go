@@ -333,15 +333,22 @@ func TestLeaseCoordinatorRejectsRegistrationAfterStop(t *testing.T) {
 
 func TestLeaseCoordinatorBoundsRenewalBatches(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	broker := &batchLeaseBroker{stubBroker: &stubBroker{}, calls: make(chan []taskforge.Delivery, 8)}
 	coordinator := newLeaseCoordinator(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), broker)
 	for index := range maxLeaseRenewalBatchSize + 5 {
 		delivery := testDelivery()
 		delivery.Message.ID = fmt.Sprintf("bounded-%d", index)
 		delivery.Execution.DeliveryID = fmt.Sprintf("bounded-delivery-%d", index)
-		if _, err := coordinator.register(delivery, 20*time.Millisecond); err != nil {
+		if _, err := coordinator.register(delivery, time.Second); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Make all leases due together so registration timing cannot split the batch.
+	due := time.Now()
+	for handle, entry := range coordinator.entries {
+		entry.next = due
+		coordinator.entries[handle] = entry
 	}
 	go coordinator.run()
 	var first, second []taskforge.Delivery

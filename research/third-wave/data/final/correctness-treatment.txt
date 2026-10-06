@@ -1,4 +1,0 @@
-$ go test -count=1 -v ./redis ./worker ./test/integration
-ok   github.com/aminkbi/taskforge/redis 0.070s
-ok   github.com/aminkbi/taskforge/worker 2.011s
-ok   github.com/aminkbi/taskforge/test/integration 19.752s

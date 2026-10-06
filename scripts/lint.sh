@@ -4,10 +4,7 @@ set -euo pipefail
 export GOCACHE="${GOCACHE:-/tmp/taskforge-gocache}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/taskforge-cache}"
 
-# vet and staticcheck are module-scoped, so the nested research module is
-# checked explicitly rather than silently dropped from the gate.
 go vet ./...
-go -C research vet ./...
 
 test -z "$(gofmt -l .)" || { echo "gofmt reported unformatted files"; gofmt -l .; exit 1; }
 
@@ -31,5 +28,4 @@ run_staticcheck() {
 
 if command -v staticcheck >/dev/null 2>&1; then
   run_staticcheck ./...
-  (cd research && run_staticcheck ./...)
 fi

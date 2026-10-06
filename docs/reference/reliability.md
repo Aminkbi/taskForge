@@ -25,7 +25,7 @@ and every committed evidence path exists.
 | Sensitive HTTP routes are absent without authentication, task payload/results are redacted, and server resource limits have safe defaults. | `make test` |
 | TaskForge rejects Redis Cluster, Sentinel, and replica endpoints during validated startup. TLS configuration is explicit. | `make test`, `make integration-test` |
 | Release dry-runs build the supported binaries and images, verify checksums, SBOM/provenance metadata, non-root image execution, labels, health checks, and reproducible binary metadata without publishing. | `make release-smoke`, `make release-validate`, `make vuln-check` |
-| The public demo executes publish-to-handler behavior, and comparative experiment smoke runs retain raw samples separately from derived reports. Neither is an SLA or superiority claim. | `make test-demo`, `make experiment-smoke`, `make bench-smoke` |
+| The public demo exercises publish-to-handler behavior. Benchmark smoke checks execution without establishing performance guarantees. | `make test-demo`, `make bench-smoke` |
 
 Simulation and model checking are bounded evidence, not proofs over every
 deployment or unbounded execution. Their modeled state, bounds, mutations, and
@@ -54,25 +54,8 @@ and [protocol models](../development/protocol-models.md).
 ## Certification commands
 
 The complete gate and its prerequisites are listed in the
-[manifest](../../certification/manifest.json). The primary commands are:
-
-```bash
-make test
-make lint
-make coverage
-make race-test
-make integration-test
-make test-demo
-make simulation-test
-make model-check
-make bench-smoke
-make experiment-smoke
-make vuln-check
-make release-smoke
-make release-validate
-make docs-check
-make certification-check
-```
+[manifest](../../certification/manifest.json). Choose task-specific checks from
+the [architecture map](../development/agent-context.md).
 
 `make certification-report` is the command interface for a versioned JSON and
 Markdown release attachment (pass flags through `CERTIFICATION_ARGS`). It can
@@ -92,8 +75,7 @@ include machine-specific benchmark deltas. Results from different commits or
 environments must not be combined.
 
 Redis-backed commands require an explicitly configured writable Redis primary
-and a non-zero dedicated database. `make experiment-smoke` may start the
-repository's Redis Compose service and uses dedicated database 14. `make release-validate`
-requires a working Docker daemon with Buildx. Generated experiment and release
-outputs are local evidence for the exact tree and environment that produced
-them; they are intentionally not committed as certification results.
+and a non-zero dedicated database. `make release-validate` requires a working
+Docker daemon with Buildx. Generated release outputs are local evidence for
+their exact source and environment; they are not committed as certification
+results.

@@ -3,7 +3,7 @@
 TaskForge is an early-stage Go runtime for Redis Streams-backed background work.
 It delivers at least once: handlers must be idempotent because a task may run more than once.
 
-## What Is Here
+## Features
 
 - Redis-backed publishing, leases, retries, delayed and recurring work, and DLQ handling.
 - An embeddable worker, optional scheduler and read-only API sidecars, and operational metrics.
@@ -11,42 +11,23 @@ It delivers at least once: handlers must be idempotent because a task may run mo
 
 ## Quick Start
 
-Prerequisites:
-
-- Go 1.27.1+
-- Docker with Compose support
-
-Run Redis and the adoption demo:
+With Go 1.27.1+ and Docker Compose, run Redis and the adoption demo:
 
 ```bash
 docker compose up -d redis
 make run-demo
 ```
 
-The demo embeds the worker and prints task, queue, and metrics results. It uses
-only local Redis.
-
-The scheduler and read-only API are optional operator sidecars. Run the full
-operator stack when you need them:
+The demo embeds the worker. For the optional scheduler, read-only API, and
+Prometheus stack:
 
 ```bash
 docker compose up --build
 ```
 
-That starts Redis, the optional scheduler and API sidecars, and Prometheus:
-
-- scheduler admin: `http://localhost:8082`
-- API/admin: `http://localhost:8083`
-- Prometheus: `http://localhost:9090`
-
-Validate the repository:
-
-```bash
-make test
-make lint
-make race-test       # concurrency changes
-make integration-test # set TASKFORGE_INTEGRATION_REDIS_ADDR/DB to a dedicated Redis
-```
+Scheduler admin listens on `localhost:8082`, API/admin on `localhost:8083`, and
+Prometheus on `localhost:9090`. Development checks are in the
+[architecture map](./docs/development/agent-context.md).
 
 ## Public Go API
 
@@ -119,19 +100,11 @@ package so their process owns task registration and handler code.
 
 ## Delivery Contract
 
-TaskForge's execution contract is deliberately narrow:
-
-- Delivery is `at-least-once`.
-- Duplicate deliveries are possible.
-- Handlers must be idempotent.
-- Handlers should respect `ctx.Done()`.
-- A logical task ID is separate from a broker delivery attempt.
-- Successful completion means the handler returned success and the broker durably accepted the ack for that delivery owner.
-- Exactly-once execution is out of scope.
-
-For ownership, retry, scheduling, and retention invariants, see the
-[architecture map](./docs/development/agent-context.md). Operator recovery
-steps are in the [runbooks](./docs/operations/runbooks.md).
+Handlers should respect `ctx.Done()`. Completion requires both handler success
+and a durable acknowledgement for the current delivery owner. Ownership,
+retry, scheduling, and durability assumptions are defined in the
+[reliability contract](./docs/reference/reliability.md); recovery steps are in
+the [runbooks](./docs/operations/runbooks.md).
 
 ## Project Layout
 
@@ -156,11 +129,14 @@ test/integration/     opt-in Redis integration tests
 - [Operator runbooks](./docs/operations/runbooks.md)
 - [Redis operating model](./docs/operations/redis.md)
 - [Benchmark guide](./docs/operations/benchmarks.md)
-- [Research artifact: pre-registered overload-control ablation study](./research/README.md)
 - [Logical routing guide](./docs/operations/cluster-routing.md)
 - [Toolchain and CI policy](./docs/development/toolchain.md)
 - [Redis v2 development reset](./docs/development/redis-v2-development-migration.md)
 - [Architecture map for contributors and agents](./docs/development/agent-context.md)
+
+The complete research repository, including experiments, papers, data, and
+recorded software revisions, is preserved at tag `research/archive-2026-10`.
+Open it separately with `git worktree add --detach ../taskforge-research research/archive-2026-10`.
 
 ## Current Gaps
 

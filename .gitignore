@@ -8,5 +8,4 @@ dist/
 coverage.out
 *.test
 *.out
-artifacts/experiments/
-research/artifacts/
+artifacts/
