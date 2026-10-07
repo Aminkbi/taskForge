@@ -3,11 +3,11 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"github.com/aminkbi/taskforge"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/aminkbi/taskforge"
 	"github.com/aminkbi/taskforge/internal/clock"
 	"github.com/aminkbi/taskforge/internal/healthcheck"
 	"github.com/aminkbi/taskforge/internal/observability"
@@ -89,110 +89,116 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	renewTicker := time.NewTicker(s.renewInterval)
 	defer renewTicker.Stop()
 
-	s.logger.Info(
-		"scheduler loop started",
-		"interval", s.interval,
-		"renew_interval", s.renewInterval,
-	)
-	if s.LoopHealth != nil {
-		s.LoopHealth.MarkReady("scheduler loop healthy")
-	}
+	s.logger.Info("scheduler loop started", "interval", s.interval, "renew_interval", s.renewInterval)
+	s.markLoopReady("scheduler loop healthy")
 	for {
 		select {
 		case <-ctx.Done():
-			if s.LoopHealth != nil {
-				s.LoopHealth.MarkNotReady("scheduler shutting down")
-			}
-			releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			if err := s.elector.Release(releaseCtx); err != nil && !errors.Is(err, context.Canceled) {
-				s.logger.Warn("scheduler leadership release failed", "error", err)
-			}
+			s.shutdown()
 			return nil
 		case <-renewTicker.C:
-			snapshot, err := s.elector.Ensure(ctx)
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-				s.recordFailure("leadership_renew", "error")
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkFailed(err.Error())
-				}
-				s.logger.Error("scheduler leadership renewal failed", "error", err)
-				continue
-			}
-			if !snapshot.Leader && s.LoopHealth != nil {
-				s.LoopHealth.MarkReady("scheduler standby healthy")
+			if s.renewLeadership(ctx) {
+				return nil
 			}
 		case <-workTicker.C:
-			snapshot, err := s.elector.Ensure(ctx)
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-				s.recordFailure("leadership_check", "error")
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkFailed(err.Error())
-				}
-				s.logger.Error("scheduler leadership check failed", "error", err)
-				continue
-			}
-			if !snapshot.Leader || !snapshot.Fence.Valid() {
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkReady("scheduler standby healthy")
-				}
-				continue
-			}
-
-			moved, err := s.mover.MoveDue(ctx, snapshot.Fence, s.clock.Now(), 100)
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-				if s.handleControlPlaneError(err) {
-					continue
-				}
-				s.recordFailure("move_due", "error")
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkFailed(err.Error())
-				}
-				s.logger.Error("scheduler move due tasks failed", "error", err)
-				continue
-			}
-			if moved > 0 {
-				s.logger.Info("scheduler released delayed tasks", "count", moved, "epoch", snapshot.Epoch)
-			}
-
-			if s.recurring == nil {
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkReady("scheduler leader healthy")
-				}
-				continue
-			}
-
-			dispatched, err := s.recurring.SyncDue(ctx, snapshot.Fence, s.clock.Now())
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-				if s.handleControlPlaneError(err) {
-					continue
-				}
-				s.recordFailure("sync_recurring", "error")
-				if s.LoopHealth != nil {
-					s.LoopHealth.MarkFailed(err.Error())
-				}
-				s.logger.Error("scheduler recurring dispatch failed", "error", err)
-				continue
-			}
-			if dispatched > 0 {
-				s.logger.Info("scheduler dispatched recurring tasks", "count", dispatched, "epoch", snapshot.Epoch)
-			}
-			if s.LoopHealth != nil {
-				s.LoopHealth.MarkReady("scheduler leader healthy")
+			if s.runWork(ctx) {
+				return nil
 			}
 		}
+	}
+}
+
+func (s *Scheduler) shutdown() {
+	s.markLoopNotReady("scheduler shutting down")
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.elector.Release(releaseCtx); err != nil && !errors.Is(err, context.Canceled) {
+		s.logger.Warn("scheduler leadership release failed", "error", err)
+	}
+}
+
+func (s *Scheduler) renewLeadership(ctx context.Context) bool {
+	snapshot, err := s.ensureLeadership(ctx, "leadership_renew", "scheduler leadership renewal failed")
+	if err != nil {
+		return errors.Is(err, context.Canceled)
+	}
+	if !snapshot.Leader {
+		s.markLoopReady("scheduler standby healthy")
+	}
+	return false
+}
+
+func (s *Scheduler) runWork(ctx context.Context) bool {
+	snapshot, err := s.ensureLeadership(ctx, "leadership_check", "scheduler leadership check failed")
+	if err != nil {
+		return errors.Is(err, context.Canceled)
+	}
+	if !snapshot.Leader || !snapshot.Fence.Valid() {
+		s.markLoopReady("scheduler standby healthy")
+		return false
+	}
+
+	moved, err := s.mover.MoveDue(ctx, snapshot.Fence, s.clock.Now(), 100)
+	if err != nil {
+		return s.handleOperationError(err, "move_due", "scheduler move due tasks failed")
+	}
+	if moved > 0 {
+		s.logger.Info("scheduler released delayed tasks", "count", moved, "epoch", snapshot.Epoch)
+	}
+
+	if s.recurring == nil {
+		s.markLoopReady("scheduler leader healthy")
+		return false
+	}
+
+	dispatched, err := s.recurring.SyncDue(ctx, snapshot.Fence, s.clock.Now())
+	if err != nil {
+		return s.handleOperationError(err, "sync_recurring", "scheduler recurring dispatch failed")
+	}
+	if dispatched > 0 {
+		s.logger.Info("scheduler dispatched recurring tasks", "count", dispatched, "epoch", snapshot.Epoch)
+	}
+	s.markLoopReady("scheduler leader healthy")
+	return false
+}
+
+func (s *Scheduler) ensureLeadership(ctx context.Context, operation, message string) (LeadershipSnapshot, error) {
+	snapshot, err := s.elector.Ensure(ctx)
+	if err == nil || errors.Is(err, context.Canceled) {
+		return snapshot, err
+	}
+	s.recordFailure(operation, "error")
+	if s.LoopHealth != nil {
+		s.LoopHealth.MarkFailed(err.Error())
+	}
+	s.logger.Error(message, "error", err)
+	return snapshot, err
+}
+
+func (s *Scheduler) handleOperationError(err error, operation, message string) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if s.handleControlPlaneError(err) {
+		return false
+	}
+	s.recordFailure(operation, "error")
+	if s.LoopHealth != nil {
+		s.LoopHealth.MarkFailed(err.Error())
+	}
+	s.logger.Error(message, "error", err)
+	return false
+}
+
+func (s *Scheduler) markLoopReady(reason string) {
+	if s.LoopHealth != nil {
+		s.LoopHealth.MarkReady(reason)
+	}
+}
+
+func (s *Scheduler) markLoopNotReady(reason string) {
+	if s.LoopHealth != nil {
+		s.LoopHealth.MarkNotReady(reason)
 	}
 }
 
