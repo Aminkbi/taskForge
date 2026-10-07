@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -136,6 +137,47 @@ func TestRedisPublishCombinesQueuedState(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestRedisReclaimHealthyAuditUsesOneZMScoreCommand(t *testing.T) {
+	ctx, _, client := newIntegrationBroker(t, time.Hour)
+	broker := taskforgeredis.New(taskforgeredis.Options{
+		Client:         client,
+		LeaseTTL:       time.Hour,
+		ReserveTimeout: 20 * time.Millisecond,
+		StateMode:      taskforgeredis.StateModeDeliveryOnly,
+	})
+	for index := range 2 {
+		if _, err := broker.Publish(ctx, taskforge.Task{
+			ID:                fmt.Sprintf("zmscore-healthy-%d", index),
+			Name:              "zmscore.audit",
+			Queue:             "default",
+			VisibilityTimeout: time.Hour,
+		}, taskforge.PublishOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if _, err := broker.Reserve(ctx, "default", "zmscore-owner"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The reclaim cadence is 100 ms for this lease TTL. Let the next reserve
+	// enter the healthy-pending audit path.
+	time.Sleep(120 * time.Millisecond)
+	counter := &commandCounter{}
+	client.AddHook(counter)
+	if _, err := broker.Reserve(ctx, "default", "zmscore-reclaimer"); !errors.Is(err, taskforge.ErrNoTask) {
+		t.Fatalf("Reserve() error = %v, want ErrNoTask", err)
+	}
+	commands, _ := counter.snapshot()
+	if got := countCommand(commands, "zmscore"); got != 1 {
+		t.Fatalf("ZMScore commands = %d, want 1; commands = %v", got, commands)
+	}
+	if got := countCommand(commands, "zscore"); got != 0 {
+		t.Fatalf("legacy ZScore commands = %d, want 0; commands = %v", got, commands)
 	}
 }
 

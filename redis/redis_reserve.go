@@ -216,23 +216,25 @@ func (b *Broker) leaseIndexCoversPending(ctx context.Context, streamKey, groupNa
 		return false, nil
 	}
 
-	pipe := b.client.Pipeline()
-	scores := make([]*redis.FloatCmd, len(pending))
+	members := make([]string, len(pending))
 	for index, entry := range pending {
-		scores[index] = pipe.ZScore(ctx, b.leaseDeadlineKey(streamKey), entry.ID)
+		members[index] = entry.ID
 	}
-	if _, err := pipe.Exec(ctx); err != nil {
+	scores, err := b.client.ZMScore(ctx, b.leaseDeadlineKey(streamKey), members...).Result()
+	if err != nil {
 		if isMissingStream(err) || isIndexTypeError(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("inspect lease index members: %w", err)
 	}
+	if len(scores) != len(pending) {
+		return false, nil
+	}
 	for _, score := range scores {
-		if _, err := score.Result(); err != nil {
-			if errors.Is(err, redis.Nil) || isIndexTypeError(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("read lease index member: %w", err)
+		// ZMScore decodes missing members as zero; lease deadlines are positive
+		// Unix-millisecond timestamps.
+		if score <= 0 {
+			return false, nil
 		}
 	}
 	return true, nil

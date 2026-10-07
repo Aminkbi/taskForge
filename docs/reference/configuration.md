@@ -110,6 +110,9 @@ they reject Redis Cluster, Sentinel, and replica endpoints. Sentinel and Redis
 Cluster are out of scope. The broker uses multi-key Lua scripts and its keys
 are not designed or tested for Redis Cluster hash-slot rules.
 
+Redis 6.2 or newer is required. Lease-index audits use the `ZMSCORE` command;
+older Redis servers cannot run lease-index auditing and reserve reclaim.
+
 Set `TASKFORGE_REDIS_TLS_ENABLED=true` for `rediss`-style TLS. TLS 1.2 is the
 minimum. `TASKFORGE_REDIS_TLS_CA_FILE` replaces the system trust pool for this
 connection; leave it empty to use the host trust store. Set certificate and key
